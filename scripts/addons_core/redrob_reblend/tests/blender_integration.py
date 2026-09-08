@@ -9,8 +9,10 @@ Run with:
 """
 
 import json
+import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import bpy
@@ -21,7 +23,7 @@ if str(_ADDONS_CORE) not in sys.path:
 
 import redrob_reblend
 from redrob_reblend import context as scene_context
-from redrob_reblend import theme, tools
+from redrob_reblend import runtime, theme, tools
 
 
 def _clear_objects():
@@ -43,8 +45,33 @@ def _set_plan(payload):
     return normalized
 
 
+def _undo_signature():
+    _, revision = scene_context.build_scene_context(bpy.context)
+    return {
+        "revision": revision,
+        "objects": tuple(sorted(bpy.data.objects.keys())),
+        "meshes": tuple(sorted(bpy.data.meshes.keys())),
+        "materials": tuple(sorted(bpy.data.materials.keys())),
+    }
+
+
+def _push_background_undo_baseline(message):
+    baseline = _undo_signature()
+    assert bpy.ops.ed.undo_push(message=message) == {'FINISHED'}
+    return baseline
+
+
+def _undo_background_step(message, baseline):
+    # Background mode has no UI operator context to materialize automatic Undo checkpoints.
+    # Explicitly bracket the operation with memfile snapshots and verify the exact prior state.
+    assert bpy.ops.ed.undo_push(message=message) == {'FINISHED'}
+    assert bpy.ops.ed.undo() == {'FINISHED'}
+    assert _undo_signature() == baseline
+
+
 def _test_registration_preview_apply_and_undo():
     assert hasattr(bpy.context.window_manager, "redrob_reblend")
+    assert {'REGISTER', 'UNDO'} <= redrob_reblend.operators.REDROB_OT_apply_plan.bl_options
     _clear_objects()
     plan = {
         "summary": "Create an exact cube and material",
@@ -73,13 +100,14 @@ def _test_registration_preview_apply_and_undo():
     normalized = _set_plan(plan)
     preview = tools.preview_arguments(normalized["actions"][0])
     assert preview["size"] == 2.0 and preview["calc_uvs"] is True
+    baseline = _push_background_undo_baseline("Before Reblend integration apply")
     assert bpy.ops.redrob_reblend.apply_plan() == {'FINISHED'}
     obj = bpy.data.objects["Reblend Integration Cube"]
     assert tuple(obj.location) == (1.25, -2.5, 3.75)
     assert tuple(obj.scale) == (1.0, 2.0, 0.5)
     material = bpy.data.materials["Reblend Integration Material"]
     assert obj.active_material == material
-    assert bpy.ops.ed.undo() == {'FINISHED'}
+    _undo_background_step("Reblend integration apply", baseline)
     assert bpy.data.objects.get("Reblend Integration Cube") is None
 
     enter_edit_mode = bpy.context.preferences.edit.use_enter_edit_mode
@@ -100,10 +128,11 @@ def _test_registration_preview_apply_and_undo():
             ],
         }
         _set_plan(torus_plan)
+        baseline = _push_background_undo_baseline("Before Reblend integration torus")
         assert bpy.ops.redrob_reblend.apply_plan() == {'FINISHED'}
         assert bpy.context.mode == 'OBJECT'
         assert tuple(bpy.data.objects["Reblend Integration Torus"].scale) == (0.5, 1.0, 2.0)
-        assert bpy.ops.ed.undo() == {'FINISHED'}
+        _undo_background_step("Reblend integration torus", baseline)
     finally:
         bpy.context.preferences.edit.use_enter_edit_mode = enter_edit_mode
 
@@ -125,6 +154,7 @@ def _test_partial_failure_remains_undoable():
         ],
     }
     _set_plan(plan)
+    baseline = _push_background_undo_baseline("Before Reblend integration partial failure")
     original_verify = tools._verify_action
 
     def fail_verification(*_args):
@@ -132,11 +162,16 @@ def _test_partial_failure_remains_undoable():
 
     tools._verify_action = fail_verification
     try:
-        assert bpy.ops.redrob_reblend.apply_plan() == {'FINISHED'}
+        try:
+            bpy.ops.redrob_reblend.apply_plan()
+        except RuntimeError as exc:
+            assert "intentional integration-test verification failure" in str(exc)
+        else:
+            raise AssertionError("partial apply failure was not surfaced")
     finally:
         tools._verify_action = original_verify
     assert bpy.data.objects.get("Reblend Partial Plane") is not None
-    assert bpy.ops.ed.undo() == {'FINISHED'}
+    _undo_background_step("Reblend integration partial failure", baseline)
     assert bpy.data.objects.get("Reblend Partial Plane") is None
 
 
@@ -199,14 +234,61 @@ def _test_scene_scope_and_theme_round_trip():
             theme._THEME_SNAPSHOT.clear()
 
 
+def _test_sidecar_lifecycle():
+    agent = runtime.runtime()
+    current = bpy.context.window_manager.redrob_reblend
+    executable_name = "redrob-reblend-agent.exe" if sys.platform == "win32" else "redrob-reblend-agent"
+    packaged_executable = Path(bpy.app.binary_path).resolve().parent / executable_name
+    absent = object()
+    saved_environment = {
+        name: os.environ.pop(name, absent) for name in ("REDROB_AGENT_BIN", "REDROB_API_KEY")
+    }
+
+    try:
+        assert not agent.running
+        assert packaged_executable.is_file()
+        assert agent.locate_executable() == packaged_executable
+        current.status = 'IDLE'
+        current.status_message = "Ready for a new instruction"
+        current.sidecar_available = False
+
+        assert agent.start(), agent.start_error
+        assert agent.running
+        deadline = time.monotonic() + 5.0
+        while agent.requests and time.monotonic() < deadline:
+            agent.drain(bpy.context)
+            time.sleep(0.05)
+        agent.drain(bpy.context)
+
+        assert not agent.requests
+        assert agent.running
+        assert current.status == 'IDLE'
+        assert current.sidecar_available is False
+        assert current.status_message == "Set REDROB_API_KEY to connect"
+
+        process = agent.process
+        agent.stop()
+        assert not agent.running
+        assert process is not None and process.returncode == 0
+    finally:
+        agent.stop(force=True)
+        for name, value in saved_environment.items():
+            if value is absent:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main():
     registered_here = not hasattr(bpy.types.WindowManager, "redrob_reblend")
     if registered_here:
         redrob_reblend.register()
     try:
+        bpy.ops.ed.undo_push(message="Initialize Reblend integration test")
         _test_registration_preview_apply_and_undo()
         _test_partial_failure_remains_undoable()
         _test_scene_scope_and_theme_round_trip()
+        _test_sidecar_lifecycle()
     finally:
         if registered_here:
             redrob_reblend.unregister()
