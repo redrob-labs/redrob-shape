@@ -184,6 +184,9 @@ set(CMAKE_OPTIMIZE_DEPENDENCIES ON CACHE INTERNAL "")
 option(WITH_BLENDER "Build Blender (disable to build only Cycles stand-alone)." ON)
 mark_as_advanced(WITH_BLENDER)
 
+option(WITH_REDROB_AGENT "Build the isolated Redrob Reblend agent sidecar." OFF)
+mark_as_advanced(WITH_REDROB_AGENT)
+
 if(WIN32)
   option(WITH_BLENDER_THUMBNAILER "\
 Build \"BlendThumb.dll\" helper for Windows explorer integration to support extracting \

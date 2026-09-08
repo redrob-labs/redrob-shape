@@ -49,6 +49,7 @@ _addons_hidden_core = {
     "io_curve_svg",
     "io_mesh_uv_layout",
     "io_scene_fbx",
+    "redrob_reblend",
 }
 
 

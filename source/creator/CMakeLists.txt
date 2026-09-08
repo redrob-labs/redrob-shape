@@ -451,6 +451,25 @@ if(NOT DEFINED TARGETDIR_VER_LIBS)
   set(TARGETDIR_VER_LIBS "${TARGETDIR_VER}")
 endif()
 
+# The Redrob agent is an isolated executable and is never linked into Blender.
+# Install it beside Blender so the bundled Python workspace can discover it
+# without platform-specific configuration.
+if(WITH_REDROB_AGENT AND NOT WITH_PYTHON_MODULE)
+  if(APPLE)
+    set(REDROB_AGENT_INSTALL_DESTINATION "Blender.app/Contents/MacOS")
+  elseif(UNIX AND NOT WITH_INSTALL_PORTABLE)
+    set(REDROB_AGENT_INSTALL_DESTINATION "bin")
+  else()
+    set(REDROB_AGENT_INSTALL_DESTINATION ".")
+  endif()
+  set(REDROB_AGENT_LICENSE_DESTINATION "${TARGETDIR_TEXT}")
+  add_subdirectory(
+    "${CMAKE_SOURCE_DIR}/intern/redrob_agent"
+    "${CMAKE_BINARY_DIR}/intern/redrob_agent"
+  )
+  redrob_agent_attach_to_target(blender)
+endif()
+
 # -----------------------------------------------------------------------------
 # Install Targets (Generic, All Platforms)
 

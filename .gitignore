@@ -1,6 +1,14 @@
 # generic files to ignore
 .*
 
+# Agent task-planning and local review artifacts (never commit).
+/.tasks/
+/.agents/tasks/
+/semantic-review/
+
+# Redrob Rust sidecar build artifacts.
+/intern/redrob_agent/target/
+
 # python temp paths
 __pycache__/
 *.py[cod]

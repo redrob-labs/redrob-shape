@@ -1,0 +1,25 @@
+schema_version = "1.0.0"
+
+id = "redrob_reblend"
+name = "Redrob Reblend"
+tagline = "Native approval-first AI workspace for Blender"
+type = "add-on"
+tags = ["3D View", "Modeling", "Lighting"]
+version = "0.1.0"
+blender_version_min = "4.5.0"
+maintainer = "Redrob Labs"
+license = ["SPDX:GPL-3.0-or-later"]
+copyright = ["2026 Redrob Labs"]
+website = "https://github.com/redrob-labs/redrob-reblend"
+
+[permissions]
+network = "Connect to the Redrob API after an explicit user request"
+files = "Launch the bundled local agent executable"
+
+[build]
+paths_exclude_pattern = [
+    "__pycache__/",
+    ".*",
+    "*.log",
+    "tests/",
+]
