@@ -68,6 +68,30 @@ It stops there deliberately. The gate asserts what must *not* have changed:
 
 Blender's 3D core keeps its own names throughout. What is rebranded is the product wrapping it.
 
+## Git LFS: the fetched tree has asset pointers, not assets
+
+Blender tracks its bundled assets — `assets/brushes/*.blend` and similar — in Git LFS, and **the
+GitHub mirror cannot serve those objects.** A plain checkout fails outright:
+
+```
+Object does not exist on the server: [404]
+error: external filter 'git-lfs filter-process' failed
+fatal: assets/brushes/…blend: smudge filter lfs failed
+```
+
+Blender's canonical remote is `projects.blender.org` and its LFS storage lives there. So
+`scripts/fetch-upstream.sh` skips the smudge filter and leaves LFS pointers as pointers.
+
+That is sufficient for everything this repository does with the tree — apply patches, copy the
+overlay, assert the result — because no patch or overlay file touches an LFS-tracked asset. A full
+Blender **build** does need them, and that means `git lfs pull` against a remote that can actually
+serve them.
+
+Worth recording how this was found, because it is the general lesson: it passed locally and failed
+in CI. This host has no `git-lfs` installed, so the filter never ran at all; the runner has it. A
+machine without the tool cannot tell a working skip from a missing tool, which is why the gate
+asserts the *outcome* — that the pointer is still a pointer — rather than trusting the config.
+
 ## Bumping upstream
 
 1. Edit `commit` (and `version`) in `upstream.json`.

@@ -21,7 +21,23 @@ rm -rf build/blender
 
 target="build/blender"
 
-# --- 1. the add-on is registered, not merely present ------------------------------
+# --- 1. LFS pointers stayed pointers ---------------------------------------------
+# Blender tracks bundled assets in LFS and the GitHub mirror cannot serve those objects, so
+# fetch-upstream.sh skips the smudge filter. This asserts the outcome rather than trusting the
+# configuration -- and it has to be asserted in CI, because a machine with no git-lfs installed
+# never runs the filter and so cannot tell a working skip from a missing tool.
+lfs_asset=$(git -C "$target" ls-files -- 'assets/brushes/*.blend' 2>/dev/null | head -1 || true)
+if [ -n "$lfs_asset" ] && [ -f "$target/$lfs_asset" ]; then
+  if head -c 40 "$target/$lfs_asset" | grep -q "version https://git-lfs"; then
+    echo "LFS assets left as pointers, as intended ($(basename "$lfs_asset"))"
+  else
+    # Not a failure: a remote that CAN serve the objects is strictly better. Reported so nobody
+    # concludes from a green build that the skip is still needed.
+    echo "note: LFS objects were materialised, so this remote can serve them"
+  fi
+fi
+
+# --- 2. the add-on is registered, not merely present ------------------------------
 # A copied-in add-on that addon_utils does not know about produces a build with no panel.
 if ! grep -q "redrob_reblend" "$target/scripts/modules/addon_utils.py"; then
   echo "error: addon_utils.py does not know about the redrob_reblend add-on" >&2
@@ -52,7 +68,7 @@ if grep -q "^from __future__ import annotations" "$target/scripts/addons_core/re
 fi
 echo "Reblend add-on present and registered, with the connection UI wired in"
 
-# --- 2. the Rust agent is wired into the build ------------------------------------
+# --- 3. the Rust agent is wired into the build ------------------------------------
 # Three separate things have to be true, and my first version of this check asserted the wrong
 # one -- it grepped for the directory name in the top-level CMakeLists, where the actual
 # reference is the uppercase option. Checking all three is what makes it a contract:
@@ -78,7 +94,7 @@ if [ ! -f "$target/intern/redrob_agent/Cargo.toml" ] || [ ! -f "$target/intern/r
 fi
 echo "Rust agent wired in: option declared, attached to the target, enabled by the preset"
 
-# --- 3. the application shell is branded -----------------------------------------
+# --- 4. the application shell is branded -----------------------------------------
 title_source="$target/source/blender/windowmanager/intern/wm_window.cc"
 if ! grep -q '"Redrob Reblend"' "$title_source"; then
   echo "error: the window title is not branded -- the app would present itself as Blender" >&2
@@ -90,7 +106,7 @@ if ! grep -q "^Name=Redrob Reblend$" "$target/release/freedesktop/blender.deskto
 fi
 echo "application shell branded: $(grep '^Name=' "$target/release/freedesktop/blender.desktop" | cut -d= -f2)"
 
-# --- 4. Blender's attribution and licences are intact ----------------------------
+# --- 5. Blender's attribution and licences are intact ----------------------------
 # The branding above is deliberately narrow. Blender is GPL and its trademark policy asks that a
 # modified redistribution not present itself as official Blender -- which is what renaming the
 # shell satisfies. It does NOT license us to strip Blender's copyright, its licence files, or its
@@ -108,7 +124,7 @@ if ! grep -qi "blender" "$target/release/freedesktop/org.blender.Blender.metainf
 fi
 echo "Blender's licence and attribution intact"
 
-# --- 5. blend-file compatibility was not touched ---------------------------------
+# --- 6. blend-file compatibility was not touched ---------------------------------
 # UPSTREAM.md forbids resolving an upstream sync by changing these. A patch that moved the file
 # subversion would silently make our builds write blend files upstream cannot read.
 version_header="$target/source/blender/blenkernel/BKE_blender_version.h"
@@ -125,7 +141,7 @@ if [ "$declared" != "$built" ]; then
 fi
 echo "upstream version matches the pin: $built (blend subversion $(grep -oP '(?<=#define BLENDER_FILE_SUBVERSION )\d+' "$version_header"))"
 
-# --- 6. no patch edits Blender's own tests or operators --------------------------
+# --- 7. no patch edits Blender's own tests or operators --------------------------
 # UPSTREAM.md: never resolve a sync by silently dropping upstream operators, keymaps, editors,
 # importers, exporters, render engines, or tests. This makes that structural.
 forbidden=$(grep -hoE '^\+\+\+ b/(tests/|source/blender/editors/|scripts/startup/bl_operators/)[^ ]*' patches/*.patch || true)
@@ -137,7 +153,7 @@ if [ -n "$forbidden" ]; then
 fi
 echo "no patch touches upstream tests, editors or operators"
 
-# --- 7. this repository has CI of its own ----------------------------------------
+# --- 8. this repository has CI of its own ----------------------------------------
 if [ ! -f ".github/workflows/verify-patches.yml" ]; then
   echo "error: this repository has no CI of its own" >&2
   exit 1
