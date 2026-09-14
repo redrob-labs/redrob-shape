@@ -13,6 +13,76 @@ import bpy
 _THEME_SNAPSHOT = {}
 _THEME_SNAPSHOT_VERSION = 1
 
+# --- The Reblend palette ---------------------------------------------------------
+#
+# One place where a colour is decided. Every per-space value below is derived from this, so a
+# palette change does not mean revisiting forty editors and missing three.
+#
+# Blender's shipped Blender_Dark.xml is EMPTY -- the default theme lives in C
+# (source/blender/editors/interface/resources.cc), which our patch set is forbidden to touch
+# because UPSTREAM.md rules out patching upstream editors. So the whole theme is applied here at
+# runtime instead, and it is reversible: every value is snapshotted before it is changed, which a
+# C patch could never offer. That constraint produced the better design.
+_PALETTE = {
+    "bg_deep": (0.043, 0.049, 0.062, 1.0),      # editor backgrounds
+    "bg": (0.055, 0.063, 0.078, 1.0),           # panels, widget interiors
+    "bg_raised": (0.075, 0.085, 0.104, 1.0),    # headers, toolbars
+    "bg_hover": (0.098, 0.110, 0.133, 1.0),
+    "line": (0.16, 0.18, 0.22, 1.0),            # outlines, separators
+    "accent": (0.72, 0.025, 0.055, 1.0),        # Redrob red -- selection and emphasis
+    "accent_dim": (0.44, 0.03, 0.05, 1.0),
+    "text": (0.78, 0.81, 0.86, 1.0),
+    "text_bright": (1.0, 1.0, 1.0, 1.0),
+    "text_dim": (0.52, 0.55, 0.60, 1.0),
+}
+
+#: Every editor space Blender exposes on a theme, and the roles each one gets.
+#:
+#: Listing a role a given space does not have is deliberately safe: `_resolve` skips a path the
+#: running Blender does not support rather than raising, which is also what makes this survive an
+#: upstream version bump that adds or removes a space.
+_SPACES = (
+    "view_3d", "graph_editor", "dopesheet_editor", "nla_editor", "image_editor",
+    "sequence_editor", "text_editor", "node_editor", "properties", "outliner",
+    "preferences", "info", "file_browser", "console", "clip_editor", "topbar",
+    "statusbar", "spreadsheet",
+)
+
+_SPACE_ROLES = (
+    ("space.back", "bg_deep"),
+    ("space.header", "bg_raised"),
+    ("space.header_text", "text"),
+    ("space.header_text_hi", "text_bright"),
+    ("space.button", "bg"),
+    ("space.button_text", "text"),
+    ("space.button_text_hi", "text_bright"),
+    ("space.button_title", "text_bright"),
+    ("space.text", "text"),
+    ("space.text_hi", "text_bright"),
+    ("space.title", "text_bright"),
+    ("space.tab_active", "bg"),
+    ("space.tab_inactive", "bg_deep"),
+    ("space.tab_back", "bg_raised"),
+    ("space.tab_outline", "line"),
+    ("space.navigation_bar", "bg_raised"),
+    ("space.execution_buts", "bg"),
+    # List/tree regions, present on outliner, file browser, spreadsheet and others.
+    ("space_list.list", "bg_deep"),
+    ("space_list.list_title", "text_bright"),
+    ("space_list.list_text", "text"),
+    ("space_list.list_text_hi", "text_bright"),
+)
+
+
+def _space_theme_values():
+    """Expand the palette across every space, so no editor is left on Blender's own colours."""
+    values = []
+    for space in _SPACES:
+        for suffix, role in _SPACE_ROLES:
+            values.append((f"{space}.{suffix}", _PALETTE[role]))
+    return tuple(values)
+
+
 # Paths are resolved defensively so the preset remains compatible across Blender
 # versions. Unsupported properties are skipped rather than breaking startup.
 _THEME_VALUES = (
@@ -69,6 +139,14 @@ _THEME_VALUES = (
     ("file_browser.space.back", (0.024, 0.029, 0.038, 1.0)),
     ("text_editor.space.back", (0.018, 0.022, 0.029, 1.0)),
     ("console.space.back", (0.018, 0.022, 0.029, 1.0)),
+)
+
+# The hand-tuned values above come first and the generated per-space sweep follows, so a specific
+# choice made deliberately for one editor is not overwritten by the general rule. Application is
+# in order, so later wins -- hence the sweep is filtered to paths the explicit list does not claim.
+_EXPLICIT_PATHS = frozenset(path for path, _ in _THEME_VALUES)
+_THEME_VALUES = _THEME_VALUES + tuple(
+    (path, value) for path, value in _space_theme_values() if path not in _EXPLICIT_PATHS
 )
 
 

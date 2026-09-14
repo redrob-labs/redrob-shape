@@ -27,7 +27,7 @@ if ! grep -q "redrob_reblend" "$target/scripts/modules/addon_utils.py"; then
   echo "error: addon_utils.py does not know about the redrob_reblend add-on" >&2
   exit 1
 fi
-for f in __init__.py panels.py operators.py runtime.py protocol.py tools.py state.py theme.py context.py; do
+for f in __init__.py panels.py operators.py runtime.py protocol.py tools.py state.py theme.py context.py credentials.py transport.py connection_ui.py; do
   if [ ! -f "$target/scripts/addons_core/redrob_reblend/$f" ]; then
     echo "error: scripts/addons_core/redrob_reblend/$f missing from the checkout" >&2
     exit 1
@@ -37,7 +37,20 @@ if [ ! -f "$target/scripts/addons_core/redrob_reblend/blender_manifest.toml" ]; 
   echo "error: the add-on has no blender_manifest.toml, so Blender will not load it" >&2
   exit 1
 fi
-echo "Reblend add-on present and registered"
+# The connection UI has to be registered or the preferences it declares never exist, and the
+# transport picker silently does nothing.
+if ! grep -q "connection_ui" "$target/scripts/addons_core/redrob_reblend/__init__.py"; then
+  echo "error: connection_ui is present but never registered" >&2
+  exit 1
+fi
+# PEP 563 stringifies annotations, and Blender registers add-on properties by evaluating them --
+# so this import in a module declaring bpy.props breaks registration at enable time, inside
+# Blender, where CI would not see it.
+if grep -q "^from __future__ import annotations" "$target/scripts/addons_core/redrob_reblend/connection_ui.py"; then
+  echo "error: connection_ui.py uses PEP 563 annotations, which breaks bpy.props registration" >&2
+  exit 1
+fi
+echo "Reblend add-on present and registered, with the connection UI wired in"
 
 # --- 2. the Rust agent is wired into the build ------------------------------------
 # Three separate things have to be true, and my first version of this check asserted the wrong
