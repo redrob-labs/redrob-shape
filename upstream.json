@@ -1,0 +1,24 @@
+{
+	"//": [
+		"The upstream Blender this repository customizes. Fetched at build time, never vendored.",
+		"",
+		"`commit` is the ONLY place a baseline appears -- scripts and CI read it from here so a bump",
+		"is a one-line, reviewable change.",
+		"",
+		"Unlike the sibling redrob-cad, this baseline was not lost and did not have to be recovered:",
+		"the previous shape of this repository carried Blender's FULL history -- 164,952 commits, root",
+		"commit 12315f4d0e0 'Initial revision' (Hans Lambermont, 2002-10-12), with authentic release",
+		"commit hashes -- and UPSTREAM.md recorded the downstream baseline explicitly. Only three",
+		"commits were ever ours.",
+		"",
+		"That history is preserved on archive/blender-fork-history and remains available from upstream,",
+		"so nothing was destroyed by moving to this shape. What it buys: our three commits' worth of",
+		"work stops being buried under 164,949 upstream ones, and the clone drops from 1.6 GB.",
+		"",
+		"Blender 5.3 alpha, file subversion 21 at this commit. No upstream tags were present in the",
+		"previous checkout, so a bump is by commit; prefer a release tag once one covers 5.3."
+	],
+	"repo": "https://github.com/blender/blender.git",
+	"commit": "acf2fda52b4f7e07a459136e99c80470f3a92725",
+	"version": "5.3.0-alpha"
+}

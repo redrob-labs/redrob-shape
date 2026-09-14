@@ -1,0 +1,145 @@
+diff --git a/.github/pull_request_template.md b/.github/pull_request_template.md
+index e37b8ff35c6bc3ec71ea953f2b851a8716b84d35..20f2553c53571811486459b99d389c996cdbbd74 100644
+--- a/.github/pull_request_template.md
++++ b/.github/pull_request_template.md
+@@ -1,4 +1,18 @@
+-This repository is only used as a mirror. Blender development happens on projects.blender.org.
++## Summary
+ 
+-To get started with contributing code, please see:
+-https://developer.blender.org/docs/handbook/contributing/
++Describe the user-visible result and whether the change touches Blender upstream code, Reblend UI, the agent protocol, safe tools, or packaging.
++
++## Compatibility
++
++- [ ] Existing Blender workflows and `.blend` compatibility are preserved.
++- [ ] No existing operator, keymap, editor, importer, exporter, or render engine was removed.
++- [ ] Agent output remains locally validated and mutations require approval plus Undo.
++- [ ] No secret, credential, prompt content, or full environment is logged.
++
++## Verification
++
++List the exact build, format, lint, test, and manual Blender checks performed.
++
++## Upstream impact
++
++Explain how this patch can be maintained across future Blender upstream syncs.
+diff --git a/.gitignore b/.gitignore
+index f6f66a4e48c6264d152d27a3769ce54ef840ca14..bdc2a0a2ecae5a4a5a74e7fea24de71cefc69ec1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,6 +1,14 @@
+ # generic files to ignore
+ .*
+ 
++# Agent task-planning and local review artifacts (never commit).
++/.tasks/
++/.agents/tasks/
++/semantic-review/
++
++# Redrob Rust sidecar build artifacts.
++/intern/redrob_agent/target/
++
+ # python temp paths
+ __pycache__/
+ *.py[cod]
+diff --git a/README.md b/README.md
+index b84e8622c8f5e20a9bbf64ec3eb7edc7de8c91b0..7d3cf9f9c57b5f50a3fe6eae918a25c941bef460 100644
+--- a/README.md
++++ b/README.md
+@@ -1,38 +1,68 @@
+-<!--
+-Keep this document short & concise,
+-linking to external resources instead of including content in-line.
+-See 'release/text/readme.html' for the end user read-me.
+--->
++# Redrob Reblend
+ 
+-Blender
+-=======
++**A compatibility-first, agentic Blender distribution.**
+ 
+-Blender is the free and open source 3D creation suite.
+-It supports the entirety of the 3D pipeline—modeling, rigging, animation, simulation, rendering, compositing,
+-motion tracking and video editing.
++Redrob Reblend keeps Blender's complete open-source 3D pipeline and adds a modern native workspace backed by Redrob. Existing modeling, sculpting, animation, simulation, rendering, compositing, tracking, editing, import/export, add-on, keymap, and `.blend` workflows remain Blender workflows.
+ 
+-![Blender screenshot](https://code.blender.org/wp-content/uploads/2018/12/springrg.jpg "Blender screenshot")
++> Reblend is an independent downstream project. Blender is developed by the Blender Foundation and its community; this repository preserves their copyright and license notices.
+ 
+-Project Pages
+--------------
++## What Reblend adds
+ 
+-- [Main Website](https://www.blender.org)
+-- [Reference Manual](https://docs.blender.org/manual/en/latest/index.html)
+-- [User Community](https://www.blender.org/community/)
++- A focused **Reblend** workspace panel inside the native 3D View sidebar.
++- A modern, reversible dark theme overlay with a restrained red accent.
++- Bounded scene summaries that omit geometry, image pixels, file contents, and paths.
++- Redrob planning through an isolated Rust sidecar rather than model code inside Blender.
++- Review-before-apply action plans with stale-scene detection.
++- One Blender Undo step for each approved plan.
++- Four allow-listed tools: create primitive, transform object, add modifier, and set material.
++- No arbitrary Python, shell, file-deletion, add-on-installation, or model-directed network tool.
+ 
+-Development
+------------
++If Redrob is not configured, has no balance, is offline, or the sidecar is absent, Blender continues to work normally.
+ 
+-- [Build Instructions](https://developer.blender.org/docs/handbook/building_blender/)
+-- [Code Review & Bug Tracker](https://projects.blender.org)
+-- [Developer Forum](https://devtalk.blender.org)
+-- [Developer Documentation](https://developer.blender.org/docs/)
++## Architecture
+ 
++```text
++Blender + native Python workspace
++          │ versioned JSON Lines over stdio
++          ▼
++redrob-reblend-agent (Rust)
++          │ HTTPS / OpenAI-compatible chat completions
++          ▼
++Redrob API
++```
+ 
+-License
+--------
++Read the [architecture](doc/redrob_reblend/architecture.md), [security model](doc/redrob_reblend/security.md), and [build guide](doc/redrob_reblend/building.md).
+ 
+-Blender as a whole is licensed under the GNU General Public License, Version 3.
+-Individual files may have a different but compatible license.
++## Build
+ 
+-See [blender.org/about/license](https://www.blender.org/about/license) for details.
++Follow the official [Blender platform build instructions](https://developer.blender.org/docs/handbook/building_blender/), install Rust 1.88 or newer, then configure with the Reblend profile:
++
++```sh
++cmake -S . -B ../build_reblend \
++  -C build_files/cmake/config/redrob_reblend.cmake
++cmake --build ../build_reblend --config Release
++```
++
++A normal Blender configure remains unchanged and does not require Rust; `WITH_REDROB_AGENT` defaults to `OFF` unless the Reblend profile is selected.
++
++## Connect Redrob
++
++Create or approve a workspace key in [Redrob Console](https://console.redrob.ai/guide), then launch Blender with:
++
++```sh
++export REDROB_API_KEY="your-workspace-key"
++```
++
++The default API route is `https://console.redrob.ai/api/backend/v1/chat/completions` with model `auto`. The sidecar reads the key from its environment; the key is not sent over the Blender protocol, stored in `.blend` data, or written to logs.
++
++[Redrob Code](https://console.redrob.ai/code) can be used independently for repository development and upstream modernization. It is not a runtime dependency of Reblend.
++
++## Blender compatibility and upstream
++
++The Blender executable names, CMake targets, file-format versions, platform application IDs, operators, keymaps, and startup precedence are intentionally retained. See [UPSTREAM.md](UPSTREAM.md) for the exact baseline and sync policy.
++
++General Blender fixes should follow [Blender's official contribution process](https://developer.blender.org/docs/handbook/contributing/). Reblend-specific contributions should follow [CONTRIBUTING.md](CONTRIBUTING.md).
++
++## License
++
++Blender and Redrob Reblend as a whole are licensed under the GNU General Public License, Version 3. Individual files and dependencies may use different compatible licenses. See [COPYING](COPYING), the existing Blender notices under `release/license`, and the sidecar's [third-party dependency inventory](intern/redrob_agent/THIRD_PARTY.md) and [complete license-text bundle](intern/redrob_agent/THIRD_PARTY-LICENSES.txt).

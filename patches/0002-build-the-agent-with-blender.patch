@@ -1,0 +1,44 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 12ac26f42366c6b5997caea57eb37465ccefc7eb..40571640988c25ceb8c0c581f19fedab8949e068 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -184,6 +184,9 @@ set(CMAKE_OPTIMIZE_DEPENDENCIES ON CACHE INTERNAL "")
+ option(WITH_BLENDER "Build Blender (disable to build only Cycles stand-alone)." ON)
+ mark_as_advanced(WITH_BLENDER)
+ 
++option(WITH_REDROB_AGENT "Build the isolated Redrob Reblend agent sidecar." OFF)
++mark_as_advanced(WITH_REDROB_AGENT)
++
+ if(WIN32)
+   option(WITH_BLENDER_THUMBNAILER "\
+ Build \"BlendThumb.dll\" helper for Windows explorer integration to support extracting \
+diff --git a/source/creator/CMakeLists.txt b/source/creator/CMakeLists.txt
+index 16bc12ca90ed03f2942fd32457f0282518ed9ab2..81d78ff19de9fcd5a1ca91137d6fc8f784c6e6aa 100644
+--- a/source/creator/CMakeLists.txt
++++ b/source/creator/CMakeLists.txt
+@@ -451,6 +451,25 @@ if(NOT DEFINED TARGETDIR_VER_LIBS)
+   set(TARGETDIR_VER_LIBS "${TARGETDIR_VER}")
+ endif()
+ 
++# The Redrob agent is an isolated executable and is never linked into Blender.
++# Install it beside Blender so the bundled Python workspace can discover it
++# without platform-specific configuration.
++if(WITH_REDROB_AGENT AND NOT WITH_PYTHON_MODULE)
++  if(APPLE)
++    set(REDROB_AGENT_INSTALL_DESTINATION "Blender.app/Contents/MacOS")
++  elseif(UNIX AND NOT WITH_INSTALL_PORTABLE)
++    set(REDROB_AGENT_INSTALL_DESTINATION "bin")
++  else()
++    set(REDROB_AGENT_INSTALL_DESTINATION ".")
++  endif()
++  set(REDROB_AGENT_LICENSE_DESTINATION "${TARGETDIR_TEXT}")
++  add_subdirectory(
++    "${CMAKE_SOURCE_DIR}/intern/redrob_agent"
++    "${CMAKE_BINARY_DIR}/intern/redrob_agent"
++  )
++  redrob_agent_attach_to_target(blender)
++endif()
++
+ # -----------------------------------------------------------------------------
+ # Install Targets (Generic, All Platforms)
+ 
