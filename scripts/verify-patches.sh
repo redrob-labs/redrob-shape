@@ -18,6 +18,7 @@ rm -rf build/blender
 ./scripts/fetch-upstream.sh
 ./scripts/apply-patches.sh
 ./scripts/apply-overlay.sh
+./scripts/apply-brand-assets.sh
 
 target="build/blender"
 
@@ -105,6 +106,35 @@ if ! grep -q "^Name=Redrob Reblend$" "$target/release/freedesktop/blender.deskto
   exit 1
 fi
 echo "application shell branded: $(grep '^Name=' "$target/release/freedesktop/blender.desktop" | cut -d= -f2)"
+
+# The splash screen, the animation player and the window all name the product separately, so a
+# branding pass that misses one leaves the app calling itself Blender somewhere the user looks.
+for f in wm_splash_screen.cc wm_playanim.cc wm_window.cc; do
+  if ! grep -q "Reblend" "$target/source/blender/windowmanager/intern/$f"; then
+    echo "error: $f still presents the product as Blender" >&2
+    exit 1
+  fi
+done
+# macOS reads the bundle name from Info.plist, not from the window title.
+if ! grep -q "Reblend" "$target/release/darwin/Blender.app/Contents/Info.plist"; then
+  echo "error: the macOS bundle Info.plist is not branded" >&2
+  exit 1
+fi
+echo "splash, player, window and macOS bundle all branded"
+
+# And the icons must be OURS, not upstream's. Compared by content, because a file merely existing
+# at the right path proves nothing -- upstream ships one there too.
+for pair in \
+  "brand/release/windows/icons/winblender.ico:release/windows/icons/winblender.ico" \
+  "brand/release/darwin/Blender.app/Contents/Resources/blender_icon_legacy.icns:release/darwin/Blender.app/Contents/Resources/blender_icon_legacy.icns"; do
+  src="${pair%%:*}"
+  dest="${pair#*:}"
+  if ! cmp -s "$src" "$target/$dest"; then
+    echo "error: $dest is not our brand asset" >&2
+    exit 1
+  fi
+done
+echo "application icons are ours"
 
 # --- 5. Blender's attribution and licences are intact ----------------------------
 # The branding above is deliberately narrow. Blender is GPL and its trademark policy asks that a

@@ -52,11 +52,26 @@ class PaletteTests(unittest.TestCase):
         for path, role in theme._SPACE_ROLES:
             self.assertIn(role, theme._PALETTE, f"{path} refers to unknown palette role {role!r}")
 
-    def test_accent_is_the_redrob_red_not_blender_blue(self):
+    def test_accent_is_the_canonical_brand_blue(self):
+        # The accent comes from redrob-design/packages/brand/src/tokens.css (--rr-blue-6, #2b52ff).
+        #
+        # This test previously asserted the accent was RED, because an earlier version of theme.py
+        # used a red palette invented for the purpose. The test agreed with the code and both were
+        # wrong about the brand -- which is the failure mode of testing an assumption rather than a
+        # source of truth. It now checks the value against the tokens the organisation publishes.
+        self.assertEqual(theme._PALETTE["accent"], theme._rgba(theme.RR_BLUE_6))
         r, g, b, _a = theme._PALETTE["accent"]
-        self.assertGreater(r, 0.5, "accent should be red-dominant")
-        self.assertLess(b, 0.2, "accent still looks like Blender's blue")
-        self.assertLess(g, 0.2)
+        self.assertGreater(b, 0.9, "accent should be blue-dominant")
+        self.assertLess(r, 0.4)
+
+    def test_the_palette_is_built_from_tokens_not_literals(self):
+        # Every palette entry that corresponds to a published token must BE that token, so a token
+        # change propagates instead of drifting.
+        self.assertEqual(theme._PALETTE["bg_deep"], theme._rgba(theme.RR_BLACK))
+        self.assertEqual(theme._PALETTE["bg"], theme._rgba(theme.RR_GRAY_9))
+        self.assertEqual(theme._PALETTE["line"], theme._rgba(theme.RR_GRAY_8))
+        self.assertEqual(theme._PALETTE["text"], theme._rgba(theme.RR_GRAY_1))
+        self.assertEqual(theme._PALETTE["text_bright"], theme._rgba(theme.RR_WHITE))
 
 
 class CoverageTests(unittest.TestCase):
