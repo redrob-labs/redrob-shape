@@ -36,8 +36,16 @@ PRODUCT = "Redrob Reblend"
 # Whole word only, and never the build macros or the Python module.
 NAME = re.compile(r"\bBlender\b(?!_VERSION|_FILE|_STARTUP|Foundation)")
 
+# Blender's translatable-string macros.
+#
+# The CTX_ variants take a translation CONTEXT first and the visible string second --
+# CTX_IFACE_(BLT_I18NCONTEXT_ID_WINDOWMANAGER, "Blender will now close.") -- so a pattern anchored on
+# the opening parenthesis matched only the plain macros and silently skipped every context-qualified
+# one. The optional group below consumes that first argument when it is present.
 MACROS = re.compile(
-    r'\b(?:N_|IFACE_|TIP_|DATA_|CTX_N_|CTX_IFACE_|RPT_)\(\s*"((?:[^"\\]|\\.)*)"',
+    r'\b(?:N_|IFACE_|TIP_|DATA_|RPT_|CTX_N_|CTX_IFACE_|CTX_TIP_|CTX_DATA_)\('
+    r'\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*,\s*)?'
+    r'"((?:[^"\\]|\\.)*)"',
 )
 
 URL = re.compile(r"https?://\S*")

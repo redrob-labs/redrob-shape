@@ -372,3 +372,149 @@ index f3db41d9f4a34b22e4ad7640ffc2952198a100e7..36ebfd6e1edd31e967a1217e07ad7228
      }
    }
    else if (bmain->is_asset_edit_file) {
+diff --git a/source/blender/windowmanager/intern/wm_operators.cc b/source/blender/windowmanager/intern/wm_operators.cc
+index 27d6e7df03bc3ad890018829bc2432234a68a67c..911e747bef241e47f179083d623292ba53ddb2ec 100644
+--- a/source/blender/windowmanager/intern/wm_operators.cc
++++ b/source/blender/windowmanager/intern/wm_operators.cc
+@@ -2483,9 +2483,9 @@ static wmOperatorStatus wm_exit_blender_invoke(bContext *C,
+ 
+ static void WM_OT_quit_blender(wmOperatorType *ot)
+ {
+-  ot->name = "Quit Blender";
++  ot->name = "Quit Redrob Reblend";
+   ot->idname = "WM_OT_quit_blender";
+-  ot->description = "Quit Blender";
++  ot->description = "Quit Redrob Reblend";
+ 
+   ot->invoke = wm_exit_blender_invoke;
+   ot->exec = wm_exit_blender_exec;
+diff --git a/source/blender/windowmanager/intern/wm_platform_support.cc b/source/blender/windowmanager/intern/wm_platform_support.cc
+index 2b7cabbb87368cdeb947db709d83503f1afc0aaa..fb9c4802bee99d962ab5a47c55cd3ef331b4d517 100644
+--- a/source/blender/windowmanager/intern/wm_platform_support.cc
++++ b/source/blender/windowmanager/intern/wm_platform_support.cc
+@@ -163,7 +163,7 @@ bool WM_platform_support_perform_checks()
+           slen,
+           CTX_IFACE_(
+               BLT_I18NCONTEXT_ID_WINDOWMANAGER,
+-              "Newer graphics drivers might be available with better Blender compatibility."));
++              "Newer graphics drivers might be available with better Redrob Reblend compatibility."));
+       STR_CONCAT(message, slen, "\n \n");
+       STR_CONCAT(message, slen, CTX_IFACE_(BLT_I18NCONTEXT_ID_WINDOWMANAGER, "Graphics card:\n"));
+       STR_CONCAT(message, slen, GPU_platform_gpu_name());
+@@ -197,7 +197,7 @@ bool WM_platform_support_perform_checks()
+             message,
+             slen,
+             CTX_IFACE_(BLT_I18NCONTEXT_ID_WINDOWMANAGER,
+-                       "Upgrading to the latest macOS version may improve Blender support"));
++                       "Upgrading to the latest macOS version may improve Redrob Reblend support"));
+       }
+ #else
+       STR_CONCAT(message,
+@@ -210,7 +210,7 @@ bool WM_platform_support_perform_checks()
+           slen,
+           CTX_IFACE_(
+               BLT_I18NCONTEXT_ID_WINDOWMANAGER,
+-              "Newer graphics drivers might be available with better Blender compatibility."));
++              "Newer graphics drivers might be available with better Redrob Reblend compatibility."));
+ 
+       STR_CONCAT(message, slen, "\n \n");
+       STR_CONCAT(message, slen, CTX_IFACE_(BLT_I18NCONTEXT_ID_WINDOWMANAGER, "Graphics card:\n"));
+@@ -221,7 +221,7 @@ bool WM_platform_support_perform_checks()
+       if (!show_continue) {
+         STR_CONCAT(message,
+                    slen,
+-                   CTX_IFACE_(BLT_I18NCONTEXT_ID_WINDOWMANAGER, "Blender will now close."));
++                   CTX_IFACE_(BLT_I18NCONTEXT_ID_WINDOWMANAGER, "Redrob Reblend will now close."));
+         dialog_options = GHOST_DialogError;
+         result = false;
+       }
+diff --git a/source/blender/windowmanager/intern/wm_playanim.cc b/source/blender/windowmanager/intern/wm_playanim.cc
+index c4e00447d3abab4c5405eab39714b40bf1d2173b..c452fc963e494a0a184ba4ea4479ee9b750408b2 100644
+--- a/source/blender/windowmanager/intern/wm_playanim.cc
++++ b/source/blender/windowmanager/intern/wm_playanim.cc
+@@ -103,7 +103,7 @@ static CLG_LogRef LOG = {"image"};
+ 
+ /** Used in user viable messages. */
+ static const char *message_prefix = "Animation Player";
+-static const char *playanim_window_title = "Blender Animation Player";
++static const char *playanim_window_title = "Redrob Reblend Animation Player";
+ 
+ struct PlayState;
+ static void playanim_window_zoom(PlayState &ps, const float zoom_offset);
+diff --git a/source/blender/windowmanager/intern/wm_splash_screen.cc b/source/blender/windowmanager/intern/wm_splash_screen.cc
+index 518296c946fbae055890ee482820839d448af42b..9689bf0e81ce8529b6c0f4b330edc48f13abe568 100644
+--- a/source/blender/windowmanager/intern/wm_splash_screen.cc
++++ b/source/blender/windowmanager/intern/wm_splash_screen.cc
+@@ -478,7 +478,7 @@ static ui::Block *wm_block_about_create(bContext *C, ARegion *region, void * /*a
+ 
+   ui::Layout &col = layout.column(true);
+ 
+-  uiItemL_ex(&col, IFACE_("Blender"), ICON_NONE, true, false);
++  uiItemL_ex(&col, IFACE_("Redrob Reblend"), ICON_NONE, true, false);
+ 
+   MenuType *mt = WM_menutype_find("WM_MT_splash_about", true);
+   if (mt) {
+@@ -501,9 +501,9 @@ static wmOperatorStatus wm_splash_about_invoke(bContext *C,
+ 
+ void WM_OT_splash_about(wmOperatorType *ot)
+ {
+-  ot->name = "About Blender";
++  ot->name = "About Redrob Reblend";
+   ot->idname = "WM_OT_splash_about";
+-  ot->description = "Open a window with information about Blender";
++  ot->description = "Open a window with information about Redrob Reblend";
+ 
+   ot->invoke = wm_splash_about_invoke;
+   ot->poll = WM_operator_winactive;
+diff --git a/source/blender/windowmanager/intern/wm_window.cc b/source/blender/windowmanager/intern/wm_window.cc
+index 8885ad4cfa9ffaf4c45d6448cc08751bbce7dfbd..3e812338f2ae0fcc69679bf52c7cb8590d8d15b8 100644
+--- a/source/blender/windowmanager/intern/wm_window.cc
++++ b/source/blender/windowmanager/intern/wm_window.cc
+@@ -579,7 +579,7 @@ static std::string wm_window_title_text(
+     if (is_single && area && area->spacetype != SPACE_EMPTY) {
+       return IFACE_(ED_area_name(area).c_str());
+     }
+-    return "Blender";
++    return "Redrob Reblend";
+   }
+ 
+   /* This path may contain invalid UTF8 byte sequences on UNIX systems,
+@@ -668,7 +668,7 @@ static std::string wm_window_title_text(
+     win_title.append(fmt::format(" - {}", project->get_name()));
+   }
+ 
+-  win_title.append(fmt::format(" — Blender {}", BKE_blender_version_string()));
++  win_title.append(fmt::format(" — Redrob Reblend {}", BKE_blender_version_string()));
+ 
+   return win_title;
+ }
+diff --git a/source/creator/CMakeLists.txt b/source/creator/CMakeLists.txt
+index 16bc12ca90ed03f2942fd32457f0282518ed9ab2..81d78ff19de9fcd5a1ca91137d6fc8f784c6e6aa 100644
+--- a/source/creator/CMakeLists.txt
++++ b/source/creator/CMakeLists.txt
+@@ -451,6 +451,25 @@ if(NOT DEFINED TARGETDIR_VER_LIBS)
+   set(TARGETDIR_VER_LIBS "${TARGETDIR_VER}")
+ endif()
+ 
++# The Redrob agent is an isolated executable and is never linked into Blender.
++# Install it beside Blender so the bundled Python workspace can discover it
++# without platform-specific configuration.
++if(WITH_REDROB_AGENT AND NOT WITH_PYTHON_MODULE)
++  if(APPLE)
++    set(REDROB_AGENT_INSTALL_DESTINATION "Blender.app/Contents/MacOS")
++  elseif(UNIX AND NOT WITH_INSTALL_PORTABLE)
++    set(REDROB_AGENT_INSTALL_DESTINATION "bin")
++  else()
++    set(REDROB_AGENT_INSTALL_DESTINATION ".")
++  endif()
++  set(REDROB_AGENT_LICENSE_DESTINATION "${TARGETDIR_TEXT}")
++  add_subdirectory(
++    "${CMAKE_SOURCE_DIR}/intern/redrob_agent"
++    "${CMAKE_BINARY_DIR}/intern/redrob_agent"
++  )
++  redrob_agent_attach_to_target(blender)
++endif()
++
+ # -----------------------------------------------------------------------------
+ # Install Targets (Generic, All Platforms)
+ 
