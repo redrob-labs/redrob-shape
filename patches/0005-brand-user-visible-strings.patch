@@ -1,0 +1,374 @@
+diff --git a/source/blender/blenkernel/intern/preferences.cc b/source/blender/blenkernel/intern/preferences.cc
+index f1cfc67302825aa5005c2e205961d681b7629e60..ac696f18583a2ba78f8d7ca20dbd86df92880c44 100644
+--- a/source/blender/blenkernel/intern/preferences.cc
++++ b/source/blender/blenkernel/intern/preferences.cc
+@@ -206,7 +206,7 @@ void BKE_preferences_asset_library_default_add(UserDef *userdef)
+ 
+   /* Add new "Default" library under '[doc_path]/Blender/Assets'. */
+   BLI_path_join(
+-      library->dirpath, sizeof(library->dirpath), documents_path, N_("Blender"), N_("Assets"));
++      library->dirpath, sizeof(library->dirpath), documents_path, N_("Redrob Reblend"), N_("Assets"));
+   STRNCPY(library->resolved_dirpath, AS_asset_library_resolve_path(library->dirpath).c_str());
+ }
+ 
+diff --git a/source/blender/blenkernel/intern/tracking_solver.cc b/source/blender/blenkernel/intern/tracking_solver.cc
+index 94bc77757c9ab7558ad20b5fa57ba163d6ed9a08..b6ac0fa9ae2653fd935252bdafc5686c60dd0510 100644
+--- a/source/blender/blenkernel/intern/tracking_solver.cc
++++ b/source/blender/blenkernel/intern/tracking_solver.cc
+@@ -316,7 +316,7 @@ bool BKE_tracking_reconstruction_check(MovieTracking *tracking,
+ 
+ #ifndef WITH_LIBMV
+   BLI_strncpy_utf8(
+-      error_msg, N_("Blender is compiled without motion tracking library"), error_msg_maxncpy);
++      error_msg, N_("Redrob Reblend is compiled without motion tracking library"), error_msg_maxncpy);
+   return false;
+ #endif
+ 
+diff --git a/source/blender/editors/asset/intern/asset_indexer_remote_listing.cc b/source/blender/editors/asset/intern/asset_indexer_remote_listing.cc
+index 7f62f148b0167b3c4c22a2be421bb45a1a233c36..bc43a179c3fc39daa49e7320c4cf0a46c9b4435b 100644
+--- a/source/blender/editors/asset/intern/asset_indexer_remote_listing.cc
++++ b/source/blender/editors/asset/intern/asset_indexer_remote_listing.cc
+@@ -234,7 +234,7 @@ static ReadingResult<ApiVersionInfo> choose_api_version(const AssetLibraryMeta &
+   }
+ 
+   return ReadingResult<ApiVersionInfo>::Failure(
+-      N_("remote does not offer an API version supported by this version of Blender"));
++      N_("remote does not offer an API version supported by this version of Redrob Reblend"));
+ }
+ 
+ bool read_remote_listing(const StringRefNull root_dirpath,
+diff --git a/source/blender/editors/asset/intern/asset_indexer_remote_listing_v1.cc b/source/blender/editors/asset/intern/asset_indexer_remote_listing_v1.cc
+index 56730f4860a6b99cb6b0f50592a22c5954830824..1dae6d3104a3698f8c8b76e381cc7bd60329249c 100644
+--- a/source/blender/editors/asset/intern/asset_indexer_remote_listing_v1.cc
++++ b/source/blender/editors/asset/intern/asset_indexer_remote_listing_v1.cc
+@@ -77,20 +77,20 @@ static ReadingResult<bool> blender_version_matches(const DictionaryValue &asset_
+   const DictionaryValue *bl_versions_dict = asset_dictionary.lookup_dict("bl_versions");
+   if (!bl_versions_dict) {
+     return ReadingResult<bool>::Failure(
+-        N_("could not read asset Blender versions, 'bl_versions' field not set"));
++        N_("could not read asset Redrob Reblend versions, 'bl_versions' field not set"));
+   }
+ 
+   /* Check the 'min' field. */
+   const std::optional<StringRef> min_opt = bl_versions_dict->lookup_str("min");
+   if (!min_opt) {
+     return ReadingResult<bool>::Failure(
+-        N_("could not read asset Blender versions, 'bl_versions.min' field not set"));
++        N_("could not read asset Redrob Reblend versions, 'bl_versions.min' field not set"));
+   }
+ 
+   const std::optional<int> bl_version_min = blender_version_from_string(*min_opt);
+   if (!bl_version_min) {
+     return ReadingResult<bool>::Failure(
+-        N_("could not read asset Blender versions, 'bl_versions.min' field not in X.Y notation"));
++        N_("could not read asset Redrob Reblend versions, 'bl_versions.min' field not in X.Y notation"));
+   }
+   if (BLENDER_VERSION < *bl_version_min) {
+     /* This Blender version is older than what the asset needs, so skip it. */
+@@ -108,7 +108,7 @@ static ReadingResult<bool> blender_version_matches(const DictionaryValue &asset_
+   const std::optional<int> bl_version_until = blender_version_from_string(*until_opt);
+   if (!bl_version_until) {
+     return ReadingResult<bool>::Failure(
+-        N_("could not read asset Blender versions, 'bl_versions.min' field not in X.Y notation"));
++        N_("could not read asset Redrob Reblend versions, 'bl_versions.min' field not in X.Y notation"));
+   }
+   return ReadingResult<bool>::Success(BLENDER_VERSION < *bl_version_until);
+ }
+diff --git a/source/blender/editors/interface/eyedroppers/eyedropper_color.cc b/source/blender/editors/interface/eyedroppers/eyedropper_color.cc
+index cf4fc79cc19c303860a0d019cdbed5e8fd6cf9eb..250daf64664961f693b221ee18285943c11276bd 100644
+--- a/source/blender/editors/interface/eyedroppers/eyedropper_color.cc
++++ b/source/blender/editors/interface/eyedroppers/eyedropper_color.cc
+@@ -643,7 +643,7 @@ static wmOperatorStatus eyedropper_modal(bContext *C, wmOperator *op, const wmEv
+       status.opmodal(IFACE_("Confirm"), op->type, EYE_MODAL_SAMPLE_CONFIRM);
+       status.opmodal(IFACE_("Cancel"), op->type, EYE_MODAL_CANCEL);
+ #ifdef __APPLE__
+-      status.item(TIP_("Press 'Enter' to sample outside of a Blender window"), ICON_STATUS_INFO);
++      status.item(TIP_("Press 'Enter' to sample outside of a Redrob Reblend window"), ICON_STATUS_INFO);
+ #endif
+     }
+ 
+diff --git a/source/blender/editors/interface/templates/interface_template_status.cc b/source/blender/editors/interface/templates/interface_template_status.cc
+index 8ad41aa1d45bfe56c144dce6b9467fde9fe4dc42..b36d32460a82661a054e0b2bb6b55b284b87326b 100644
+--- a/source/blender/editors/interface/templates/interface_template_status.cc
++++ b/source/blender/editors/interface/templates/interface_template_status.cc
+@@ -384,7 +384,7 @@ static std::string template_status_tooltip(bContext *C, void * /*argN*/, const S
+     BKE_blender_version_blendfile_string_from_values(
+         writer_ver_str, sizeof(writer_ver_str), bmain->versionfile, -1);
+     tooltip_message += fmt::format(
+-        fmt::runtime(RPT_("File saved by newer Blender\n({}), expect loss of data")),
++        fmt::runtime(RPT_("File saved by newer Redrob Reblend\n({}), expect loss of data")),
+         writer_ver_str);
+   }
+   if (bmain->is_asset_edit_file) {
+@@ -392,7 +392,7 @@ static std::string template_status_tooltip(bContext *C, void * /*argN*/, const S
+       tooltip_message += "\n\n";
+     }
+     tooltip_message += RPT_(
+-        "This file is managed by the Blender asset system and cannot be overridden");
++        "This file is managed by the Redrob Reblend asset system and cannot be overridden");
+   }
+   if (bmain->colorspace.is_missing_opencolorio_config) {
+     if (!tooltip_message.empty()) {
+diff --git a/source/blender/editors/io/io_usd.cc b/source/blender/editors/io/io_usd.cc
+index 2bf727f793a246d7a9a4ea59c5bb550dcf8e356e..266206cbb3ac32601bcf4cbdbb95be84a37062df 100644
+--- a/source/blender/editors/io/io_usd.cc
++++ b/source/blender/editors/io/io_usd.cc
+@@ -400,7 +400,7 @@ static void wm_usd_export_draw(bContext *C, wmOperator *op)
+       sub->prop(ptr, "incremental_frames", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+     }
+ 
+-    sub = &col->column(true, IFACE_("Blender Data"));
++    sub = &col->column(true, IFACE_("Redrob Reblend Data"));
+     sub->prop(ptr, "export_custom_properties", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+     ui::Layout *props_col = &sub->column(true);
+     props_col->prop(ptr, "custom_properties_namespace", UI_ITEM_NONE, std::nullopt, ICON_NONE);
+diff --git a/source/blender/editors/render/render_view.cc b/source/blender/editors/render/render_view.cc
+index 48fb3619320bd8fee895acd45b3c81e1683fe896..8438142595d23c7234b14122cf7f8b4e18144890 100644
+--- a/source/blender/editors/render/render_view.cc
++++ b/source/blender/editors/render/render_view.cc
+@@ -175,7 +175,7 @@ ScrArea *render_view_open(bContext *C, int mx, int my, ReportList *reports)
+ 
+     /* changes context! */
+     wmWindow *win = WM_window_open(C,
+-                                   IFACE_("Blender Render"),
++                                   IFACE_("Redrob Reblend Render"),
+                                    &window_rect,
+                                    SPACE_IMAGE,
+                                    true,
+diff --git a/source/blender/editors/screen/screen_ops.cc b/source/blender/editors/screen/screen_ops.cc
+index 07f4032392750142fabd22806cadb0648c3323ba..162530f412a958b93e0fdda66c3a38f8c170087b 100644
+--- a/source/blender/editors/screen/screen_ops.cc
++++ b/source/blender/editors/screen/screen_ops.cc
+@@ -6297,7 +6297,7 @@ static void ed_screens_statusbar_menu_create(ui::Layout &layout, void * /*arg*/)
+   }
+   layout.prop(
+       &ptr, "show_extensions_updates", UI_ITEM_NONE, IFACE_("Extensions Updates"), ICON_NONE);
+-  layout.prop(&ptr, "show_statusbar_version", UI_ITEM_NONE, IFACE_("Blender Version"), ICON_NONE);
++  layout.prop(&ptr, "show_statusbar_version", UI_ITEM_NONE, IFACE_("Redrob Reblend Version"), ICON_NONE);
+ }
+ 
+ static wmOperatorStatus screen_context_menu_invoke(bContext *C,
+@@ -7463,7 +7463,7 @@ static wmOperatorStatus drivers_editor_show_exec(bContext *C, wmOperator *op)
+   ui::Button *but = ui::context_active_but_prop_get(C, &ptr, &prop, &index);
+ 
+   /* changes context! */
+-  if (WM_window_open_temp(C, IFACE_("Blender Drivers Editor"), SPACE_GRAPH, false)) {
++  if (WM_window_open_temp(C, IFACE_("Redrob Reblend Drivers Editor"), SPACE_GRAPH, false)) {
+     ED_drivers_editor_init(C, CTX_wm_area(C));
+ 
+     /* activate driver F-Curve for the property under the cursor */
+@@ -7520,7 +7520,7 @@ static void SCREEN_OT_drivers_editor_show(wmOperatorType *ot)
+ static wmOperatorStatus info_log_show_exec(bContext *C, wmOperator *op)
+ {
+   /* changes context! */
+-  if (WM_window_open_temp(C, IFACE_("Blender Info Log"), SPACE_INFO, false)) {
++  if (WM_window_open_temp(C, IFACE_("Redrob Reblend Info Log"), SPACE_INFO, false)) {
+     return OPERATOR_FINISHED;
+   }
+   BKE_report(op->reports, RPT_ERROR, "Failed to open window!");
+diff --git a/source/blender/editors/space_file/file_draw.cc b/source/blender/editors/space_file/file_draw.cc
+index ea4f39a9644c1a98cb94dd88cf8756a2f4304aac..56e9b7ec12e754a213750461f12c539348051db4 100644
+--- a/source/blender/editors/space_file/file_draw.cc
++++ b/source/blender/editors/space_file/file_draw.cc
+@@ -2092,7 +2092,7 @@ static void file_draw_invalid_library_hint(const bContext * /*C*/,
+   int sy = v2d->tot.ymax;
+ 
+   {
+-    const char *message = RPT_("Unreadable Blender library file:");
++    const char *message = RPT_("Unreadable Redrob Reblend library file:");
+     file_draw_string_multiline(sx, sy, message, width, line_height, text_col, nullptr, &sy);
+ 
+     sy -= line_height;
+diff --git a/source/blender/editors/space_text/text_ops.cc b/source/blender/editors/space_text/text_ops.cc
+index 7cac6d44306455a7cc518ee107df9fda10ee77a5..10db1b022b98527d2578493968481c245549d3d9 100644
+--- a/source/blender/editors/space_text/text_ops.cc
++++ b/source/blender/editors/space_text/text_ops.cc
+@@ -4249,7 +4249,7 @@ static wmOperatorStatus text_resolve_conflict_invoke(bContext *C,
+       if (text->flags & TXT_ISDIRTY) {
+         /* Modified locally and externally, ah. offer more possibilities. */
+         ui::PopupMenu *pup = ui::popup_menu_begin(
+-            C, IFACE_("File Modified Outside and Inside Blender"), ICON_NONE);
++            C, IFACE_("File Modified Outside and Inside Redrob Reblend"), ICON_NONE);
+         ui::Layout &layout = *popup_menu_layout(pup);
+         PointerRNA op_ptr = layout.op(
+             op->type, IFACE_("Reload from disk (ignore local changes)"), ICON_NONE);
+@@ -4262,7 +4262,7 @@ static wmOperatorStatus text_resolve_conflict_invoke(bContext *C,
+       }
+       else {
+         ui::PopupMenu *pup = ui::popup_menu_begin(
+-            C, IFACE_("File Modified Outside Blender"), ICON_NONE);
++            C, IFACE_("File Modified Outside Redrob Reblend"), ICON_NONE);
+         ui::Layout &layout = *popup_menu_layout(pup);
+         PointerRNA op_ptr = layout.op(op->type, IFACE_("Reload from disk"), ICON_NONE);
+         RNA_enum_set(&op_ptr, "resolution", RESOLVE_RELOAD);
+@@ -4275,7 +4275,7 @@ static wmOperatorStatus text_resolve_conflict_invoke(bContext *C,
+       break;
+     case 2:
+       ui::PopupMenu *pup = ui::popup_menu_begin(
+-          C, IFACE_("File Deleted Outside Blender"), ICON_NONE);
++          C, IFACE_("File Deleted Outside Redrob Reblend"), ICON_NONE);
+       ui::Layout &layout = *popup_menu_layout(pup);
+       PointerRNA op_ptr = layout.op(op->type, IFACE_("Make text internal"), ICON_NONE);
+       RNA_enum_set(&op_ptr, "resolution", RESOLVE_MAKE_INTERNAL);
+diff --git a/source/blender/nodes/geometry/node_geometry_util.cc b/source/blender/nodes/geometry/node_geometry_util.cc
+index 38384169ab2ed61e7588a13edce50494ef085314..cf6111a6872c117c9f1f4ec4330170948400bfdf 100644
+--- a/source/blender/nodes/geometry/node_geometry_util.cc
++++ b/source/blender/nodes/geometry/node_geometry_util.cc
+@@ -111,7 +111,7 @@ void node_geo_exec_with_missing_openvdb(GeoNodeExecParams &params)
+ {
+   params.set_default_remaining_outputs();
+   params.error_message_add(NodeWarningType::Error,
+-                           TIP_("Disabled, Blender was compiled without OpenVDB"));
++                           TIP_("Disabled, Redrob Reblend was compiled without OpenVDB"));
+ }
+ 
+ void node_geo_exec_with_too_old_openvdb(GeoNodeExecParams &params)
+diff --git a/source/blender/nodes/geometry/nodes/node_geo_convex_hull.cc b/source/blender/nodes/geometry/nodes/node_geo_convex_hull.cc
+index 1f8cda9815226939456bdea1d811a6063ca111b2..75ba686fc5c4ab0255c629e0168ab9e06e6dff83 100644
+--- a/source/blender/nodes/geometry/nodes/node_geo_convex_hull.cc
++++ b/source/blender/nodes/geometry/nodes/node_geo_convex_hull.cc
+@@ -277,7 +277,7 @@ static void node_geo_exec(GeoNodeExecParams params)
+   params.set_output("Convex Hull"_ustr, std::move(geometry_set));
+ #else
+   params.error_message_add(NodeWarningType::Error,
+-                           TIP_("Disabled, Blender was compiled without Bullet"));
++                           TIP_("Disabled, Redrob Reblend was compiled without Bullet"));
+   params.set_default_remaining_outputs();
+ #endif /* WITH_BULLET */
+ }
+diff --git a/source/blender/nodes/geometry/nodes/node_geo_import_obj.cc b/source/blender/nodes/geometry/nodes/node_geo_import_obj.cc
+index dd644bb2f6833c625026a093b48470d5c7eb57d5..bf25073d2159d42cbbcb05b66a153eb19cf89f9e 100644
+--- a/source/blender/nodes/geometry/nodes/node_geo_import_obj.cc
++++ b/source/blender/nodes/geometry/nodes/node_geo_import_obj.cc
+@@ -85,7 +85,7 @@ static void node_geo_exec(GeoNodeExecParams params)
+   params.set_output("Instances"_ustr, cached_value->geometry);
+ #else
+   params.error_message_add(NodeWarningType::Error,
+-                           TIP_("Disabled, Blender was compiled without OBJ I/O"));
++                           TIP_("Disabled, Redrob Reblend was compiled without OBJ I/O"));
+   params.set_default_remaining_outputs();
+ #endif
+ }
+diff --git a/source/blender/nodes/geometry/nodes/node_geo_import_ply.cc b/source/blender/nodes/geometry/nodes/node_geo_import_ply.cc
+index 105772f983dca0d608c3fc02860451e575d2c980..820d6f92177bfc56ba9d68e5a1f5df75b9e5749c 100644
+--- a/source/blender/nodes/geometry/nodes/node_geo_import_ply.cc
++++ b/source/blender/nodes/geometry/nodes/node_geo_import_ply.cc
+@@ -77,7 +77,7 @@ static void node_geo_exec(GeoNodeExecParams params)
+ 
+ #else
+   params.error_message_add(NodeWarningType::Error,
+-                           TIP_("Disabled, Blender was compiled without PLY I/O"));
++                           TIP_("Disabled, Redrob Reblend was compiled without PLY I/O"));
+   params.set_default_remaining_outputs();
+ #endif
+ }
+diff --git a/source/blender/nodes/geometry/nodes/node_geo_import_stl.cc b/source/blender/nodes/geometry/nodes/node_geo_import_stl.cc
+index 57cf382f89db70825707dfbbf924a6dfd96d93a5..6b3bcaefd03391d9593ac565f82d85e5baa1dc6a 100644
+--- a/source/blender/nodes/geometry/nodes/node_geo_import_stl.cc
++++ b/source/blender/nodes/geometry/nodes/node_geo_import_stl.cc
+@@ -82,7 +82,7 @@ static void node_geo_exec(GeoNodeExecParams params)
+ 
+ #else
+   params.error_message_add(NodeWarningType::Error,
+-                           TIP_("Disabled, Blender was compiled without STL I/O"));
++                           TIP_("Disabled, Redrob Reblend was compiled without STL I/O"));
+   params.set_default_remaining_outputs();
+ #endif
+ }
+diff --git a/source/blender/nodes/geometry/nodes/node_geo_mesh_subdivide.cc b/source/blender/nodes/geometry/nodes/node_geo_mesh_subdivide.cc
+index 55cdf0afc5e74d162dd93716b5c3f184929c694c..41aa3b7c09d222eec9faba030ad4ab130d4ab094 100644
+--- a/source/blender/nodes/geometry/nodes/node_geo_mesh_subdivide.cc
++++ b/source/blender/nodes/geometry/nodes/node_geo_mesh_subdivide.cc
+@@ -80,7 +80,7 @@ static void node_geo_exec(GeoNodeExecParams params)
+   });
+ #else
+   params.error_message_add(NodeWarningType::Error,
+-                           TIP_("Disabled, Blender was compiled without OpenSubdiv"));
++                           TIP_("Disabled, Redrob Reblend was compiled without OpenSubdiv"));
+ #endif
+   params.set_output("Mesh"_ustr, std::move(geometry_set));
+ }
+diff --git a/source/blender/nodes/geometry/nodes/node_geo_subdivision_surface.cc b/source/blender/nodes/geometry/nodes/node_geo_subdivision_surface.cc
+index 2db41a689ad340e3bde4b71ca1d513c54e359a50..86bc7c006de6923f3ed0c9d90ad7c1c0d95a406f 100644
+--- a/source/blender/nodes/geometry/nodes/node_geo_subdivision_surface.cc
++++ b/source/blender/nodes/geometry/nodes/node_geo_subdivision_surface.cc
+@@ -242,7 +242,7 @@ static void node_geo_exec(GeoNodeExecParams params)
+   }
+ #else
+   params.error_message_add(NodeWarningType::Error,
+-                           TIP_("Disabled, Blender was compiled without OpenSubdiv"));
++                           TIP_("Disabled, Redrob Reblend was compiled without OpenSubdiv"));
+ 
+ #endif
+   params.set_output("Mesh"_ustr, std::move(geometry_set));
+diff --git a/source/blender/windowmanager/intern/wm_event_system.cc b/source/blender/windowmanager/intern/wm_event_system.cc
+index c86b8d6954a3804d9542567af196164eade7a8c6..fc8c248456b5c99858cc28004f57d1862f45cd5c 100644
+--- a/source/blender/windowmanager/intern/wm_event_system.cc
++++ b/source/blender/windowmanager/intern/wm_event_system.cc
+@@ -2883,7 +2883,7 @@ static eHandlerActionFlag wm_handler_fileselect_do(bContext *C,
+   switch (val) {
+     case EVT_FILESELECT_FULL_OPEN: {
+       ScrArea *area = ED_screen_temp_space_open(
+-          C, IFACE_("Blender File View"), SPACE_FILE, U.filebrowser_display_type, true);
++          C, IFACE_("Redrob Reblend File View"), SPACE_FILE, U.filebrowser_display_type, true);
+       if (!area) {
+         BKE_report(&wm->runtime->reports, RPT_ERROR, "Failed to open file browser!");
+         return WM_HANDLER_BREAK;
+diff --git a/source/blender/windowmanager/intern/wm_files.cc b/source/blender/windowmanager/intern/wm_files.cc
+index f3db41d9f4a34b22e4ad7640ffc2952198a100e7..36ebfd6e1edd31e967a1217e07ad7228c5e3c3fb 100644
+--- a/source/blender/windowmanager/intern/wm_files.cc
++++ b/source/blender/windowmanager/intern/wm_files.cc
+@@ -2572,7 +2572,7 @@ static wmOperatorStatus wm_homefile_write_invoke(bContext *C,
+     return WM_operator_confirm_ex(C,
+                                   op,
+                                   IFACE_("Overwrite Startup File"),
+-                                  IFACE_("Blender will start next time as it is now."),
++                                  IFACE_("Redrob Reblend will start next time as it is now."),
+                                   IFACE_("Overwrite"),
+                                   ui::AlertIcon::Question,
+                                   false);
+@@ -2797,7 +2797,7 @@ static wmOperatorStatus wm_userpref_read_invoke(bContext *C,
+                         IFACE_(display_name));
+   }
+   else {
+-    title = IFACE_("Load Factory Blender Preferences");
++    title = IFACE_("Load Factory Redrob Reblend Preferences");
+   }
+ 
+   return WM_operator_confirm_ex(
+@@ -4672,10 +4672,10 @@ static void file_overwrite_detailed_info_show(ui::Layout &parent_layout, Main *b
+     char message_line1[256];
+     char message_line2[256];
+     SNPRINTF(message_line1,
+-             RPT_("This file was saved by a newer version of Blender (%s)."),
++             RPT_("This file was saved by a newer version of Redrob Reblend (%s)."),
+              writer_ver_str);
+     SNPRINTF(message_line2,
+-             RPT_("Saving it with this Blender (%s) may cause loss of data."),
++             RPT_("Saving it with this Redrob Reblend (%s) may cause loss of data."),
+              current_ver_str);
+     layout.label(message_line1, ICON_NONE);
+     layout.label(message_line2, ICON_NONE);
+@@ -4686,7 +4686,7 @@ static void file_overwrite_detailed_info_show(ui::Layout &parent_layout, Main *b
+       layout.separator(1.4f);
+     }
+ 
+-    layout.label(RPT_("This file is managed by the Blender asset system. It can only be"),
++    layout.label(RPT_("This file is managed by the Redrob Reblend asset system. It can only be"),
+                  ICON_NONE);
+     layout.label(RPT_("saved as a new, regular file."), ICON_NONE);
+   }
+@@ -4797,11 +4797,11 @@ static ui::Block *block_create_save_file_overwrite_dialog(bContext *C, ARegion *
+                  ICON_NONE,
+                  true,
+                  false);
+-      uiItemL_ex(&layout, RPT_("with an older Blender version?"), ICON_NONE, true, false);
++      uiItemL_ex(&layout, RPT_("with an older Redrob Reblend version?"), ICON_NONE, true, false);
+     }
+     else {
+       uiItemL_ex(
+-          &layout, RPT_("Overwrite file with an older Blender version?"), ICON_NONE, true, false);
++          &layout, RPT_("Overwrite file with an older Redrob Reblend version?"), ICON_NONE, true, false);
+     }
+   }
+   else if (bmain->is_asset_edit_file) {

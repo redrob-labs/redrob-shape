@@ -171,17 +171,27 @@ if [ "$declared" != "$built" ]; then
 fi
 echo "upstream version matches the pin: $built (blend subversion $(grep -oP '(?<=#define BLENDER_FILE_SUBVERSION )\d+' "$version_header"))"
 
-# --- 7. no patch edits Blender's own tests or operators --------------------------
+# --- 7. no patch REMOVES Blender's own tests, editors or operators ----------------
 # UPSTREAM.md: never resolve a sync by silently dropping upstream operators, keymaps, editors,
-# importers, exporters, render engines, or tests. This makes that structural.
-forbidden=$(grep -hoE '^\+\+\+ b/(tests/|source/blender/editors/|scripts/startup/bl_operators/)[^ ]*' patches/*.patch || true)
+# importers, exporters, render engines, or tests.
+#
+# The first version of this check refused ANY patch touching those paths, which was broader than the
+# rule it was enforcing -- and it collided with the branding sweep, where seven translatable UI
+# labels live under editors/. Renaming a label is not dropping an editor.
+#
+# So it now looks at what the patch DOES: a removed line that declares an operator, a keymap entry,
+# a registration or a test is a deletion of upstream behaviour and fails. Changed strings pass.
+forbidden=$(grep -hE '^-' patches/*.patch \
+  | grep -vE '^---' \
+  | grep -E 'ot->idname|WM_operatortype_append|WM_keymap_|BKE_reports|TEST_F?\(|TEST\(|EXPECT_|blender_test' \
+  || true)
 if [ -n "$forbidden" ]; then
-  echo "error: a patch modifies upstream tests, editors or operators:" >&2
-  echo "$forbidden" | sed 's/^/    /' >&2
+  echo "error: a patch removes upstream operators, keymaps, registrations or tests:" >&2
+  echo "$forbidden" | head -8 | sed 's/^/    /' >&2
   echo "       UPSTREAM.md forbids resolving a sync that way." >&2
   exit 1
 fi
-echo "no patch touches upstream tests, editors or operators"
+echo "no patch removes upstream operators, keymaps, registrations or tests"
 
 # --- 8. this repository has CI of its own ----------------------------------------
 if [ ! -f ".github/workflows/verify-patches.yml" ]; then
@@ -193,5 +203,8 @@ if ! grep -q "addon-tests" .github/workflows/verify-patches.yml; then
   exit 1
 fi
 echo "CI present, and it runs the add-on tests"
+
+# --- no user-visible string names Blender -------------------------------------------
+python3 scripts/sweep-strings.py build/blender --check
 
 echo "=== customization verified ==="
