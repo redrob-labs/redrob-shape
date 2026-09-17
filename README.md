@@ -1,6 +1,7 @@
-# Redrob Reblend — patch-based customization of Blender
+# Redrob Reblend: patch-based customization of Blender
 
-A compatibility-first, agentic Blender distribution. This repository holds **only our changes**.
+Redrob Reblend is a compatibility-first, agentic Blender distribution with an AI agent sidecar.
+This repository holds **only our changes**.
 Upstream Blender is fetched at build time, never vendored, so `git log` here shows Reblend work
 rather than being buried under upstream history.
 
@@ -22,7 +23,7 @@ toolchain and the `redrob_reblend` config preset.
 
 ## Why this shape
 
-The previous shape carried Blender's **entire history** — 164,952 commits, 1.6 GB, root commit
+The previous shape carried Blender's **entire history**: 164,952 commits, 1.6 GB, root commit
 `12315f4d0e0` "Initial revision" (Hans Lambermont, 2002-10-12), with authentic Blender release
 hashes. Unlike the sibling `redrob-cad`, nothing was broken about it: a real merge base existed,
 `UPSTREAM.md` recorded the downstream baseline, and upstream could have been merged as soon as a
@@ -34,23 +35,23 @@ the log and every clone paid 1.6 GB for history that upstream already hosts.
 | Kind | Count | Where it lives now |
 |---|---|---|
 | Files only we have | 43 | `overlay/` |
-| Upstream files we modify | 6 | `patches/` — 4 patches, grouped by intent |
-| Upstream files we delete | 0 | — |
+| Upstream files we modify | 6 | `patches/`: 4 patches, grouped by intent |
+| Upstream files we delete | 0 | none |
 
 Blender's history is preserved on `archive/blender-fork-history` and remains available from
 upstream, so this shape discards nothing that cannot be fetched again.
 
 ## What is ours
 
-- `intern/redrob_agent/` — the agent sidecar, in Rust, built by CMake behind `WITH_REDROB_AGENT`.
+- `intern/redrob_agent/`: the agent sidecar, in Rust, built by CMake behind `WITH_REDROB_AGENT`.
   The option defaults to OFF; the `redrob_reblend` cmake preset is what turns it on, which the gate
   asserts, because otherwise a build silently ships with no agent and no error.
-- `scripts/addons_core/redrob_reblend/` — the Blender add-on: panels, operators, runtime,
+- `scripts/addons_core/redrob_reblend/`: the Blender add-on: panels, operators, runtime,
   protocol, tools, theme, state, context, and 18 unit tests.
 
 ## Branding, and the line it does not cross
 
-`patches/0004` renames the **application shell** — the window title and the desktop entry — to
+`patches/0004` renames the **application shell** (the window title and the desktop entry) to
 Redrob Reblend. Blender is GPL and its trademark policy asks that a modified redistribution not
 present itself as official Blender, so renaming the shell is what compliance looks like, not an
 optional flourish.
@@ -70,7 +71,7 @@ Blender's 3D core keeps its own names throughout. What is rebranded is the produ
 
 ## Git LFS: the fetched tree has asset pointers, not assets
 
-Blender tracks its bundled assets — `assets/brushes/*.blend` and similar — in Git LFS, and **the
+Blender tracks its bundled assets (`assets/brushes/*.blend` and similar) in Git LFS, and **the
 GitHub mirror cannot serve those objects.** A plain checkout fails outright:
 
 ```
@@ -82,15 +83,15 @@ fatal: assets/brushes/…blend: smudge filter lfs failed
 Blender's canonical remote is `projects.blender.org` and its LFS storage lives there. So
 `scripts/fetch-upstream.sh` skips the smudge filter and leaves LFS pointers as pointers.
 
-That is sufficient for everything this repository does with the tree — apply patches, copy the
-overlay, assert the result — because no patch or overlay file touches an LFS-tracked asset. A full
+That is sufficient for everything this repository does with the tree (apply patches, copy the
+overlay, assert the result), because no patch or overlay file touches an LFS-tracked asset. A full
 Blender **build** does need them, and that means `git lfs pull` against a remote that can actually
 serve them.
 
 Worth recording how this was found, because it is the general lesson: it passed locally and failed
 in CI. This host has no `git-lfs` installed, so the filter never ran at all; the runner has it. A
 machine without the tool cannot tell a working skip from a missing tool, which is why the gate
-asserts the *outcome* — that the pointer is still a pointer — rather than trusting the config.
+asserts the *outcome* (that the pointer is still a pointer) rather than trusting the config.
 
 ## Bumping upstream
 
@@ -100,12 +101,12 @@ asserts the *outcome* — that the pointer is still a pointer — rather than tr
    new upstream and commit both together.
 
 The gate discards and refetches before applying anything. Verifying against a tree that is already
-half-patched proves nothing — a stale patch would report success because its changes were already
+half-patched proves nothing: a stale patch would report success because its changes were already
 there.
 
 ## CI
 
 This repository had no GitHub CI: the add-on's 18 tests existed with no workflow to execute them,
 and Blender's own pipeline is Gitea-based and belongs to upstream. Now `verify-patches.yml` runs
-the gate, and a second job runs the add-on tests that need no Blender runtime — straight out of
+the gate, and a second job runs the add-on tests that need no Blender runtime, straight out of
 `overlay/`, without fetching upstream at all.
