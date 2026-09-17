@@ -90,6 +90,14 @@ The gate enforces both structurally.
   required reviews, admin enforcement off.
 - **Required checks:** `Add-on unit tests` and `Patches apply to pinned upstream`.
 
+**Working branch names are `<type>/<short-slug>`, and the allowed types are `feat`, `fix`, `docs`,
+`chore`, `test`, `refactor`, `perf`, `hotfix`, `release` and `sync`.**
+`.github/workflows/gitflow.yml` now enforces that on every pull request, and its second job fails a
+push to `main` that `develop` does not yet contain. Both rules were already prose and both were
+broken anyway: every branch in this repository's history so far carries a `kiro/` prefix that no
+document defines, and a name says what the change is, not which tool made it. `develop` and `main`
+are exempt because a promotion or a back-merge pull request is not named after a type.
+
 **Live caveat:** pull request #7 is open from another workstream and targets `main`, not `develop`.
 When it merges, `main` will be ahead of `develop` and needs a back-merge before anything else is
 based on `develop`. That pull request also adds a `CONTRIBUTING.md` describing a `main`-only branch
@@ -125,7 +133,7 @@ patches, 42 modified files and 73 tests, so count from the tree rather than the 
 
 ## CI
 
-One workflow, `.github/workflows/verify-patches.yml`.
+Two workflows, `.github/workflows/verify-patches.yml` and `.github/workflows/gitflow.yml`.
 
 - Triggers: `pull_request` with **no branch filter**, so it runs on every pull request including
   those into `develop`; `push` restricted to `main`; and `workflow_dispatch`. Note the gap: a merge
