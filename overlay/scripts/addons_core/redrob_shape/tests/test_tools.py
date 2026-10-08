@@ -32,19 +32,25 @@ def _object(name):
 def _load_tools(objects, materials=()):
     bpy = types.ModuleType("bpy")
     bpy.data = SimpleNamespace(objects=_Ids(objects), materials=_Ids(materials))
-    previous = sys.modules.get("bpy")
+    directory = Path(__file__).resolve().parents[1]
+    package = types.ModuleType("redrob_shape_tools_pkg")
+    package.__path__ = [str(directory)]
+    names = ("bpy", "redrob_shape_tools_pkg", "redrob_shape_tools_pkg.catalog", "redrob_shape_tools_pkg.tools")
+    previous = {name: sys.modules.get(name) for name in names}
     sys.modules["bpy"] = bpy
+    sys.modules["redrob_shape_tools_pkg"] = package
     try:
-        path = Path(__file__).resolve().parents[1] / "tools.py"
-        spec = importlib.util.spec_from_file_location("redrob_shape_tools_test", path)
+        spec = importlib.util.spec_from_file_location("redrob_shape_tools_pkg.tools", directory / "tools.py")
         module = importlib.util.module_from_spec(spec)
+        sys.modules["redrob_shape_tools_pkg.tools"] = module
         spec.loader.exec_module(module)
         return module
     finally:
-        if previous is None:
-            del sys.modules["bpy"]
-        else:
-            sys.modules["bpy"] = previous
+        for name, old in previous.items():
+            if old is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = old
 
 
 class ToolValidationTests(unittest.TestCase):
@@ -165,6 +171,84 @@ class ToolValidationTests(unittest.TestCase):
         self.assertEqual(material["metallic"], 0.0)
         self.assertEqual(material["roughness"], 0.5)
         self.assertNotIn("name", payload["actions"][0]["arguments"])
+
+
+class SceneRuleTests(unittest.TestCase):
+    """What only Blender can know: the plan's names must exist, in order, with the right type."""
+
+    def setUp(self):
+        cube = _object("Cube")
+        cube.modifiers = [SimpleNamespace(name="Bevel")]
+        lamp = _object("Lamp")
+        lamp.type = 'LIGHT'
+        self.objects = [cube, _object("Cutter"), lamp]
+        self.tools = _load_tools(self.objects)
+        self.context = SimpleNamespace(mode='OBJECT', scene=SimpleNamespace(objects=_Ids(self.objects)))
+
+    def _check(self, *actions):
+        plan = {"summary": "s", "actions": [{"type": t, "arguments": a} for t, a in actions]}
+        return self.tools.validate_plan(plan, self.context, {"Cube", "Cutter", "Lamp"})
+
+    def _refused(self, *actions):
+        with self.assertRaises(self.tools.PlanValidationError) as raised:
+            self._check(*actions)
+        return str(raised.exception)
+
+    def test_mesh_tools_refuse_other_object_types(self):
+        message = self._refused(("extrude_faces", {"object": "Lamp", "faces": "+z", "distance": 1.0}))
+        self.assertIn("step 1", message)
+        self.assertIn("needs a mesh", message)
+        self._check(("transform_object", {"object": "Lamp", "location": [0.0, 0.0, 1.0]}))
+
+    def test_boolean_needs_two_different_meshes(self):
+        self._check(("boolean", {"object": "Cube", "with": "Cutter", "operation": "difference"}))
+        self._refused(("boolean", {"object": "Cube", "with": "Cube", "operation": "union"}))
+        self._refused(("boolean", {"object": "Cube", "with": "Lamp", "operation": "union"}))
+
+    def test_apply_modifier_names_one_that_exists_by_then(self):
+        self._check(("apply_modifier", {"object": "Cube", "modifier": "Bevel"}))
+        self._refused(("apply_modifier", {"object": "Cube", "modifier": "Redrob Shape Bevel"}))
+        self._check(
+            ("add_modifier", {"object": "Cube", "modifier": "bevel", "width": 0.1, "segments": 2}),
+            ("apply_modifier", {"object": "Cube", "modifier": "Redrob Shape Bevel"}),
+        )
+        message = self._refused(
+            ("apply_modifier", {"object": "Cube", "modifier": "Bevel"}),
+            ("apply_modifier", {"object": "Cube", "modifier": "Bevel"}),
+        )
+        self.assertIn("step 2", message)
+
+    def test_a_deleted_or_renamed_object_is_gone_for_later_steps(self):
+        self._refused(
+            ("delete_object", {"object": "Cutter"}),
+            ("transform_object", {"object": "Cutter", "location": [1.0, 0.0, 0.0]}),
+        )
+        self._refused(
+            ("rename_object", {"object": "Cube", "name": "Box"}),
+            ("transform_object", {"object": "Cube", "location": [1.0, 0.0, 0.0]}),
+        )
+        self._check(
+            ("rename_object", {"object": "Cube", "name": "Box"}),
+            ("subdivide_mesh", {"object": "Box", "cuts": 1}),
+        )
+
+    def test_new_names_must_be_free(self):
+        self._refused(("rename_object", {"object": "Cube", "name": "Cutter"}))
+        self._refused(("duplicate_object", {"object": "Cube", "name": "Lamp"}))
+        self._check(
+            ("duplicate_object", {"object": "Cube", "name": "Cube Copy"}),
+            ("extrude_faces", {"object": "Cube Copy", "faces": "-x", "distance": 0.5}),
+        )
+
+    def test_a_duplicate_keeps_the_sources_modifiers_and_type(self):
+        self._check(
+            ("duplicate_object", {"object": "Cube", "name": "Twin"}),
+            ("apply_modifier", {"object": "Twin", "modifier": "Bevel"}),
+        )
+        self._refused(
+            ("duplicate_object", {"object": "Lamp", "name": "Lamp 2"}),
+            ("shade_smooth", {"object": "Lamp 2", "smooth": True}),
+        )
 
 
 if __name__ == "__main__":

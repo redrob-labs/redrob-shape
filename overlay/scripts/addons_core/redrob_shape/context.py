@@ -42,7 +42,7 @@ def _object_summary(obj, selected):
     if 0 <= active_material_index < len(effective_materials):
         slot = effective_materials[active_material_index]
         active_material = slot.name[:128] if slot is not None else None
-    return {
+    summary = {
         "name": obj.name[:128],
         "type": obj.type,
         "editable": obj.library is None and getattr(data, "library", None) is None,
@@ -63,14 +63,23 @@ def _object_summary(obj, selected):
         "modifiers": modifiers,
         "materials": materials,
     }
+    # Mesh size, so the model can judge "more detail" and the revision sees an edited mesh.
+    vertices = getattr(data, "vertices", None) if obj.type == 'MESH' else None
+    if vertices is not None:
+        summary["mesh"] = {"vertices": len(vertices), "faces": len(getattr(data, "polygons", ()))}
+    return summary
 
 
 def _canonical(summary):
     return json.dumps(summary, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def build_scene_context(context):
-    """Return a byte-bounded scene summary and its stable revision."""
+def build_scene_context(context, scope='SCENE'):
+    """Return a byte-bounded scene summary and its stable revision.
+
+    With ``scope='SELECTION'`` the summary also names the objects the user chose to shape, as
+    ``target``; ``target_objects`` gives the same set for checking the plan.
+    """
     selected = {obj.name for obj in context.selected_objects}
     active = context.active_object.name if context.active_object else None
     objects = list(context.scene.objects)
@@ -100,6 +109,15 @@ def build_scene_context(context):
             break
 
     summary["objects_truncated"] = len(summary["objects"]) < len(objects)
+    if scope == 'SELECTION':
+        summary["target"] = list(summary["selected_objects"])
     canonical = _canonical(summary)
     revision = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return summary, revision
+
+
+def target_objects(summary):
+    """The objects a plan built from this summary may touch (besides those it creates)."""
+    if "target" in summary:
+        return set(summary["target"])
+    return {item["name"] for item in summary.get("objects", ())}

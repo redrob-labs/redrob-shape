@@ -15,10 +15,10 @@ bl_info = {
     "category": "3D View",
 }
 
-from . import connection_ui, operators, panels, runtime, state
+from . import connection_ui, i18n, operators, panels, runtime, state
 
 # connection_ui registers the AddonPreferences, so it goes before the panels that read them.
-_MODULES = (state, connection_ui, operators, panels, runtime)
+_MODULES = (i18n, state, connection_ui, operators, panels, runtime)
 
 
 def register():

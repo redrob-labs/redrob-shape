@@ -25,12 +25,21 @@ def _load_runtime():
     bpy = types.ModuleType("bpy")
     bpy.app = SimpleNamespace(binary_path="", timers=SimpleNamespace())
     bpy.context = SimpleNamespace(window_manager=SimpleNamespace(windows=[]))
+    i18n = types.ModuleType("redrob_shape.i18n")
+    i18n.iface_ = lambda message: message
+    conversation_spec = importlib.util.spec_from_file_location(
+        "redrob_shape.conversation", Path(__file__).resolve().parents[1] / "conversation.py"
+    )
+    conversation = importlib.util.module_from_spec(conversation_spec)
+    conversation_spec.loader.exec_module(conversation)
 
     replacements = {
         "bpy": bpy,
         "redrob_shape": package,
         "redrob_shape.protocol": protocol,
         "redrob_shape.tools": tools,
+        "redrob_shape.i18n": i18n,
+        "redrob_shape.conversation": conversation,
     }
     previous = {name: sys.modules.get(name) for name in replacements}
     sys.modules.update(replacements)
@@ -225,6 +234,48 @@ class RuntimeRaceTests(unittest.TestCase):
         self.assertEqual(state.status, 'IDLE')
         self.assertEqual(state.request_id, "")
         self.assertNotIn(plan_id, agent.cancelled_requests)
+
+    def test_a_plan_goes_up_for_review_and_joins_the_conversation(self):
+        runtime_module = _load_runtime()
+        agent = runtime_module.AgentRuntime()
+
+        class Steps(list):
+            def add(self):
+                self.append(SimpleNamespace(enabled=True))
+
+        earlier = {"summary": "A cube", "actions": [{"type": "x", "arguments": {}}]}
+        history = runtime_module.conversation.add_turn([], "Add a cube", earlier)
+        state = SimpleNamespace(
+            status='WORKING',
+            status_message="Planning",
+            request_id="plan-2",
+            scene_revision="revision",
+            plan_json="",
+            allowed_objects_json="[]",
+            plan_summary="",
+            plan_problem="",
+            response_text="",
+            sidecar_available=True,
+            steps=Steps(),
+            history_json=runtime_module.conversation.dump(history),
+        )
+        agent.requests["plan-2"] = {
+            "method": "plan",
+            "scene_revision": "revision",
+            "captured_objects": ["Cube"],
+            "instruction": "Rounder",
+        }
+        plan = {"summary": "Bevel it", "actions": [{"type": "a", "arguments": {}}, {"type": "b", "arguments": {}}]}
+        context = SimpleNamespace(window_manager=SimpleNamespace(redrob_shape=state))
+        agent._handle_event(context, {"version": 1, "id": "plan-2", "event": "success", "result": plan})
+
+        self.assertEqual(state.status, 'READY')
+        self.assertEqual(len(state.steps), 2)
+        turns = runtime_module.conversation.load(state.history_json)
+        self.assertEqual([t["outcome"] for t in turns], ["discarded", "pending"])
+        self.assertEqual(turns[-1]["instruction"], "Rounder")
+        self.assertEqual(turns[-1]["plan"], plan)
+        self.assertNotIn("plan", turns[0])
 
 
 def _connection_state(**overrides):

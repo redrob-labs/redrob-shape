@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::api::{ApiError, RedrobClient};
+use crate::conversation::{self, Turn};
 use crate::credentials::Credentials;
 use crate::device::{self, Authorization, DeviceClient, DeviceError, Grant};
 use crate::validation::Plan;
@@ -88,13 +89,14 @@ impl Agent {
         key: &str,
         instruction: &str,
         context: &Value,
+        history: &[Turn],
     ) -> Result<Plan, AgentError> {
         let client = self
             .client
             .as_ref()
             .ok_or_else(|| AgentError::Unavailable(self.unavailable_reason()))?;
         client
-            .plan(key, instruction, context)
+            .plan(key, instruction, context, history)
             .await
             .map_err(Into::into)
     }
@@ -139,6 +141,9 @@ struct PlanParams {
     instruction: String,
     #[serde(default)]
     context: Value,
+    /// Earlier turns of this conversation, oldest first. Absent for a first request.
+    #[serde(default)]
+    history: Vec<Turn>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -345,6 +350,14 @@ where
                     .await?;
                     continue;
                 }
+                if let Err(error) = conversation::validate(&params.history) {
+                    send_event(
+                        &event_tx,
+                        Event::error(Some(id), "invalid_params", error.to_string(), false),
+                    )
+                    .await?;
+                    continue;
+                }
                 if let Some(reason) = &agent.unavailable {
                     send_event(
                         &event_tx,
@@ -383,7 +396,7 @@ where
                 tasks.spawn(async move {
                     let outcome = tokio::select! {
                         _ = token.cancelled() => Err(AgentError::Cancelled),
-                        result = task_agent.plan(&key, &params.instruction, &params.context) => result,
+                        result = task_agent.plan(&key, &params.instruction, &params.context, &params.history) => result,
                     };
                     let event = match outcome {
                         Ok(plan) => match serde_json::to_value(plan) {
@@ -834,6 +847,23 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["error"]["code"], "missing_api_key");
         assert_eq!(events[0]["error"]["retryable"], false);
+    }
+
+    #[tokio::test]
+    async fn a_plan_request_carries_a_checked_history() {
+        // A well-formed history gets as far as the key check, like a first request.
+        let events = exchange(
+            "{\"version\":1,\"id\":\"plan-2\",\"method\":\"plan\",\"params\":{\"instruction\":\"Rounder\",\"history\":[{\"instruction\":\"Add a cube\",\"summary\":\"A cube\",\"outcome\":\"applied\"}]}}\n",
+        )
+        .await;
+        assert_eq!(events[0]["error"]["code"], "missing_api_key");
+
+        // A plan riding on a turn that is not pending is refused before anything else.
+        let events = exchange(
+            "{\"version\":1,\"id\":\"plan-3\",\"method\":\"plan\",\"params\":{\"instruction\":\"Rounder\",\"history\":[{\"instruction\":\"Add a cube\",\"summary\":\"A cube\",\"outcome\":\"applied\",\"plan\":{\"summary\":\"x\",\"actions\":[]}}]}}\n",
+        )
+        .await;
+        assert_eq!(events[0]["error"]["code"], "invalid_params");
     }
 
     #[test]

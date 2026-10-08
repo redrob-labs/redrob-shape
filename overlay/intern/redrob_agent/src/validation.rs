@@ -438,6 +438,12 @@ fn build_system_prompt() -> String {
          Never emit Python, shell commands, file or network operations, or any tool not listed here.",
         catalog.limits.max_name_bytes, catalog.face_selector_degrees
     );
+    let _ = writeln!(
+        prompt,
+        "When the scene context has a \"target\" list, the user chose to shape only those objects: \
+         change only them and objects this plan creates."
+    );
+    let _ = writeln!(prompt, "{}", crate::conversation::PROMPT_RULES);
     prompt
 }
 

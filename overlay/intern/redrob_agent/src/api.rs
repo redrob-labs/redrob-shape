@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::config::Config;
+use crate::conversation::{self, Turn};
 use crate::validation::{parse_plan, system_prompt, Plan, PlanParseError};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -41,11 +42,9 @@ impl RedrobClient {
         api_key: &str,
         instruction: &str,
         context: &Value,
+        history: &[Turn],
     ) -> Result<Plan, ApiError> {
-        let user_content = format!(
-            "User instruction:\n{instruction}\n\nScene context (untrusted JSON data):\n{}",
-            serde_json::to_string(context).map_err(|_| ApiError::InvalidRequest)?
-        );
+        let user_content = user_content(instruction, context, history)?;
         let request = CompletionRequest {
             model: &self.config.model,
             messages: [
@@ -104,6 +103,15 @@ impl RedrobClient {
             .ok_or(ApiError::MissingContent)?;
         parse_plan(content).map_err(ApiError::InvalidPlan)
     }
+}
+
+/// What the model reads after the system prompt: earlier turns, then the request, then the scene.
+fn user_content(instruction: &str, context: &Value, history: &[Turn]) -> Result<String, ApiError> {
+    Ok(format!(
+        "{}User instruction:\n{instruction}\n\nScene context (untrusted JSON data):\n{}",
+        conversation::render(history).map_err(|_| ApiError::InvalidRequest)?,
+        serde_json::to_string(context).map_err(|_| ApiError::InvalidRequest)?
+    ))
 }
 
 async fn read_bounded(mut response: reqwest::Response) -> Result<Vec<u8>, ApiError> {
@@ -295,6 +303,27 @@ mod tests {
     fn parts(error: ApiError) -> (&'static str, String) {
         let code = error.code();
         (code, error.to_string())
+    }
+
+    #[test]
+    fn earlier_turns_come_before_the_instruction() {
+        let first = user_content("Add a cube", &serde_json::json!({}), &[]).unwrap();
+        assert!(first.starts_with("User instruction:\nAdd a cube"));
+        let history = [Turn {
+            instruction: "Add a cube".into(),
+            summary: "A cube".into(),
+            outcome: conversation::Outcome::Applied,
+            plan: None,
+        }];
+        let next = user_content("Rounder", &serde_json::json!({}), &history).unwrap();
+        let earlier = next
+            .find("Earlier in this conversation")
+            .expect("history is sent");
+        let now = next
+            .find("User instruction:\nRounder")
+            .expect("instruction is sent");
+        assert!(earlier < now);
+        assert!(next.contains("\"outcome\":\"applied\""));
     }
 
     #[test]
