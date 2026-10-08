@@ -39,7 +39,7 @@ impl RedrobClient {
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("redrob-reblend-agent/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("redrob-shape-agent/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| ApiError::ClientConfiguration)?;
         Ok(Self { client, config })

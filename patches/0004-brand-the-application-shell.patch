@@ -1,5 +1,5 @@
 diff --git a/release/darwin/Blender.app/Contents/Info.plist b/release/darwin/Blender.app/Contents/Info.plist
-index 12bb271debf677ace6b66ed075ae8f5deaf10eb3..d65dff535c654c4e86e86a47437aee3423eeb6d7 100644
+index 12bb271debf677ace6b66ed075ae8f5deaf10eb3..ba8f1b6e9d39115892638fcd5f8cd3bae426985f 100644
 --- a/release/darwin/Blender.app/Contents/Info.plist
 +++ b/release/darwin/Blender.app/Contents/Info.plist
 @@ -34,7 +34,7 @@
@@ -16,7 +16,7 @@ index 12bb271debf677ace6b66ed075ae8f5deaf10eb3..d65dff535c654c4e86e86a47437aee34
  	<string>6.0</string>
  	<key>CFBundleName</key>
 -	<string>Blender</string>
-+	<string>Redrob Reblend</string>
++	<string>Redrob Shape</string>
  	<key>CFBundlePackageType</key>
  	<string>APPL</string>
  	<key>CFBundleShortVersionString</key>
@@ -25,13 +25,13 @@ index 12bb271debf677ace6b66ed075ae8f5deaf10eb3..d65dff535c654c4e86e86a47437aee34
  	<true/>
  	<key>NSMicrophoneUsageDescription</key>
 -	<string>A Blender extension wants to access your microphone.</string>
-+	<string>A Redrob Reblend extension wants to access your microphone.</string>
++	<string>A Redrob Shape extension wants to access your microphone.</string>
  	<key>NSCameraUsageDescription</key>
 -	<string>A Blender extension wants to access your camera.</string>
-+	<string>A Redrob Reblend extension wants to access your camera.</string>
++	<string>A Redrob Shape extension wants to access your camera.</string>
  	<key>NSAudioCaptureUsageDescription</key>
 -	<string>A Blender extension wants to capture your system audio.</string>
-+	<string>A Redrob Reblend extension wants to capture your system audio.</string>
++	<string>A Redrob Shape extension wants to capture your system audio.</string>
  	<key>UTExportedTypeDeclarations</key>
  	<array>
  		<dict>
@@ -60,13 +60,13 @@ index 5aa89eba6510d4391e75a34ae856fe9033df710b..3c3fb39f23ae202782999e20b5f3c005
 +  <path d="m291 183 49 49" fill="none" stroke="#fff" stroke-width="17"/>
 +</svg>
 diff --git a/release/freedesktop/blender.desktop b/release/freedesktop/blender.desktop
-index 06cd8bc2fb61480fefcc167249d490654a119a7c..31f906c7db0898d66f967ac1af9e1f74d1459181 100644
+index 06cd8bc2fb61480fefcc167249d490654a119a7c..2acd77639f709c06dd3e74711e2b6e491ea86ddf 100644
 --- a/release/freedesktop/blender.desktop
 +++ b/release/freedesktop/blender.desktop
 @@ -1,5 +1,5 @@
  [Desktop Entry]
 -Name=Blender
-+Name=Redrob Reblend
++Name=Redrob Shape
  GenericName=3D modeler
  GenericName[ar]=3D المنمذج ثلاثي الأبعاد
  GenericName[ca]=Modelador 3D
@@ -74,8 +74,7 @@ index 06cd8bc2fb61480fefcc167249d490654a119a7c..31f906c7db0898d66f967ac1af9e1f74
  Comment[zh_CN]=3D 建模、动画、渲染和后期制作
  Comment[zh_TW]=3D 模型、動畫、算圖和後製
  Keywords=3d;cg;modeling;animation;painting;sculpting;texturing;video editing;video tracking;rendering;render engine;cycles;python;
--Exec=blender %f
-+Exec=reblend %f
+ Exec=blender %f
  Icon=blender
  Terminal=false
  Type=Application
@@ -83,7 +82,7 @@ index 06cd8bc2fb61480fefcc167249d490654a119a7c..31f906c7db0898d66f967ac1af9e1f74
  Categories=Graphics;3DGraphics;
  MimeType=application/x-blender;
 -StartupWMClass=Blender
-+StartupWMClass=Redrob Reblend
++StartupWMClass=Redrob Shape
 diff --git a/release/freedesktop/icons/scalable/apps/blender.svg b/release/freedesktop/icons/scalable/apps/blender.svg
 index 26611f3827ba518154214c5734efc212f8b2f7e2..3c3fb39f23ae202782999e20b5f3c005ee64c1a7 100644
 --- a/release/freedesktop/icons/scalable/apps/blender.svg
@@ -110,7 +109,7 @@ index ce2e1c365f8a0fee77757b252570c1bdf98b8564..7628faa9944e602db9ef22446139898e
 +  <path d="m291 183 49 49" fill="none" stroke="#000" stroke-width="22"/>
  </svg>
 diff --git a/source/blender/windowmanager/intern/wm_operators.cc b/source/blender/windowmanager/intern/wm_operators.cc
-index 27d6e7df03bc3ad890018829bc2432234a68a67c..911e747bef241e47f179083d623292ba53ddb2ec 100644
+index 27d6e7df03bc3ad890018829bc2432234a68a67c..b0592b87d394edfa823e2fa44a52a87bfa19bbc8 100644
 --- a/source/blender/windowmanager/intern/wm_operators.cc
 +++ b/source/blender/windowmanager/intern/wm_operators.cc
 @@ -2483,9 +2483,9 @@ static wmOperatorStatus wm_exit_blender_invoke(bContext *C,
@@ -118,15 +117,15 @@ index 27d6e7df03bc3ad890018829bc2432234a68a67c..911e747bef241e47f179083d623292ba
  static void WM_OT_quit_blender(wmOperatorType *ot)
  {
 -  ot->name = "Quit Blender";
-+  ot->name = "Quit Redrob Reblend";
++  ot->name = "Quit Redrob Shape";
    ot->idname = "WM_OT_quit_blender";
 -  ot->description = "Quit Blender";
-+  ot->description = "Quit Redrob Reblend";
++  ot->description = "Quit Redrob Shape";
  
    ot->invoke = wm_exit_blender_invoke;
    ot->exec = wm_exit_blender_exec;
 diff --git a/source/blender/windowmanager/intern/wm_playanim.cc b/source/blender/windowmanager/intern/wm_playanim.cc
-index c4e00447d3abab4c5405eab39714b40bf1d2173b..c452fc963e494a0a184ba4ea4479ee9b750408b2 100644
+index c4e00447d3abab4c5405eab39714b40bf1d2173b..85a5303f6f4d385afef32e5ac9c7948055530f5d 100644
 --- a/source/blender/windowmanager/intern/wm_playanim.cc
 +++ b/source/blender/windowmanager/intern/wm_playanim.cc
 @@ -103,7 +103,7 @@ static CLG_LogRef LOG = {"image"};
@@ -134,12 +133,12 @@ index c4e00447d3abab4c5405eab39714b40bf1d2173b..c452fc963e494a0a184ba4ea4479ee9b
  /** Used in user viable messages. */
  static const char *message_prefix = "Animation Player";
 -static const char *playanim_window_title = "Blender Animation Player";
-+static const char *playanim_window_title = "Redrob Reblend Animation Player";
++static const char *playanim_window_title = "Redrob Shape Animation Player";
  
  struct PlayState;
  static void playanim_window_zoom(PlayState &ps, const float zoom_offset);
 diff --git a/source/blender/windowmanager/intern/wm_splash_screen.cc b/source/blender/windowmanager/intern/wm_splash_screen.cc
-index 518296c946fbae055890ee482820839d448af42b..9689bf0e81ce8529b6c0f4b330edc48f13abe568 100644
+index 518296c946fbae055890ee482820839d448af42b..1687886ddd5bb26b534e307f2742e7e3f922b988 100644
 --- a/source/blender/windowmanager/intern/wm_splash_screen.cc
 +++ b/source/blender/windowmanager/intern/wm_splash_screen.cc
 @@ -478,7 +478,7 @@ static ui::Block *wm_block_about_create(bContext *C, ARegion *region, void * /*a
@@ -147,7 +146,7 @@ index 518296c946fbae055890ee482820839d448af42b..9689bf0e81ce8529b6c0f4b330edc48f
    ui::Layout &col = layout.column(true);
  
 -  uiItemL_ex(&col, IFACE_("Blender"), ICON_NONE, true, false);
-+  uiItemL_ex(&col, IFACE_("Redrob Reblend"), ICON_NONE, true, false);
++  uiItemL_ex(&col, IFACE_("Redrob Shape"), ICON_NONE, true, false);
  
    MenuType *mt = WM_menutype_find("WM_MT_splash_about", true);
    if (mt) {
@@ -156,15 +155,15 @@ index 518296c946fbae055890ee482820839d448af42b..9689bf0e81ce8529b6c0f4b330edc48f
  void WM_OT_splash_about(wmOperatorType *ot)
  {
 -  ot->name = "About Blender";
-+  ot->name = "About Redrob Reblend";
++  ot->name = "About Redrob Shape";
    ot->idname = "WM_OT_splash_about";
 -  ot->description = "Open a window with information about Blender";
-+  ot->description = "Open a window with information about Redrob Reblend";
++  ot->description = "Open a window with information about Redrob Shape";
  
    ot->invoke = wm_splash_about_invoke;
    ot->poll = WM_operator_winactive;
 diff --git a/source/blender/windowmanager/intern/wm_window.cc b/source/blender/windowmanager/intern/wm_window.cc
-index 8885ad4cfa9ffaf4c45d6448cc08751bbce7dfbd..3e812338f2ae0fcc69679bf52c7cb8590d8d15b8 100644
+index 8885ad4cfa9ffaf4c45d6448cc08751bbce7dfbd..b36614459d522193d51a9df6df90fb6e2cb4a3e3 100644
 --- a/source/blender/windowmanager/intern/wm_window.cc
 +++ b/source/blender/windowmanager/intern/wm_window.cc
 @@ -579,7 +579,7 @@ static std::string wm_window_title_text(
@@ -172,7 +171,7 @@ index 8885ad4cfa9ffaf4c45d6448cc08751bbce7dfbd..3e812338f2ae0fcc69679bf52c7cb859
        return IFACE_(ED_area_name(area).c_str());
      }
 -    return "Blender";
-+    return "Redrob Reblend";
++    return "Redrob Shape";
    }
  
    /* This path may contain invalid UTF8 byte sequences on UNIX systems,
@@ -181,7 +180,7 @@ index 8885ad4cfa9ffaf4c45d6448cc08751bbce7dfbd..3e812338f2ae0fcc69679bf52c7cb859
    }
  
 -  win_title.append(fmt::format(" — Blender {}", BKE_blender_version_string()));
-+  win_title.append(fmt::format(" — Redrob Reblend {}", BKE_blender_version_string()));
++  win_title.append(fmt::format(" — Redrob Shape {}", BKE_blender_version_string()));
  
    return win_title;
  }

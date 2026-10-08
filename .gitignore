@@ -1,3 +1,7 @@
 # The fetched upstream checkout and everything built from it. Upstream is never vendored --
 # see upstream.json and README.md.
 /build/
+
+# Bytecode from running the add-on tests. It is generated, and every file committed under
+# overlay/ is copied into the product tree by apply-overlay.sh.
+__pycache__/

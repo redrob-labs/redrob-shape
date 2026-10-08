@@ -40,34 +40,34 @@ fi
 
 # --- 2. the add-on is registered, not merely present ------------------------------
 # A copied-in add-on that addon_utils does not know about produces a build with no panel.
-if ! grep -q "redrob_reblend" "$target/scripts/modules/addon_utils.py"; then
-  echo "error: addon_utils.py does not know about the redrob_reblend add-on" >&2
+if ! grep -q "redrob_shape" "$target/scripts/modules/addon_utils.py"; then
+  echo "error: addon_utils.py does not know about the redrob_shape add-on" >&2
   exit 1
 fi
 for f in __init__.py panels.py operators.py runtime.py protocol.py tools.py state.py theme.py context.py credentials.py transport.py connection_ui.py; do
-  if [ ! -f "$target/scripts/addons_core/redrob_reblend/$f" ]; then
-    echo "error: scripts/addons_core/redrob_reblend/$f missing from the checkout" >&2
+  if [ ! -f "$target/scripts/addons_core/redrob_shape/$f" ]; then
+    echo "error: scripts/addons_core/redrob_shape/$f missing from the checkout" >&2
     exit 1
   fi
 done
-if [ ! -f "$target/scripts/addons_core/redrob_reblend/blender_manifest.toml" ]; then
+if [ ! -f "$target/scripts/addons_core/redrob_shape/blender_manifest.toml" ]; then
   echo "error: the add-on has no blender_manifest.toml, so Blender will not load it" >&2
   exit 1
 fi
 # The connection UI has to be registered or the preferences it declares never exist, and the
 # transport picker silently does nothing.
-if ! grep -q "connection_ui" "$target/scripts/addons_core/redrob_reblend/__init__.py"; then
+if ! grep -q "connection_ui" "$target/scripts/addons_core/redrob_shape/__init__.py"; then
   echo "error: connection_ui is present but never registered" >&2
   exit 1
 fi
 # PEP 563 stringifies annotations, and Blender registers add-on properties by evaluating them --
 # so this import in a module declaring bpy.props breaks registration at enable time, inside
 # Blender, where CI would not see it.
-if grep -q "^from __future__ import annotations" "$target/scripts/addons_core/redrob_reblend/connection_ui.py"; then
+if grep -q "^from __future__ import annotations" "$target/scripts/addons_core/redrob_shape/connection_ui.py"; then
   echo "error: connection_ui.py uses PEP 563 annotations, which breaks bpy.props registration" >&2
   exit 1
 fi
-echo "Reblend add-on present and registered, with the connection UI wired in"
+echo "Redrob Shape add-on present and registered, with the connection UI wired in"
 
 # --- 3. the Rust agent is wired into the build ------------------------------------
 # Three separate things have to be true, and my first version of this check asserted the wrong
@@ -83,9 +83,9 @@ if ! grep -q "redrob_agent_attach_to_target(blender)" "$target/source/creator/CM
 fi
 # The option defaults to OFF, so without the config preset a build would silently ship with no
 # agent and no error. The preset is what turns it on.
-preset="$target/build_files/cmake/config/redrob_reblend.cmake"
+preset="$target/build_files/cmake/config/redrob_shape.cmake"
 if [ ! -f "$preset" ] || ! grep -q "set(WITH_REDROB_AGENT ON" "$preset"; then
-  echo "error: the redrob_reblend cmake preset does not enable WITH_REDROB_AGENT" >&2
+  echo "error: the redrob_shape cmake preset does not enable WITH_REDROB_AGENT" >&2
   echo "       The option defaults to OFF, so the agent would be silently absent." >&2
   exit 1
 fi
@@ -97,12 +97,18 @@ echo "Rust agent wired in: option declared, attached to the target, enabled by t
 
 # --- 4. the application shell is branded -----------------------------------------
 title_source="$target/source/blender/windowmanager/intern/wm_window.cc"
-if ! grep -q '"Redrob Reblend"' "$title_source"; then
+if ! grep -q '"Redrob Shape"' "$title_source"; then
   echo "error: the window title is not branded -- the app would present itself as Blender" >&2
   exit 1
 fi
-if ! grep -q "^Name=Redrob Reblend$" "$target/release/freedesktop/blender.desktop"; then
+if ! grep -q "^Name=Redrob Shape$" "$target/release/freedesktop/blender.desktop"; then
   echo "error: the desktop entry still names Blender" >&2
+  exit 1
+fi
+# The launcher has to start an executable the build produces. The build keeps Blender's executable
+# name, so a desktop entry naming anything else installs an icon that opens nothing.
+if ! grep -q "^Exec=blender %f$" "$target/release/freedesktop/blender.desktop"; then
+  echo "error: the desktop entry does not launch the blender executable the build produces" >&2
   exit 1
 fi
 echo "application shell branded: $(grep '^Name=' "$target/release/freedesktop/blender.desktop" | cut -d= -f2)"
@@ -110,13 +116,13 @@ echo "application shell branded: $(grep '^Name=' "$target/release/freedesktop/bl
 # The splash screen, the animation player and the window all name the product separately, so a
 # branding pass that misses one leaves the app calling itself Blender somewhere the user looks.
 for f in wm_splash_screen.cc wm_playanim.cc wm_window.cc; do
-  if ! grep -q "Reblend" "$target/source/blender/windowmanager/intern/$f"; then
+  if ! grep -q "Redrob Shape" "$target/source/blender/windowmanager/intern/$f"; then
     echo "error: $f still presents the product as Blender" >&2
     exit 1
   fi
 done
 # macOS reads the bundle name from Info.plist, not from the window title.
-if ! grep -q "Reblend" "$target/release/darwin/Blender.app/Contents/Info.plist"; then
+if ! grep -q "Redrob Shape" "$target/release/darwin/Blender.app/Contents/Info.plist"; then
   echo "error: the macOS bundle Info.plist is not branded" >&2
   exit 1
 fi

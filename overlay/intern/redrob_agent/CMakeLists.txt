@@ -8,7 +8,7 @@ find_program(REDROB_CARGO_EXECUTABLE cargo REQUIRED)
 mark_as_advanced(REDROB_CARGO_EXECUTABLE)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  project(redrob_reblend_agent LANGUAGES NONE)
+  project(redrob_shape_agent LANGUAGES NONE)
   include(CTest)
   add_test(
     NAME redrob_agent_rust_target_mapping
@@ -40,7 +40,7 @@ redrob_agent_resolve_rust_target(
 message(STATUS "Redrob agent Rust target: ${REDROB_AGENT_RUST_TARGET}")
 
 set(REDROB_AGENT_CARGO_TARGET_DIR "${CMAKE_BINARY_DIR}/redrob_agent_cargo")
-set(REDROB_AGENT_BINARY_NAME "redrob-reblend-agent${CMAKE_EXECUTABLE_SUFFIX}")
+set(REDROB_AGENT_BINARY_NAME "redrob-shape-agent${CMAKE_EXECUTABLE_SUFFIX}")
 set(REDROB_AGENT_TARGET_OUTPUT_DIR
   "${REDROB_AGENT_CARGO_TARGET_DIR}/${REDROB_AGENT_RUST_TARGET}"
 )
@@ -69,7 +69,7 @@ endif()
 
 # A single configuration-selected Cargo invocation avoids making Debug builds
 # depend on the release artifact with multi-config generators.
-add_custom_target(redrob_reblend_agent ALL
+add_custom_target(redrob_shape_agent ALL
   COMMAND
     "${CMAKE_COMMAND}" -E env
     "CARGO_TARGET_DIR=${REDROB_AGENT_CARGO_TARGET_DIR}"
@@ -82,15 +82,15 @@ add_custom_target(redrob_reblend_agent ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.lock"
     ${REDROB_AGENT_RUST_SOURCES}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-  COMMENT "Building Redrob Reblend agent (${REDROB_AGENT_RUST_TARGET})"
+  COMMENT "Building Redrob Shape agent (${REDROB_AGENT_RUST_TARGET})"
   VERBATIM
   COMMAND_EXPAND_LISTS
 )
 
-set_property(TARGET redrob_reblend_agent PROPERTY
+set_property(TARGET redrob_shape_agent PROPERTY
   REDROB_AGENT_SELECTED_BINARY "${REDROB_AGENT_SELECTED_BINARY}"
 )
-set_property(TARGET redrob_reblend_agent PROPERTY
+set_property(TARGET redrob_shape_agent PROPERTY
   REDROB_AGENT_BINARY_NAME "${REDROB_AGENT_BINARY_NAME}"
 )
 
@@ -98,14 +98,14 @@ function(redrob_agent_attach_to_target target_name)
   if(NOT TARGET "${target_name}")
     message(FATAL_ERROR "Cannot attach Redrob agent to unknown target: ${target_name}")
   endif()
-  get_target_property(_selected_binary redrob_reblend_agent REDROB_AGENT_SELECTED_BINARY)
-  get_target_property(_binary_name redrob_reblend_agent REDROB_AGENT_BINARY_NAME)
-  add_dependencies("${target_name}" redrob_reblend_agent)
+  get_target_property(_selected_binary redrob_shape_agent REDROB_AGENT_SELECTED_BINARY)
+  get_target_property(_binary_name redrob_shape_agent REDROB_AGENT_BINARY_NAME)
+  add_dependencies("${target_name}" redrob_shape_agent)
   add_custom_command(TARGET "${target_name}" POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
       "${_selected_binary}"
       "$<TARGET_FILE_DIR:${target_name}>/${_binary_name}"
-    COMMENT "Copying Redrob Reblend agent beside ${target_name}"
+    COMMENT "Copying Redrob Shape agent beside ${target_name}"
     VERBATIM
   )
 endfunction()
@@ -118,7 +118,7 @@ if(NOT DEFINED REDROB_AGENT_INSTALL_DESTINATION)
   endif()
 endif()
 if(NOT DEFINED REDROB_AGENT_LICENSE_DESTINATION)
-  set(REDROB_AGENT_LICENSE_DESTINATION "share/licenses/redrob-reblend-agent")
+  set(REDROB_AGENT_LICENSE_DESTINATION "share/licenses/redrob-shape-agent")
 endif()
 
 install(

@@ -31,7 +31,7 @@ import re
 import sys
 from pathlib import Path
 
-PRODUCT = "Redrob Reblend"
+PRODUCT = "Redrob Shape"
 
 # Whole word only, and never the build macros or the Python module.
 NAME = re.compile(r"\bBlender\b(?!_VERSION|_FILE|_STARTUP|Foundation)")

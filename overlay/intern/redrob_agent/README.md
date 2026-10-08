@@ -4,9 +4,9 @@ SPDX-FileCopyrightText: 2026 Redrob Labs
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# Redrob Reblend Agent
+# Redrob Shape Agent
 
-`redrob-reblend-agent` is a separate Rust planning process for Redrob Reblend. Process
+`redrob-shape-agent` is a separate Rust planning process for Redrob Shape. Process
 separation limits the Blender integration surface, but it is not an operating-system sandbox. It reads
 versioned JSON Lines requests from standard input, writes JSON Lines events to standard output,
 and sends planning requests to Redrob's OpenAI-compatible chat-completions endpoint. It does not
@@ -44,7 +44,7 @@ active work.
 Success and failure are always structured events:
 
 ```json
-{"version":1,"id":"h1","event":"success","result":{"service":"redrob-reblend-agent","configured":true}}
+{"version":1,"id":"h1","event":"success","result":{"service":"redrob-shape-agent","configured":true}}
 {"version":1,"id":"p1","event":"error","error":{"code":"cancelled","message":"request was cancelled","retryable":false}}
 ```
 
