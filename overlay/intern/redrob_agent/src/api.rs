@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::config::Config;
-use crate::validation::{parse_plan, Plan, PlanParseError};
+use crate::validation::{parse_plan, system_prompt, Plan, PlanParseError};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,17 +15,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_API_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_COMPLETION_TOKENS: u32 = 4096;
 
-const SYSTEM_PROMPT: &str = r#"You are a Blender scene planning service. Return exactly one strict JSON object and no commentary. The object must have this schema:
-{"summary":"non-empty string","actions":[ACTION,...]}
-Use at most 128 actions. ACTION must be exactly one of:
-{"type":"create_primitive","arguments":{"primitive":"cube|sphere|cylinder|cone|plane|torus","name":"optional string","location":[x,y,z],"scale":[x,y,z]}}
-{"type":"transform_object","arguments":{"object":"string","location":[x,y,z],"rotation":[x,y,z],"scale":[x,y,z]}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"bevel","width":number,"segments":integer}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"subdivision","levels":integer,"render_levels":integer}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"solidify","thickness":number}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"mirror","axis":"x|y|z"}}
-{"type":"set_material","arguments":{"object":"string","name":"string","base_color":[r,g,b,a],"metallic":number,"roughness":number}}
-Optional fields may be omitted, but do not add fields. Names must be at most 63 UTF-8 bytes. All numbers must be finite. Coordinates and rotations must be between -1000000 and 1000000. Scale components must be at least 0.000001 and at most 10000. Colors, metallic, and roughness must be between 0 and 1. Never emit Python, shell commands, file operations, network operations, or any action type outside the four allowed types."#;
+// The planning instructions are built from the tool catalog: see `validation::system_prompt()`.
 
 #[derive(Clone)]
 pub struct RedrobClient {
@@ -61,7 +51,7 @@ impl RedrobClient {
             messages: [
                 Message {
                     role: "system",
-                    content: SYSTEM_PROMPT,
+                    content: system_prompt(),
                 },
                 Message {
                     role: "user",
