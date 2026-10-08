@@ -255,15 +255,56 @@ class ResolutionOrderTests(unittest.TestCase):
         self.assertIs(r.chosen.kind, Kind.GATEWAY)
 
 
+class AgentSupportTests(unittest.TestCase):
+    def test_unsupported_transports_are_listed_but_never_chosen(self):
+        r = resolve(
+            _Store(openai="k", anthropic="k"),
+            _healthy,
+            subscription_enabled=True,
+            which=_all_tools,
+            gateway_connected=False,
+            supported=transport.AGENT_KINDS,
+        )
+        self.assertIsNone(r.chosen)
+        unsupported = [c for c in r.considered if c.kind is not Kind.GATEWAY]
+        self.assertTrue(unsupported)
+        for candidate in unsupported:
+            self.assertFalse(candidate.available)
+            self.assertEqual(candidate.reason, transport.UNSUPPORTED_REASON)
+
+    def test_the_agents_answer_decides_the_gateway(self):
+        connected = resolve(
+            _Store(), _unhealthy, which=_no_tools, gateway_connected=True, supported=transport.AGENT_KINDS
+        )
+        self.assertIs(connected.chosen.kind, Kind.GATEWAY)
+        # A key in the add-on's own store does not count once the agent has said it holds none.
+        disconnected = resolve(
+            _Store(redrob="k"),
+            _unhealthy,
+            which=_no_tools,
+            gateway_connected=False,
+            supported=transport.AGENT_KINDS,
+        )
+        self.assertIsNone(disconnected.chosen)
+
+
 class AgentEnvironmentTests(unittest.TestCase):
     def _resolve(self, store, **kw):
         return resolve(store, kw.pop("health", _unhealthy), which=kw.pop("which", _no_tools), **kw)
 
-    def test_gateway_gets_the_redrob_key_and_url(self):
+    def test_gateway_leaves_the_key_and_the_endpoint_to_the_agent(self):
+        # This used to assert REDROB_API_KEY = the stored key and REDROB_BASE_URL = GATEWAY_URL.
+        # Both were wrong for the agent that actually runs: it keeps the key in the system keychain
+        # itself, and it treats REDROB_BASE_URL as the FULL completion endpoint, so the gateway root
+        # would have sent every plan to /api/backend. Its default endpoint is already the gateway's.
         store = _Store(redrob="rdb_key_123456")
-        env = agent_environment(self._resolve(store).chosen, store, base={})
-        self.assertEqual(env["REDROB_API_KEY"], "rdb_key_123456")
-        self.assertEqual(env["REDROB_BASE_URL"], GATEWAY_URL)
+        env = agent_environment(
+            self._resolve(store).chosen,
+            store,
+            base={"REDROB_BASE_URL": "https://example.invalid/stale", "REDROB_API_KEY": "rdb_stale"},
+        )
+        self.assertNotIn("REDROB_API_KEY", env)
+        self.assertNotIn("REDROB_BASE_URL", env)
 
     def test_local_gets_the_loopback_url_and_no_key(self):
         store = _Store()

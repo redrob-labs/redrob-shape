@@ -27,7 +27,7 @@ an upstream bump differently:
 | Directory | Holds | Why not the other way |
 |---|---|---|
 | `patches/` | 5 patches modifying 42 existing upstream files | A modification has to be expressed as a diff so a bumped upstream can conflict on it visibly |
-| `overlay/` | 49 files that exist only in this product, copied verbatim | A patch that creates a whole file is an unreadable copy of that file, and it conflicts on nothing |
+| `overlay/` | 51 files that exist only in this product, copied verbatim | A patch that creates a whole file is an unreadable copy of that file, and it conflicts on nothing |
 | `brand/` | 3 binary icons copied over upstream's | A binary patch conflicts every time upstream revises its icon and shows a reviewer two blobs |
 
 No patch creates a new file. Every one of the 42 targets already exists upstream, so a patch failing

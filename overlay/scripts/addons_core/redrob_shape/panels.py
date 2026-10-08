@@ -10,7 +10,7 @@ import textwrap
 import bpy
 from bpy.types import Panel
 
-from . import theme, tools
+from . import connection_ui, theme, tools
 from .state import session
 
 _STATUS_PRESENTATION = {
@@ -96,9 +96,14 @@ class REDROB_PT_workspace(Panel):
         status = layout.box()
         row = status.row(align=True)
         row.label(text=title, icon=icon)
-        connection = "Connected" if current.sidecar_available else "Local"
+        connection = "Connected" if current.connection == 'CONNECTED' else "Not connected"
         row.label(text=connection)
         status.label(text=current.status_message)
+
+        # A first-time user's first question is "why does Create Plan not work". Answer it here,
+        # not in the collapsed Connection panel.
+        if current.connection != 'CONNECTED':
+            connection_ui.draw_console_connection(layout, current)
 
         prompt = layout.box()
         prompt.label(text="What do you want to make?", icon='GREASEPENCIL')

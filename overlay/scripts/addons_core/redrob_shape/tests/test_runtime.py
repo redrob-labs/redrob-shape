@@ -104,6 +104,7 @@ class RuntimeRaceTests(unittest.TestCase):
             status_message="Checking",
             request_id="",
             sidecar_available=True,
+            connection='CONNECTED',
         )
         context = SimpleNamespace(window_manager=SimpleNamespace(redrob_shape=state))
         agent._handle_event(
@@ -132,6 +133,7 @@ class RuntimeRaceTests(unittest.TestCase):
             status_message="Planning",
             request_id="plan-raw",
             sidecar_available=True,
+            connection='CONNECTED',
         )
         context = SimpleNamespace(window_manager=SimpleNamespace(redrob_shape=state))
         agent.drain(context)
@@ -223,6 +225,215 @@ class RuntimeRaceTests(unittest.TestCase):
         self.assertEqual(state.status, 'IDLE')
         self.assertEqual(state.request_id, "")
         self.assertNotIn(plan_id, agent.cancelled_requests)
+
+
+def _connection_state(**overrides):
+    state = SimpleNamespace(
+        status='IDLE',
+        status_message="",
+        request_id="",
+        sidecar_available=False,
+        connection='UNKNOWN',
+        connection_message="",
+        connection_source="",
+        connection_hint="",
+        connection_keychain=True,
+        user_code="",
+        verification_uri="",
+        verification_uri_complete="",
+        connect_request_id="",
+        connect_expires_at=0.0,
+        key_name="",
+        account_name="",
+    )
+    for name, value in overrides.items():
+        setattr(state, name, value)
+    return state
+
+
+_STARTED = {
+    "user_code": "TY78-Y8VS",
+    "verification_uri": "https://console.redrob.ai/connect",
+    "verification_uri_complete": "https://console.redrob.ai/connect?code=TY78-Y8VS",
+    "expires_in": 600,
+    "interval": 5,
+}
+
+
+class ConnectionTests(unittest.TestCase):
+    def setUp(self):
+        self.runtime = _load_runtime()
+        self.agent = self.runtime.AgentRuntime()
+
+    def _deliver(self, state, request_id, method, event):
+        self.agent.requests[request_id] = {"method": method}
+        context = SimpleNamespace(window_manager=SimpleNamespace(redrob_shape=state))
+        self.agent._handle_event(context, {"version": 1, "id": request_id, **event})
+
+    def test_health_reports_the_connection(self):
+        state = _connection_state()
+        self._deliver(
+            state,
+            "h",
+            "health",
+            {
+                "event": "success",
+                "result": {
+                    "service": "redrob-shape-agent",
+                    "configured": True,
+                    "connection": {
+                        "connected": True,
+                        "source": "keychain",
+                        "key_hint": "cdef",
+                        "keychain_available": True,
+                    },
+                },
+            },
+        )
+        self.assertEqual(state.connection, 'CONNECTED')
+        self.assertEqual(state.connection_hint, "cdef")
+        self.assertTrue(state.sidecar_available)
+        self.assertEqual(state.status_message, self.runtime._idle_message(True))
+
+    def test_a_started_connection_shows_the_code_and_waits_for_approval(self):
+        state = _connection_state(connection='STARTING')
+        self.agent.connect_wait = mock.Mock(return_value="wait-1")
+        self._deliver(state, "s", "connect_start", {"event": "success", "result": _STARTED})
+        self.assertEqual(state.connection, 'WAITING')
+        self.assertEqual(state.user_code, "TY78-Y8VS")
+        self.assertEqual(state.verification_uri_complete, _STARTED["verification_uri_complete"])
+        self.assertEqual(state.connect_request_id, "wait-1")
+        self.assertGreater(state.connect_expires_at, 0)
+        self.agent.connect_wait.assert_called_once_with()
+
+    def test_a_code_that_arrives_after_cancel_is_ignored(self):
+        state = _connection_state(connection='DISCONNECTED')
+        self.agent.connect_wait = mock.Mock()
+        self._deliver(state, "s", "connect_start", {"event": "success", "result": _STARTED})
+        self.assertEqual(state.connection, 'DISCONNECTED')
+        self.assertEqual(state.user_code, "")
+        self.agent.connect_wait.assert_not_called()
+
+    def test_approval_connects_and_keeps_only_a_hint(self):
+        state = _connection_state(connection='WAITING', connect_request_id="wait-1", user_code="TY78-Y8VS")
+        self._deliver(
+            state,
+            "wait-1",
+            "connect_wait",
+            {
+                "event": "success",
+                "result": {
+                    "connected": True,
+                    "source": "keychain",
+                    "key_hint": "cdef",
+                    "keychain_available": True,
+                    "key_name": "Redrob Shape (2026-10-08)",
+                    "account_name": "Acme",
+                },
+            },
+        )
+        self.assertEqual(state.connection, 'CONNECTED')
+        self.assertEqual(state.user_code, "")
+        self.assertEqual(state.connect_request_id, "")
+        self.assertEqual(state.key_name, "Redrob Shape (2026-10-08)")
+        self.assertIn("Acme", state.connection_message)
+        self.assertTrue(state.sidecar_available)
+
+    def test_a_declined_code_says_why(self):
+        state = _connection_state(connection='WAITING', connect_request_id="wait-1", user_code="TY78-Y8VS")
+        self._deliver(
+            state,
+            "wait-1",
+            "connect_wait",
+            {
+                "event": "error",
+                "error": {
+                    "code": "access_denied",
+                    "message": "the connection was declined in Redrob Console",
+                    "retryable": False,
+                },
+            },
+        )
+        self.assertEqual(state.connection, 'ERROR')
+        self.assertIn("declined", state.connection_message)
+        self.assertEqual(state.user_code, "")
+
+    def test_a_replaced_attempt_cannot_overwrite_the_current_one(self):
+        state = _connection_state(connection='WAITING', connect_request_id="wait-2", user_code="NEW1-CODE")
+        self._deliver(
+            state,
+            "wait-1",
+            "connect_wait",
+            {
+                "event": "error",
+                "error": {"code": "cancelled", "message": "connecting was cancelled", "retryable": False},
+            },
+        )
+        self.assertEqual(state.connection, 'WAITING')
+        self.assertEqual(state.user_code, "NEW1-CODE")
+
+    def test_disconnect_forgets_and_points_at_revocation(self):
+        state = _connection_state(connection='CONNECTED', key_name="Redrob Shape (2026-10-08)")
+        self._deliver(
+            state,
+            "d",
+            "disconnect",
+            {
+                "event": "success",
+                "result": {"connected": False, "source": None, "key_hint": None, "keychain_available": True},
+            },
+        )
+        self.assertEqual(state.connection, 'DISCONNECTED')
+        self.assertEqual(state.key_name, "")
+        self.assertIn("Revoke", state.connection_message)
+        self.assertFalse(state.sidecar_available)
+
+    def test_disconnect_cannot_remove_an_environment_key_and_says_so(self):
+        state = _connection_state(connection='CONNECTED', connection_source="environment")
+        self._deliver(
+            state,
+            "d",
+            "disconnect",
+            {
+                "event": "success",
+                "result": {
+                    "connected": True,
+                    "source": "environment",
+                    "key_hint": "cdef",
+                    "keychain_available": True,
+                },
+            },
+        )
+        self.assertEqual(state.connection, 'CONNECTED')
+        self.assertIn("REDROB_API_KEY", state.connection_message)
+
+    def test_connection_answers_never_touch_the_plan_status(self):
+        state = _connection_state(status='READY', status_message="Validated locally")
+        self._deliver(
+            state,
+            "c",
+            "connection_status",
+            {"event": "error", "error": {"code": "x", "message": "keychain locked", "retryable": False}},
+        )
+        self.assertEqual(state.status, 'READY')
+        self.assertEqual(state.status_message, "Validated locally")
+        self.assertEqual(state.connection_message, "keychain locked")
+
+    def test_an_agent_that_exits_mid_connection_is_reported(self):
+        state = _connection_state(connection='WAITING', connect_request_id="wait-1", user_code="TY78-Y8VS")
+
+        class Exited:
+            stdin = stdout = stderr = None
+
+            def poll(self):
+                return 1
+
+        self.agent.process = Exited()
+        context = SimpleNamespace(window_manager=SimpleNamespace(redrob_shape=state))
+        self.agent.drain(context)
+        self.assertEqual(state.connection, 'ERROR')
+        self.assertEqual(state.user_code, "")
+        self.assertIn("exited", state.connection_message)
 
 
 if __name__ == "__main__":

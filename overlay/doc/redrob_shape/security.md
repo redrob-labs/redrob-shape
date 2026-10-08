@@ -17,12 +17,12 @@
 - Numeric values must be finite and within tool-specific limits.
 - Object references are resolved again immediately before execution.
 - Plans are bounded by action count and response size.
-- API keys are accepted only through process environment or a future OS-keychain integration.
+- API keys reach the sidecar through the device flow or a pasted key, both kept in the OS keychain, or through `REDROB_API_KEY` in the process environment for development. Blender never holds one.
 - Secrets are excluded from command lines, logs, `.blend` data, source control, and model context.
 
 ## Network behavior
 
-The sidecar connects only to the configured HTTPS Redrob API base URL. The bundled Blender integration respects offline state and remains fully usable when the agent cannot connect. A request timeout and response-size limit are applied, and cancellation terminates the in-flight request without mutating scene data.
+The sidecar connects only to the configured HTTPS Redrob API base URL and, while connecting, the console's device endpoints under the same `/v1`. The bundled Blender integration respects offline state and remains fully usable when the agent cannot connect. A request timeout and response-size limit are applied, and cancellation terminates the in-flight request without mutating scene data.
 
 ## Data minimization
 
@@ -34,9 +34,9 @@ Scene context contains names, object types, transforms, dimensions, selected sta
 - Invalid response: show the parse or validation error; do not expose Apply.
 - Stale scene: invalidate the plan and require a new request.
 - Partial apply error: report the failing action and rely on Blender Undo for rollback.
-- API key missing: show setup guidance without opening network connections.
+- API key missing: show the Connect Redrob Console button without opening network connections.
 - Process crash: close pipes, clear pending state, and allow an explicit restart.
 
-## Future device authorization
+## Device authorization
 
-Console's short-code authorization can replace environment-key setup once its public application API contract is available. The implementation must keep the secret in the sidecar and OS credential store and must support key revocation without restarting Blender.
+**Connect Redrob Console** runs the console's device flow (RFC 8628, product `shape`) in the sidecar. The device code, a bearer for the key until it is collected, never leaves the sidecar; Blender receives the user code, the approval page, and once connected only the key's last four characters and where it is kept. An approval page on any host other than the configured console is refused. The key goes to the OS credential store (Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux) under `ai.redrob.shape` / `redrob`; without one it lasts for the session, and the panel says so. **Disconnect** removes it from this computer without restarting Blender. Revoking it everywhere is done in Redrob Console, where it is listed as "Redrob Shape (date)".

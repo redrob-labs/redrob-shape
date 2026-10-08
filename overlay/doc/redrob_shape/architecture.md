@@ -50,7 +50,7 @@ redrob-shape-agent (Rust child process)
 https://console.redrob.ai/api/backend/v1
 ```
 
-The API key is read by the sidecar from `REDROB_API_KEY`. It is never passed on the command line, stored in a `.blend` file, included in prompts, or written to logs. The sidecar is a separate process, not an operating-system sandbox; safety comes from the narrow protocol, local validation, approval gate, and allow-listed Blender executor.
+The API key never reaches Blender. **Connect Redrob Console** runs the console's device flow inside the sidecar: Blender shows a short code and opens the approval page, and once the user approves, the sidecar collects the key and keeps it in the operating-system keychain under `ai.redrob.shape`. Where no keychain answers, the key lasts for the session and the panel says so. `REDROB_API_KEY` in the environment overrides the keychain for development and CI. The key is never passed on the command line, stored in a `.blend` file, included in prompts, or written to logs. The sidecar is a separate process, not an operating-system sandbox; safety comes from the narrow protocol, local validation, approval gate, and allow-listed Blender executor.
 
 ## Agent transaction
 

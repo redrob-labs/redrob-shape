@@ -10,6 +10,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -20,6 +21,38 @@ from . import protocol, tools
 _POLL_INTERVAL = 0.2
 _MAX_EVENTS_PER_TICK = 32
 _MAX_STDERR_LINE_BYTES = 4096
+
+#: Requests about the Redrob Console connection. Their answers change the connection state, never the
+#: plan status, and none of them carries the key back.
+_CONNECTION_METHODS = frozenset(
+    {"connection_status", "connect_start", "connect_wait", "disconnect", "store_key"}
+)
+
+
+def _idle_message(connected):
+    return (
+        "Connected • model auto • review required"
+        if connected
+        else "Connect Redrob Console to create plans"
+    )
+
+
+def clear_connect_code(current):
+    current.user_code = ""
+    current.verification_uri = ""
+    current.verification_uri_complete = ""
+    current.connect_expires_at = 0.0
+    current.connect_request_id = ""
+
+
+def _open_url(url):
+    if not url:
+        return
+    try:
+        bpy.ops.wm.url_open(url=url)
+    except (AttributeError, RuntimeError):
+        # The panel still shows the code and a button that opens the page.
+        pass
 
 
 class AgentRuntime:
@@ -34,6 +67,7 @@ class AgentRuntime:
         self.stopping = False
         self.start_error = ""
         self.generation = 0
+        self.last_countdown_redraw = 0.0
 
     @property
     def running(self):
@@ -135,6 +169,22 @@ class AgentRuntime:
             {"scene_revision": scene_revision, "captured_objects": captured_objects},
         )
 
+    def connection_status(self):
+        return self.send("connection_status", {})
+
+    def connect_start(self):
+        return self.send("connect_start", {})
+
+    def connect_wait(self):
+        return self.send("connect_wait", {})
+
+    def disconnect(self):
+        return self.send("disconnect", {})
+
+    def store_key(self, key):
+        # Straight to the agent, which keeps it in the system keychain. Nothing here holds on to it.
+        return self.send("store_key", {"key": key})
+
     def cancel(self, request_id):
         if not request_id or not self.running:
             return None
@@ -229,10 +279,21 @@ class AgentRuntime:
                 current.status = 'ERROR'
                 current.status_message = "Local agent exited before completing the request"
                 current.request_id = ""
+            if current.connection in {'STARTING', 'WAITING'}:
+                clear_connect_code(current)
+                current.connection = 'ERROR'
+                current.connection_message = "Local agent exited before the connection finished"
             current.sidecar_available = False
             self._cleanup_exited_process()
-        if handled:
+        if handled or (current.connection == 'WAITING' and self._countdown_due()):
             _redraw()
+
+    def _countdown_due(self):
+        now = time.monotonic()
+        if now - self.last_countdown_redraw < 1.0:
+            return False
+        self.last_countdown_redraw = now
+        return True
 
     def _connection_failed(self, current, message):
         self.stop(force=True)
@@ -242,6 +303,10 @@ class AgentRuntime:
         current.status = 'ERROR'
         current.status_message = message
         current.request_id = ""
+        if current.connection in {'UNKNOWN', 'STARTING', 'WAITING'}:
+            clear_connect_code(current)
+            current.connection = 'ERROR'
+            current.connection_message = message
 
     def _handle_event(self, context, event):
         current = context.window_manager.redrob_shape
@@ -250,6 +315,11 @@ class AgentRuntime:
         if request is None:
             return
         method = request["method"]
+
+        if method in _CONNECTION_METHODS:
+            self.cancelled_requests.discard(request_id)
+            self._handle_connection_event(current, method, request_id, event)
+            return
 
         if method == "plan" and request_id in self.cancelled_requests:
             if (
@@ -293,13 +363,11 @@ class AgentRuntime:
             ):
                 self._connection_failed(current, "Local agent returned an invalid health response")
                 return
+            if isinstance(result.get("connection"), dict):
+                self._apply_connection(current, result["connection"])
             current.sidecar_available = result["configured"]
             if current.status == 'IDLE':
-                current.status_message = (
-                    "Connected • model auto • review required"
-                    if current.sidecar_available
-                    else "Set REDROB_API_KEY to connect"
-                )
+                current.status_message = _idle_message(current.sidecar_available)
         elif method == "plan":
             if request_id != current.request_id:
                 return
@@ -333,6 +401,76 @@ class AgentRuntime:
                 current.request_id = ""
         elif method == "shutdown":
             current.sidecar_available = False
+
+    @staticmethod
+    def _apply_connection(current, status):
+        connected = bool(status.get("connected"))
+        current.connection = 'CONNECTED' if connected else 'DISCONNECTED'
+        current.connection_source = str(status.get("source") or "")
+        current.connection_hint = str(status.get("key_hint") or "")
+        current.connection_keychain = bool(status.get("keychain_available", True))
+        current.sidecar_available = connected
+        if current.status == 'IDLE':
+            current.status_message = _idle_message(connected)
+
+    def _handle_connection_event(self, current, method, request_id, event):
+        if event["event"] == "error":
+            error = event["error"]
+            if method == "connect_wait" and request_id != current.connect_request_id:
+                return  # an older attempt that a newer one replaced
+            if method in {"connect_start", "connect_wait"}:
+                clear_connect_code(current)
+                if error["code"] == "cancelled":
+                    current.connection = 'DISCONNECTED'
+                    current.connection_message = "Connecting was cancelled"
+                else:
+                    current.connection = 'ERROR'
+                    current.connection_message = error["message"]
+                return
+            current.connection_message = error["message"]
+            return
+
+        result = event["result"]
+        if method == "connect_start":
+            if current.connection != 'STARTING':
+                return  # cancelled while the code was on its way
+            current.user_code = str(result.get("user_code", ""))
+            current.verification_uri = str(result.get("verification_uri", ""))
+            current.verification_uri_complete = str(
+                result.get("verification_uri_complete") or current.verification_uri
+            )
+            current.connect_expires_at = time.time() + float(result.get("expires_in", 0))
+            current.connection = 'WAITING'
+            current.connection_message = "Approve the code on the page that opened"
+            try:
+                current.connect_request_id = self.connect_wait()
+            except RuntimeError as exc:
+                clear_connect_code(current)
+                current.connection = 'ERROR'
+                current.connection_message = str(exc)
+                return
+            _open_url(current.verification_uri_complete)
+            return
+
+        if method == "connect_wait":
+            if request_id != current.connect_request_id:
+                return
+            clear_connect_code(current)
+            current.key_name = str(result.get("key_name", ""))
+            current.account_name = str(result.get("account_name", ""))
+        self._apply_connection(current, result)
+        if method == "connect_wait":
+            current.connection_message = f"Connected to {current.account_name or 'Redrob Console'}"
+        elif method == "disconnect":
+            current.key_name = ""
+            current.account_name = ""
+            current.connection_message = (
+                "Still connected through REDROB_API_KEY in the environment"
+                if current.connection == 'CONNECTED'
+                else "Disconnected. Revoke the key in Redrob Console if you no longer need it"
+            )
+        elif method == "store_key":
+            current.connection_message = "Key stored"
 
     def _cleanup_exited_process(self):
         process = self.process
@@ -403,12 +541,24 @@ def _poll():
     return _POLL_INTERVAL
 
 
+def _start_soon():
+    # One shot, after Blender has finished starting, so the Connection panel shows the real state
+    # instead of "Checking". Background runs (rendering, tests) have no panel and skip it.
+    if not _RUNTIME.running:
+        _RUNTIME.start()
+    return None
+
+
 def register():
     if not bpy.app.timers.is_registered(_poll):
         bpy.app.timers.register(_poll, first_interval=0.1, persistent=True)
+    if not bpy.app.background and not bpy.app.timers.is_registered(_start_soon):
+        bpy.app.timers.register(_start_soon, first_interval=1.0)
 
 
 def unregister():
+    if bpy.app.timers.is_registered(_start_soon):
+        bpy.app.timers.unregister(_start_soon)
     if bpy.app.timers.is_registered(_poll):
         bpy.app.timers.unregister(_poll)
     _RUNTIME.stop()
