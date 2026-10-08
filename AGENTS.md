@@ -1,15 +1,15 @@
 # AGENTS.md
 
-Instructions for an agent working in `redrob-labs/redrob-reblend`. Everything below was read out of
+Instructions for an agent working in `redrob-labs/redrob-shape`. Everything below was read out of
 this tree or run against it.
 
 ## What this repository is
 
-Redrob Reblend is a Blender distribution with an AI agent sidecar, and this repository holds **only
+Redrob Shape is a Blender distribution with an AI agent sidecar, and this repository holds **only
 our changes to Blender**. Upstream Blender is fetched at build time into `build/blender` from the
-single commit pinned in `upstream.json` and is never committed, so `git log` here shows Reblend work
+single commit pinned in `upstream.json` and is never committed, so `git log` here shows Redrob Shape work
 instead of 164,952 upstream commits. Our two products are a Rust planning sidecar
-(`overlay/intern/redrob_agent`) and a Blender add-on (`overlay/scripts/addons_core/redrob_reblend`).
+(`overlay/intern/redrob_agent`) and a Blender add-on (`overlay/scripts/addons_core/redrob_shape`).
 
 ## The pin and the patch mechanism
 
@@ -27,7 +27,7 @@ an upstream bump differently:
 | Directory | Holds | Why not the other way |
 |---|---|---|
 | `patches/` | 5 patches modifying 42 existing upstream files | A modification has to be expressed as a diff so a bumped upstream can conflict on it visibly |
-| `overlay/` | 65 files that exist only in this product, copied verbatim | A patch that creates a whole file is an unreadable copy of that file, and it conflicts on nothing |
+| `overlay/` | 49 files that exist only in this product, copied verbatim | A patch that creates a whole file is an unreadable copy of that file, and it conflicts on nothing |
 | `brand/` | 3 binary icons copied over upstream's | A binary patch conflicts every time upstream revises its icon and shows a reviewer two blobs |
 
 No patch creates a new file. Every one of the 42 targets already exists upstream, so a patch failing
@@ -61,9 +61,9 @@ does need them, which requires `git lfs pull` against `projects.blender.org`.
 exist; `connection_ui` is registered and does **not** use `from __future__ import annotations`,
 because PEP 563 stringifies annotations and breaks `bpy.props` registration inside Blender where CI
 cannot see it; `WITH_REDROB_AGENT` is declared, attached to the `blender` target, and set `ON` by
-the `redrob_reblend` cmake preset (the option defaults to OFF, so without the preset a build ships
+the `redrob_shape` cmake preset (the option defaults to OFF, so without the preset a build ships
 with no agent and no error); the window title, splash, animation player, desktop entry and macOS
-`Info.plist` all name Redrob Reblend, and the icons byte-match `brand/`; `COPYING`,
+`Info.plist` all name Redrob Shape, and the icons byte-match `brand/`; `COPYING`,
 `release/license/` and Blender's metainfo credit are intact; the `version` in `upstream.json` equals
 the version computed from `BKE_blender_version.h`; no patch line removes an upstream operator,
 keymap, registration or test; and `scripts/sweep-strings.py --check` finds no user-visible string
@@ -110,7 +110,7 @@ and there is no `requirements.txt`, `package.json` or lockfile anywhere in the t
 
 ```bash
 # The add-on unit tests. Fast, needs no Blender and no network.
-cd overlay/scripts/addons_core/redrob_reblend
+cd overlay/scripts/addons_core/redrob_shape
 python3 -m unittest discover -s tests -p 'test_*.py'
 # 73 tests, OK, exit 0 (verified on python 3.14.4)
 
@@ -119,14 +119,14 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The Rust sidecar is built by Blender's own CMake behind `WITH_REDROB_AGENT`, enabled by the
-`redrob_reblend` cmake preset at
-`overlay/build_files/cmake/config/redrob_reblend.cmake`. `Cargo.toml` pins `rust-version = "1.88"`
+`redrob_shape` cmake preset at
+`overlay/build_files/cmake/config/redrob_shape.cmake`. `Cargo.toml` pins `rust-version = "1.88"`
 and edition 2021.
 
 **`__pycache__` is tracked in this repository (16 `.pyc` files).** Running the add-on tests rewrites
 them, so a clean tree becomes dirty as a side effect of testing. Restore them with `git checkout --
-overlay/scripts/addons_core/redrob_reblend/__pycache__
-overlay/scripts/addons_core/redrob_reblend/tests/__pycache__` and never commit them.
+overlay/scripts/addons_core/redrob_shape/__pycache__
+overlay/scripts/addons_core/redrob_shape/tests/__pycache__` and never commit them.
 
 `README.md` states 4 patches, 6 modified upstream files and 18 add-on tests. The tree now has 5
 patches, 42 modified files and 73 tests, so count from the tree rather than the prose.

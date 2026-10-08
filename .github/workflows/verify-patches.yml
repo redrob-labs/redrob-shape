@@ -42,5 +42,5 @@ jobs:
       - name: Run the tests that do not need Blender
         run: |
           set -euo pipefail
-          cd overlay/scripts/addons_core/redrob_reblend
+          cd overlay/scripts/addons_core/redrob_shape
           python3 -m unittest discover -s tests -p 'test_*.py' -v

@@ -1,8 +1,8 @@
-# Redrob Reblend: patch-based customization of Blender
+# Redrob Shape: patch-based customization of Blender
 
-Redrob Reblend is a compatibility-first, agentic Blender distribution with an AI agent sidecar.
+Redrob Shape is a compatibility-first, agentic Blender distribution with an AI agent sidecar.
 This repository holds **only our changes**.
-Upstream Blender is fetched at build time, never vendored, so `git log` here shows Reblend work
+Upstream Blender is fetched at build time, never vendored, so `git log` here shows Redrob Shape work
 rather than being buried under upstream history.
 
 ```
@@ -19,7 +19,7 @@ Build:
 ```
 
 That leaves a complete, customized Blender tree in `build/blender`, built with Blender's own CMake
-toolchain and the `redrob_reblend` config preset.
+toolchain and the `redrob_shape` config preset.
 
 ## Why this shape
 
@@ -44,15 +44,15 @@ upstream, so this shape discards nothing that cannot be fetched again.
 ## What is ours
 
 - `intern/redrob_agent/`: the agent sidecar, in Rust, built by CMake behind `WITH_REDROB_AGENT`.
-  The option defaults to OFF; the `redrob_reblend` cmake preset is what turns it on, which the gate
+  The option defaults to OFF; the `redrob_shape` cmake preset is what turns it on, which the gate
   asserts, because otherwise a build silently ships with no agent and no error.
-- `scripts/addons_core/redrob_reblend/`: the Blender add-on: panels, operators, runtime,
+- `scripts/addons_core/redrob_shape/`: the Blender add-on: panels, operators, runtime,
   protocol, tools, theme, state, context, and 18 unit tests.
 
 ## Branding, and the line it does not cross
 
 `patches/0004` renames the **application shell** (the window title and the desktop entry) to
-Redrob Reblend. Blender is GPL and its trademark policy asks that a modified redistribution not
+Redrob Shape. Blender is GPL and its trademark policy asks that a modified redistribution not
 present itself as official Blender, so renaming the shell is what compliance looks like, not an
 optional flourish.
 

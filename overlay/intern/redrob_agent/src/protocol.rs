@@ -267,14 +267,14 @@ where
         match request {
             Request::Health(_params) => {
                 let result = if agent.client.is_some() {
-                    json!({"service": "redrob-reblend-agent", "configured": true})
+                    json!({"service": "redrob-shape-agent", "configured": true})
                 } else {
                     let reason = agent
                         .unavailable
                         .as_ref()
                         .expect("an unavailable agent must include a reason");
                     json!({
-                        "service": "redrob-reblend-agent",
+                        "service": "redrob-shape-agent",
                         "configured": false,
                         "reason": reason.code
                     })

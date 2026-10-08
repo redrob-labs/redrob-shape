@@ -6,6 +6,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Redrob Reblend handoff
 
+> This handoff predates the 2026-10-08 rename from Redrob Reblend to Redrob Shape. It is kept
+> as written: `redrob_reblend` is now `redrob_shape`, and the repository is
+> `redrob-labs/redrob-shape`.
+
 ## Status at handoff
 
 Redrob Reblend is a compatibility-first downstream of official Blender with an additive, native agent workspace. The initial safe tool surface is implemented and has passed unit, Rust, CMake, sidecar packaging/discovery, and real Blender-host validation.

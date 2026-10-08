@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use redrob_reblend_agent::api::RedrobClient;
-use redrob_reblend_agent::config::Config;
-use redrob_reblend_agent::protocol::{serve, Agent};
+use redrob_shape_agent::api::RedrobClient;
+use redrob_shape_agent::config::Config;
+use redrob_shape_agent::protocol::{serve, Agent};
 use std::process::ExitCode;
 
 #[tokio::main]
@@ -16,7 +16,7 @@ async fn main() -> ExitCode {
         },
         Err(error) => Agent::unavailable(
             match error {
-                redrob_reblend_agent::config::ConfigError::MissingApiKey => "missing_api_key",
+                redrob_shape_agent::config::ConfigError::MissingApiKey => "missing_api_key",
                 _ => "invalid_configuration",
             },
             error.to_string(),
@@ -26,7 +26,7 @@ async fn main() -> ExitCode {
     match serve(tokio::io::stdin(), tokio::io::stdout(), agent).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("redrob-reblend-agent: protocol I/O failed: {error}");
+            eprintln!("redrob-shape-agent: protocol I/O failed: {error}");
             ExitCode::FAILURE
         }
     }
