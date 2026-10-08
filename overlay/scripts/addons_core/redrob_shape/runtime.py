@@ -16,7 +16,8 @@ from pathlib import Path
 
 import bpy
 
-from . import protocol, tools
+from . import conversation, protocol, tools
+from .i18n import iface_
 
 _POLL_INTERVAL = 0.2
 _MAX_EVENTS_PER_TICK = 32
@@ -31,9 +32,9 @@ _CONNECTION_METHODS = frozenset(
 
 def _idle_message(connected):
     return (
-        "Connected • model auto • review required"
+        iface_("Connected • you review every plan before it changes anything")
         if connected
-        else "Connect Redrob Console to create plans"
+        else iface_("Connect Redrob Console to create plans")
     )
 
 
@@ -53,6 +54,17 @@ def _open_url(url):
     except (AttributeError, RuntimeError):
         # The panel still shows the code and a button that opens the page.
         pass
+
+
+def show_plan(current, plan):
+    """Put a checked plan up for review, every step switched on."""
+    current.plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
+    current.plan_summary = str(plan.get("summary", "Proposed changes"))
+    current.response_text = current.plan_summary
+    current.plan_problem = ""
+    current.steps.clear()
+    for _action in plan.get("actions", ()):
+        current.steps.add()
 
 
 class AgentRuntime:
@@ -161,12 +173,23 @@ class AgentRuntime:
                 raise RuntimeError("Local agent connection closed") from exc
         return request_id
 
-    def submit_plan(self, instruction, scene_context, scene_revision):
-        captured_objects = [item["name"] for item in scene_context.get("objects", ())]
+    def submit_plan(self, instruction, scene_context, scene_revision, captured_objects, turns=()):
+        """Ask for a plan. ``turns`` is the conversation so far; as much of it is sent as fits."""
+        params = {"instruction": instruction, "context": scene_context}
+        base = len(protocol.encode_request("0" * 32, "plan", params))
+        # Room for the ``"history":[...]`` key and the envelope's own growth.
+        budget = protocol.MAX_REQUEST_BYTES - base - 64
+        history = conversation.request_history(list(turns), budget) if budget > 0 else []
+        if history:
+            params["history"] = history
         return self.send(
             "plan",
-            {"instruction": instruction, "context": scene_context},
-            {"scene_revision": scene_revision, "captured_objects": captured_objects},
+            params,
+            {
+                "scene_revision": scene_revision,
+                "captured_objects": sorted(captured_objects),
+                "instruction": instruction,
+            },
         )
 
     def connection_status(self):
@@ -277,7 +300,7 @@ class AgentRuntime:
         if self.process is not None and self.process.poll() is not None and not self.stopping:
             if current.status == 'WORKING':
                 current.status = 'ERROR'
-                current.status_message = "Local agent exited before completing the request"
+                current.status_message = iface_("Local agent exited before completing the request")
                 current.request_id = ""
             if current.connection in {'STARTING', 'WAITING'}:
                 clear_connect_code(current)
@@ -285,7 +308,8 @@ class AgentRuntime:
                 current.connection_message = "Local agent exited before the connection finished"
             current.sidecar_available = False
             self._cleanup_exited_process()
-        if handled or (current.connection == 'WAITING' and self._countdown_due()):
+        ticking = current.connection == 'WAITING' or current.status == 'WORKING'
+        if handled or (ticking and self._countdown_due()):
             _redraw()
 
     def _countdown_due(self):
@@ -328,7 +352,7 @@ class AgentRuntime:
                 and request_id == current.request_id
             ):
                 current.status = 'IDLE'
-                current.status_message = "Request cancelled"
+                current.status_message = iface_("Request cancelled")
                 current.request_id = ""
             return
 
@@ -346,7 +370,7 @@ class AgentRuntime:
                     return
             if error["code"] == "cancelled" and method in {"plan", "cancel"}:
                 current.status = 'IDLE'
-                current.status_message = "Request cancelled"
+                current.status_message = iface_("Request cancelled")
                 current.request_id = ""
                 return
             current.status = 'ERROR'
@@ -373,31 +397,36 @@ class AgentRuntime:
                 return
             if request.get("scene_revision") != current.scene_revision:
                 current.status = 'ERROR'
-                current.status_message = "Planning context expired; create a new plan"
+                current.status_message = iface_("The scene changed while planning; create a new plan")
                 current.request_id = ""
                 return
             allowed_objects = set(request.get("captured_objects", ()))
+            raw_plan = result
             try:
                 result = tools.normalize_plan(result, context)
                 tools.validate_plan(result, context, allowed_objects)
             except tools.PlanValidationError as exc:
                 current.status = 'ERROR'
-                current.status_message = f"Rejected plan: {exc}"
+                current.status_message = iface_("Rejected plan: {}").format(exc)
                 current.request_id = ""
                 return
             current.request_id = ""
             current.allowed_objects_json = json.dumps(sorted(allowed_objects), separators=(",", ":"))
-            current.plan_json = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-            current.plan_summary = str(result.get("summary", "Proposed changes"))
-            current.response_text = current.plan_summary
+            show_plan(current, result)
+            # The conversation keeps the plan as the agent sent it: that is the form the agent
+            # re-checks when a refinement sends it back.
+            turns = conversation.add_turn(
+                conversation.load(current.history_json), request.get("instruction", ""), raw_plan
+            )
+            current.history_json = conversation.dump(turns)
             current.status = 'READY'
-            current.status_message = "Validated locally • review every value before applying"
+            current.status_message = iface_("Plan ready • switch off any step you do not want, then apply")
         elif method == "cancel":
             target = request.get("target_request_id")
             self.cancelled_requests.discard(target)
             if target == current.request_id:
                 current.status = 'IDLE'
-                current.status_message = "Request cancelled"
+                current.status_message = iface_("Request cancelled")
                 current.request_id = ""
         elif method == "shutdown":
             current.sidecar_available = False
@@ -530,6 +559,9 @@ def _redraw():
         for area in window.screen.areas:
             if area.type == 'VIEW_3D':
                 area.tag_redraw()
+
+
+redraw = _redraw
 
 
 def _poll():

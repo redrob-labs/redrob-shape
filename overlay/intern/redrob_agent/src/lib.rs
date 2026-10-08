@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod config;
+pub mod conversation;
 pub mod credentials;
 pub mod device;
 pub mod protocol;

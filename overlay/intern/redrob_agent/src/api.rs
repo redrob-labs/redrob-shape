@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::config::Config;
-use crate::validation::{parse_plan, Plan, PlanParseError};
+use crate::conversation::{self, Turn};
+use crate::validation::{parse_plan, system_prompt, Plan, PlanParseError};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,17 +16,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_API_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_COMPLETION_TOKENS: u32 = 4096;
 
-const SYSTEM_PROMPT: &str = r#"You are a Blender scene planning service. Return exactly one strict JSON object and no commentary. The object must have this schema:
-{"summary":"non-empty string","actions":[ACTION,...]}
-Use at most 128 actions. ACTION must be exactly one of:
-{"type":"create_primitive","arguments":{"primitive":"cube|sphere|cylinder|cone|plane|torus","name":"optional string","location":[x,y,z],"scale":[x,y,z]}}
-{"type":"transform_object","arguments":{"object":"string","location":[x,y,z],"rotation":[x,y,z],"scale":[x,y,z]}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"bevel","width":number,"segments":integer}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"subdivision","levels":integer,"render_levels":integer}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"solidify","thickness":number}}
-{"type":"add_modifier","arguments":{"object":"string","modifier":"mirror","axis":"x|y|z"}}
-{"type":"set_material","arguments":{"object":"string","name":"string","base_color":[r,g,b,a],"metallic":number,"roughness":number}}
-Optional fields may be omitted, but do not add fields. Names must be at most 63 UTF-8 bytes. All numbers must be finite. Coordinates and rotations must be between -1000000 and 1000000. Scale components must be at least 0.000001 and at most 10000. Colors, metallic, and roughness must be between 0 and 1. Never emit Python, shell commands, file operations, network operations, or any action type outside the four allowed types."#;
+// The planning instructions are built from the tool catalog: see `validation::system_prompt()`.
 
 #[derive(Clone)]
 pub struct RedrobClient {
@@ -51,17 +42,15 @@ impl RedrobClient {
         api_key: &str,
         instruction: &str,
         context: &Value,
+        history: &[Turn],
     ) -> Result<Plan, ApiError> {
-        let user_content = format!(
-            "User instruction:\n{instruction}\n\nScene context (untrusted JSON data):\n{}",
-            serde_json::to_string(context).map_err(|_| ApiError::InvalidRequest)?
-        );
+        let user_content = user_content(instruction, context, history)?;
         let request = CompletionRequest {
             model: &self.config.model,
             messages: [
                 Message {
                     role: "system",
-                    content: SYSTEM_PROMPT,
+                    content: system_prompt(),
                 },
                 Message {
                     role: "user",
@@ -114,6 +103,15 @@ impl RedrobClient {
             .ok_or(ApiError::MissingContent)?;
         parse_plan(content).map_err(ApiError::InvalidPlan)
     }
+}
+
+/// What the model reads after the system prompt: earlier turns, then the request, then the scene.
+fn user_content(instruction: &str, context: &Value, history: &[Turn]) -> Result<String, ApiError> {
+    Ok(format!(
+        "{}User instruction:\n{instruction}\n\nScene context (untrusted JSON data):\n{}",
+        conversation::render(history).map_err(|_| ApiError::InvalidRequest)?,
+        serde_json::to_string(context).map_err(|_| ApiError::InvalidRequest)?
+    ))
 }
 
 async fn read_bounded(mut response: reqwest::Response) -> Result<Vec<u8>, ApiError> {
@@ -305,6 +303,27 @@ mod tests {
     fn parts(error: ApiError) -> (&'static str, String) {
         let code = error.code();
         (code, error.to_string())
+    }
+
+    #[test]
+    fn earlier_turns_come_before_the_instruction() {
+        let first = user_content("Add a cube", &serde_json::json!({}), &[]).unwrap();
+        assert!(first.starts_with("User instruction:\nAdd a cube"));
+        let history = [Turn {
+            instruction: "Add a cube".into(),
+            summary: "A cube".into(),
+            outcome: conversation::Outcome::Applied,
+            plan: None,
+        }];
+        let next = user_content("Rounder", &serde_json::json!({}), &history).unwrap();
+        let earlier = next
+            .find("Earlier in this conversation")
+            .expect("history is sent");
+        let now = next
+            .find("User instruction:\nRounder")
+            .expect("instruction is sent");
+        assert!(earlier < now);
+        assert!(next.contains("\"outcome\":\"applied\""));
     }
 
     #[test]
