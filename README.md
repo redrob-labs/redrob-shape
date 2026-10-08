@@ -1,6 +1,10 @@
 # Redrob Shape: patch-based customization of Blender
 
-Redrob Shape is a compatibility-first, agentic Blender distribution with an AI agent sidecar.
+Redrob Shape is an agentic 3D suite that shapes and shades your models by prompt, and opens your existing .blend files.
+
+[한국어](README.ko.md)
+
+It is built as a compatibility-first Blender distribution with a local AI agent sidecar.
 This repository holds **only our changes**.
 Upstream Blender is fetched at build time, never vendored, so `git log` here shows Redrob Shape work
 rather than being buried under upstream history.
@@ -68,6 +72,18 @@ It stops there deliberately. The gate asserts what must *not* have changed:
   rule someone has to remember.
 
 Blender's 3D core keeps its own names throughout. What is rebranded is the product wrapping it.
+
+## Brand assets
+
+Every icon, the splash and the X11 window icon under `brand/` are built from the design system's
+published files by `scripts/build-brand-assets.py`, never drawn here. Redrob Shape is not one of the
+seven suite products, so it uses the group icon: the white symbol on a Redrob Blue tile.
+`brand/SOURCES.json` pins every source and output by sha256, and the gate runs
+`scripts/check-brand.py`, which also checks that the theme's colours are design-system tokens.
+
+```
+scripts/build-brand-assets.py --design-system ~/workplace/redrob-design-system
+```
 
 ## Git LFS: the fetched tree has asset pointers, not assets
 

@@ -47,7 +47,7 @@ while IFS= read -r file; do
   dest="${file#brand/}"
   copy_asset "$file" "$dest"
   copied=$((copied + 1))
-done < <(find brand/release -type f | sort)
+done < <(find brand/release brand/intern -type f | sort)
 
 # The freedesktop icon sizes, which live under a different root in the checkout.
 while IFS= read -r file; do

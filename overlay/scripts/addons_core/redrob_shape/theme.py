@@ -15,17 +15,13 @@ _THEME_SNAPSHOT_VERSION = 1
 
 # --- The Redrob Shape palette ---------------------------------------------------------
 #
-# Derived from the ORGANISATION'S canonical tokens, not chosen here:
-# redrob-design/packages/brand/src/tokens.css. One place decides a colour, and it is not this file.
+# Every colour here is a design-system token, by name: redrob-design-system/tokens.css, the dark
+# theme (`[data-theme="dark"]`). TOKENS holds the hex values this file uses; brand/SOURCES.json
+# pins the same values as read from tokens.css, and scripts/check-brand.py fails when they drift.
+# No colour is chosen in this file, and none is mixed between two tokens.
 #
-#   --rr-black   #0a0b0c      --rr-gray-1  #f8f9fb
-#   --rr-white   #ffffff      --rr-gray-8  #292e37
-#   --rr-blue-5  #507fff      --rr-gray-9  #141719
-#   --rr-blue-6  #2b52ff
-#
-# The accent is BLUE. An earlier version of this file used a red accent invented for the purpose,
-# which was simply wrong about the brand -- and the test that asserted it was red encoded the same
-# mistake. Both are corrected here.
+# Redrob Shape is not one of the seven suite products, so it has no product colour (20-color.md:
+# "No eighth product color"). Its UI is neutrals plus Redrob Blue for selection and action.
 #
 # Blender's shipped Blender_Dark.xml is EMPTY -- the default theme lives in C
 # (source/blender/editors/interface/resources.cc), which our patch set is forbidden to touch because
@@ -33,13 +29,35 @@ _THEME_SNAPSHOT_VERSION = 1
 # instead, and it is reversible: every value is snapshotted before it is changed, which a C patch
 # could never offer. That constraint produced the better design.
 
-RR_BLACK = (0.039216, 0.043137, 0.047059)
-RR_WHITE = (1.0, 1.0, 1.0)
-RR_BLUE_5 = (0.313725, 0.498039, 1.0)
-RR_BLUE_6 = (0.168627, 0.321569, 1.0)
-RR_GRAY_1 = (0.972549, 0.976471, 0.984314)
-RR_GRAY_8 = (0.160784, 0.180392, 0.215686)
-RR_GRAY_9 = (0.078431, 0.090196, 0.098039)
+TOKENS = {
+    "redrob-black": "#0a0b0c",  # surface-base
+    "redrob-white": "#ffffff",  # ink-on-brand
+    "surface-sunken": "#000000",
+    "gray-1": "#f8f9fb",  # ink-primary
+    "gray-5": "#aab0bb",  # ink-secondary
+    "gray-6": "#7c8390",  # ink-muted, border-strong
+    "gray-8": "#292e37",  # border-subtle
+    "gray-9": "#141719",  # surface-raised
+    "blue-5": "#507fff",  # action-primary-hover
+    "blue-6": "#2b52ff",  # action-primary, Redrob Blue
+}
+
+
+def _token(name):
+    value = TOKENS[name]
+    return tuple(round(int(value[i : i + 2], 16) / 255, 6) for i in (1, 3, 5))
+
+
+RR_BLACK = _token("redrob-black")
+RR_WHITE = _token("redrob-white")
+RR_SUNKEN = _token("surface-sunken")
+RR_BLUE_5 = _token("blue-5")
+RR_BLUE_6 = _token("blue-6")
+RR_GRAY_1 = _token("gray-1")
+RR_GRAY_5 = _token("gray-5")
+RR_GRAY_6 = _token("gray-6")
+RR_GRAY_8 = _token("gray-8")
+RR_GRAY_9 = _token("gray-9")
 
 
 def _rgba(rgb, alpha=1.0):
@@ -47,16 +65,16 @@ def _rgba(rgb, alpha=1.0):
 
 
 _PALETTE = {
-    "bg_deep": _rgba(RR_BLACK),        # editor backgrounds
-    "bg": _rgba(RR_GRAY_9),            # panels, widget interiors
-    "bg_raised": (0.098, 0.110, 0.125, 1.0),   # headers, toolbars: between gray-9 and gray-8
-    "bg_hover": (0.128, 0.144, 0.170, 1.0),
-    "line": _rgba(RR_GRAY_8),          # outlines, separators
-    "accent": _rgba(RR_BLUE_6),        # selection and emphasis
+    "bg_deep": _rgba(RR_BLACK),        # editor backgrounds: surface-base
+    "bg": _rgba(RR_GRAY_9),            # panels, widget interiors: surface-raised
+    "bg_raised": _rgba(RR_GRAY_9),     # headers, toolbars
+    "bg_hover": _rgba(RR_GRAY_8),
+    "line": _rgba(RR_GRAY_8),          # outlines, separators: border-subtle
+    "accent": _rgba(RR_BLUE_6),        # selection and emphasis: action-primary
     "accent_dim": _rgba(RR_BLUE_5),
-    "text": _rgba(RR_GRAY_1),
+    "text": _rgba(RR_GRAY_1),          # ink-primary
     "text_bright": _rgba(RR_WHITE),
-    "text_dim": (0.52, 0.55, 0.60, 1.0),
+    "text_dim": _rgba(RR_GRAY_6),      # ink-muted
 }
 
 #: Every editor space Blender exposes on a theme, and the roles each one gets.
@@ -110,58 +128,58 @@ def _space_theme_values():
 # versions. Unsupported properties are skipped rather than breaking startup.
 _THEME_VALUES = (
     ("user_interface.wcol_regular.outline", _rgba(RR_GRAY_8)),
-    ("user_interface.wcol_regular.inner", (0.055, 0.063, 0.078, 1.0)),
+    ("user_interface.wcol_regular.inner", _rgba(RR_BLACK)),
     ("user_interface.wcol_regular.inner_sel", _rgba(RR_BLUE_6)),
     ("user_interface.wcol_regular.text", _rgba(RR_GRAY_1)),
     ("user_interface.wcol_regular.text_sel", _rgba(RR_WHITE)),
     ("user_interface.wcol_regular.roundness", 0.38),
     ("user_interface.wcol_tool.outline", _rgba(RR_GRAY_8)),
-    ("user_interface.wcol_tool.inner", (0.07, 0.08, 0.10, 1.0)),
+    ("user_interface.wcol_tool.inner", _rgba(RR_GRAY_8)),
     ("user_interface.wcol_tool.inner_sel", _rgba(RR_BLUE_6)),
     ("user_interface.wcol_tool.text", _rgba(RR_GRAY_1)),
     ("user_interface.wcol_tool.text_sel", _rgba(RR_WHITE)),
     ("user_interface.wcol_tool.roundness", 0.48),
     ("user_interface.wcol_toolbar_item.outline", _rgba(RR_GRAY_8)),
-    ("user_interface.wcol_toolbar_item.inner", (0.055, 0.063, 0.078, 1.0)),
+    ("user_interface.wcol_toolbar_item.inner", _rgba(RR_GRAY_9)),
     ("user_interface.wcol_toolbar_item.inner_sel", _rgba(RR_BLUE_6)),
     ("user_interface.wcol_toolbar_item.roundness", 0.48),
-    ("user_interface.wcol_menu.outline", (0.14, 0.16, 0.20, 1.0)),
-    ("user_interface.wcol_menu.inner", (0.045, 0.052, 0.065, 1.0)),
+    ("user_interface.wcol_menu.outline", _rgba(RR_GRAY_8)),
+    ("user_interface.wcol_menu.inner", _rgba(RR_GRAY_9)),
     ("user_interface.wcol_menu.inner_sel", _rgba(RR_BLUE_6)),
     ("user_interface.wcol_menu.text", _rgba(RR_GRAY_1)),
     ("user_interface.wcol_menu.text_sel", _rgba(RR_WHITE)),
     ("user_interface.wcol_menu.roundness", 0.42),
-    ("user_interface.wcol_menu_back.outline", (0.13, 0.15, 0.19, 1.0)),
-    ("user_interface.wcol_menu_back.inner", (0.035, 0.041, 0.052, 1.0)),
+    ("user_interface.wcol_menu_back.outline", _rgba(RR_GRAY_8)),
+    ("user_interface.wcol_menu_back.inner", _rgba(RR_GRAY_9)),
     ("user_interface.wcol_menu_back.roundness", 0.42),
     ("user_interface.wcol_box.outline", _rgba(RR_GRAY_8)),
-    ("user_interface.wcol_box.inner", (0.045, 0.052, 0.065, 0.94)),
+    ("user_interface.wcol_box.inner", _rgba(RR_BLACK)),
     ("user_interface.wcol_box.roundness", 0.32),
-    ("user_interface.wcol_tab.outline", (0.13, 0.15, 0.19, 1.0)),
-    ("user_interface.wcol_tab.inner", (0.045, 0.052, 0.065, 1.0)),
-    ("user_interface.wcol_tab.inner_sel", (0.12, 0.135, 0.16, 1.0)),
+    ("user_interface.wcol_tab.outline", _rgba(RR_GRAY_8)),
+    ("user_interface.wcol_tab.inner", _rgba(RR_BLACK)),
+    ("user_interface.wcol_tab.inner_sel", _rgba(RR_GRAY_9)),
     ("user_interface.wcol_tab.roundness", 0.42),
     ("user_interface.menu_shadow_fac", 0.38),
     ("user_interface.menu_shadow_width", 8),
     ("user_interface.icon_alpha", 1.0),
     ("user_interface.icon_saturation", 0.9),
-    ("view_3d.space.back", (0.018, 0.022, 0.029)),
-    ("view_3d.space.header", (0.035, 0.041, 0.052, 1.0)),
-    ("view_3d.space.text", (0.76, 0.80, 0.86)),
-    ("view_3d.space.text_hi", (1.0, 1.0, 1.0)),
-    ("view_3d.space.button", (0.055, 0.063, 0.078, 1.0)),
-    ("view_3d.space.navigation_bar", (0.028, 0.033, 0.043, 1.0)),
+    ("view_3d.space.back", RR_BLACK),
+    ("view_3d.space.header", _rgba(RR_GRAY_9)),
+    ("view_3d.space.text", RR_GRAY_5),
+    ("view_3d.space.text_hi", RR_WHITE),
+    ("view_3d.space.button", _rgba(RR_GRAY_9)),
+    ("view_3d.space.navigation_bar", _rgba(RR_BLACK)),
     ("view_3d.space.tab_active", _rgba(RR_BLUE_6)),
-    ("view_3d.space.tab_inactive", (0.055, 0.063, 0.078, 1.0)),
-    ("topbar.space.back", (0.022, 0.027, 0.035, 1.0)),
-    ("topbar.space.header", (0.028, 0.033, 0.043, 1.0)),
-    ("statusbar.space.back", (0.022, 0.027, 0.035, 1.0)),
-    ("outliner.space.back", (0.024, 0.029, 0.038, 1.0)),
-    ("properties.space.back", (0.024, 0.029, 0.038, 1.0)),
-    ("node_editor.space.back", (0.018, 0.022, 0.029, 1.0)),
-    ("file_browser.space.back", (0.024, 0.029, 0.038, 1.0)),
-    ("text_editor.space.back", (0.018, 0.022, 0.029, 1.0)),
-    ("console.space.back", (0.018, 0.022, 0.029, 1.0)),
+    ("view_3d.space.tab_inactive", _rgba(RR_GRAY_9)),
+    ("topbar.space.back", _rgba(RR_SUNKEN)),
+    ("topbar.space.header", _rgba(RR_BLACK)),
+    ("statusbar.space.back", _rgba(RR_SUNKEN)),
+    ("outliner.space.back", _rgba(RR_BLACK)),
+    ("properties.space.back", _rgba(RR_BLACK)),
+    ("node_editor.space.back", _rgba(RR_BLACK)),
+    ("file_browser.space.back", _rgba(RR_BLACK)),
+    ("text_editor.space.back", _rgba(RR_BLACK)),
+    ("console.space.back", _rgba(RR_BLACK)),
 )
 
 # The hand-tuned values above come first and the generated per-space sweep follows, so a specific
