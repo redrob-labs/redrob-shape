@@ -45,7 +45,13 @@ impl RedrobClient {
         Ok(Self { client, config })
     }
 
-    pub async fn plan(&self, instruction: &str, context: &Value) -> Result<Plan, ApiError> {
+    /// `api_key` is looked up per request, because it can arrive after start-up through the device flow.
+    pub async fn plan(
+        &self,
+        api_key: &str,
+        instruction: &str,
+        context: &Value,
+    ) -> Result<Plan, ApiError> {
         let user_content = format!(
             "User instruction:\n{instruction}\n\nScene context (untrusted JSON data):\n{}",
             serde_json::to_string(context).map_err(|_| ApiError::InvalidRequest)?
@@ -72,13 +78,19 @@ impl RedrobClient {
         let response = self
             .client
             .post(self.config.endpoint.clone())
-            .bearer_auth(&self.config.api_key)
+            .bearer_auth(api_key)
             .json(&request)
             .send()
             .await
             .map_err(map_reqwest_error)?;
         let status = response.status();
         if !status.is_success() {
+            if matches!(status.as_u16(), 401 | 402) {
+                let body = read_bounded(response).await.unwrap_or_default();
+                if let Some(refused) = refusal(status.as_u16(), &body) {
+                    return Err(refused);
+                }
+            }
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 retryable: is_retryable_status(status),
@@ -187,6 +199,71 @@ pub enum ApiError {
     MissingContent,
     #[error("service returned an invalid plan: {0}")]
     InvalidPlan(PlanParseError),
+    /// A refusal the user can act on, with the console's own words for it.
+    #[error("{message}")]
+    Refused { code: &'static str, message: String },
+}
+
+const MAX_REFUSAL_MESSAGE_CHARS: usize = 240;
+
+/// What a 401 or 402 from the gateway means, read from its OpenAI-compatible envelope
+/// (redrob-console `apps/api/src/inference/openai-error.filter.ts`):
+/// `{"error": {"message", "type", "code"}}`. 402 is either an empty balance (`code` is
+/// `insufficient_quota`) or a key over its monthly budget (`code` is `api_key_budget_exhausted`);
+/// they are fixed in different places, so they get different codes here.
+pub fn refusal(status: u16, body: &[u8]) -> Option<ApiError> {
+    #[derive(Deserialize)]
+    struct Envelope {
+        error: Option<Detail>,
+    }
+    #[derive(Deserialize)]
+    struct Detail {
+        message: Option<String>,
+        code: Option<String>,
+    }
+    let detail = serde_json::from_slice::<Envelope>(body)
+        .ok()
+        .and_then(|envelope| envelope.error);
+    let said = detail
+        .as_ref()
+        .and_then(|detail| detail.message.as_deref())
+        .map(readable)
+        .filter(|message| !message.is_empty());
+    let code = detail.as_ref().and_then(|detail| detail.code.as_deref());
+    let (code, fallback) = match (status, code) {
+        (401, _) => (
+            "invalid_api_key",
+            "Redrob Console no longer accepts the stored key. Connect again.",
+        ),
+        (402, Some("api_key_budget_exhausted")) => (
+            "key_budget_exhausted",
+            "This key has used its monthly budget. Raise it in Redrob Console.",
+        ),
+        (402, _) => (
+            "out_of_credit",
+            "This workspace is out of credit. Top up in Redrob Console.",
+        ),
+        _ => return None,
+    };
+    // A 401's own text is about the header, not about what to do; ours says what to do.
+    let message = if status == 401 {
+        fallback.to_owned()
+    } else {
+        said.unwrap_or_else(|| fallback.to_owned())
+    };
+    Some(ApiError::Refused { code, message })
+}
+
+/// Text from the network, shown in Blender: one line, no control characters, bounded.
+fn readable(text: &str) -> String {
+    let flat: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    flat.chars().take(MAX_REFUSAL_MESSAGE_CHARS).collect()
 }
 
 impl ApiError {
@@ -200,6 +277,7 @@ impl ApiError {
             Self::ResponseTooLarge => "response_too_large",
             Self::MalformedResponse | Self::MissingContent => "malformed_response",
             Self::InvalidPlan(_) => "invalid_plan",
+            Self::Refused { code, .. } => code,
         }
     }
 
@@ -209,5 +287,70 @@ impl ApiError {
             Self::HttpStatus { retryable, .. } => *retryable,
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn envelope(message: &str, code: &str) -> Vec<u8> {
+        // openai-error.filter.ts: { error: { message, type, param, code } }.
+        format!(
+            r#"{{"error":{{"message":"{message}","type":"insufficient_quota","param":null,"code":"{code}"}}}}"#
+        )
+        .into_bytes()
+    }
+
+    fn parts(error: ApiError) -> (&'static str, String) {
+        let code = error.code();
+        (code, error.to_string())
+    }
+
+    #[test]
+    fn an_empty_balance_is_told_apart_from_a_key_over_budget() {
+        // credits.service.ts outOfCredit(): the message the console itself writes.
+        let empty = envelope(
+            "This workspace is out of credit (balance $0.00). Top up to keep making requests.",
+            "insufficient_quota",
+        );
+        assert_eq!(
+            parts(refusal(402, &empty).unwrap()),
+            (
+                "out_of_credit",
+                "This workspace is out of credit (balance $0.00). Top up to keep making requests."
+                    .into()
+            )
+        );
+        let over = envelope(
+            "This key has spent $5.00 of its $5.00 budget.",
+            "api_key_budget_exhausted",
+        );
+        assert_eq!(refusal(402, &over).unwrap().code(), "key_budget_exhausted");
+    }
+
+    #[test]
+    fn a_rejected_key_says_what_to_do() {
+        let body = br#"{"error":{"message":"Invalid API key","type":"authentication_error","code":"invalid_api_key"}}"#;
+        let (code, message) = parts(refusal(401, body).unwrap());
+        assert_eq!(code, "invalid_api_key");
+        assert!(message.contains("Connect again"), "{message}");
+    }
+
+    #[test]
+    fn an_unreadable_body_still_gets_a_useful_message() {
+        assert_eq!(refusal(402, b"<html>").unwrap().code(), "out_of_credit");
+        assert!(refusal(500, b"{}").is_none());
+    }
+
+    #[test]
+    fn network_text_is_flattened_and_bounded() {
+        let noisy = envelope(
+            &format!("line one\\nline\\ttwo {}", "x".repeat(400)),
+            "insufficient_quota",
+        );
+        let (_, message) = parts(refusal(402, &noisy).unwrap());
+        assert!(message.starts_with("line one line two "), "{message}");
+        assert_eq!(message.chars().count(), MAX_REFUSAL_MESSAGE_CHARS);
     }
 }

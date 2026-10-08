@@ -9,7 +9,20 @@ import json
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 256 * 1024
-_ALLOWED_METHODS = frozenset({"health", "plan", "cancel", "shutdown"})
+_ALLOWED_METHODS = frozenset(
+    {
+        "health",
+        "plan",
+        "cancel",
+        "shutdown",
+        # The key lives in the agent: the add-on asks about the connection, never for the key.
+        "connection_status",
+        "connect_start",
+        "connect_wait",
+        "disconnect",
+        "store_key",
+    }
+)
 
 
 class ProtocolError(ValueError):

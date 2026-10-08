@@ -5,7 +5,7 @@
 """Session state displayed by the native Redrob Shape workspace."""
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty, StringProperty
 from bpy.types import PropertyGroup
 
 _STATUS_ITEMS = (
@@ -14,6 +14,16 @@ _STATUS_ITEMS = (
     ('READY', "Review", "A validated plan is ready to review", 'PREVIEW_RANGE', 2),
     ('APPLYING', "Applying", "The approved plan is being applied", 'FILE_REFRESH', 3),
     ('ERROR', "Needs Attention", "The last operation could not complete", 'ERROR', 4),
+)
+
+
+_CONNECTION_ITEMS = (
+    ('UNKNOWN', "Checking", "Asking the local agent about the connection", 'TIME', 0),
+    ('DISCONNECTED', "Not Connected", "Connect Redrob Console to create plans", 'UNLINKED', 1),
+    ('STARTING', "Starting", "Asking Redrob Console for a code", 'TIME', 2),
+    ('WAITING', "Waiting for Approval", "Approve the code in your browser", 'URL', 3),
+    ('CONNECTED', "Connected", "Plans use your Redrob Console key", 'LINKED', 4),
+    ('ERROR', "Not Connected", "The last connection attempt did not finish", 'ERROR', 5),
 )
 
 
@@ -33,6 +43,21 @@ class REDROB_PG_session(PropertyGroup):
     allowed_objects_json: StringProperty(default="[]", options={'SKIP_SAVE'})
     sidecar_available: BoolProperty(default=False, options={'SKIP_SAVE'})
     theme_active: BoolProperty(default=False, options={'SKIP_SAVE'})
+
+    # The connection to Redrob Console. None of these is a secret: the key stays in the agent, and
+    # what reaches Blender is its last four characters and where it is kept.
+    connection: EnumProperty(name="Connection", items=_CONNECTION_ITEMS, default='UNKNOWN', options={'SKIP_SAVE'})
+    connection_message: StringProperty(default="", options={'SKIP_SAVE'})
+    connection_source: StringProperty(default="", options={'SKIP_SAVE'})
+    connection_hint: StringProperty(default="", options={'SKIP_SAVE'})
+    connection_keychain: BoolProperty(default=True, options={'SKIP_SAVE'})
+    user_code: StringProperty(default="", options={'SKIP_SAVE'})
+    verification_uri: StringProperty(default="", options={'SKIP_SAVE'})
+    verification_uri_complete: StringProperty(default="", options={'SKIP_SAVE'})
+    connect_request_id: StringProperty(default="", options={'SKIP_SAVE'})
+    connect_expires_at: FloatProperty(default=0.0, options={'SKIP_SAVE'})
+    key_name: StringProperty(default="", options={'SKIP_SAVE'})
+    account_name: StringProperty(default="", options={'SKIP_SAVE'})
 
 
 def session(context):

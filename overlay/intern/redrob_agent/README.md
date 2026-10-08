@@ -14,14 +14,28 @@ load Blender, mutate scenes, execute model-generated code, or read API keys from
 
 ## Configuration
 
-- `REDROB_API_KEY` is required for `plan`. It is sent only as a bearer token and is never logged.
+- The key for `plan` comes from the OS keychain (`ai.redrob.shape` / `redrob`), put there by
+  `connect_wait` or `store_key`. `REDROB_API_KEY` in the environment overrides it for development
+  and CI. It is sent only as a bearer token and is never logged or returned.
 - `REDROB_BASE_URL` optionally replaces the complete chat-completions endpoint. It defaults to
   `https://console.redrob.ai/api/backend/v1/chat/completions`. Only HTTPS URLs without embedded
   credentials or fragments are accepted; redirects are disabled.
+- `REDROB_DEVICE_BASE_URL` optionally replaces the console root that holds `device/authorize` and
+  `device/token`, default `https://console.redrob.ai/api/backend/v1`, with the same HTTPS rules.
 - `REDROB_MODEL` optionally selects the model and defaults to `auto`.
 
 `health` remains available when configuration is absent or invalid, allowing the parent process to
-display a useful status without making a network request.
+display a useful status without making a network request. It carries the connection status.
+
+## Connecting
+
+| Method | Answer |
+|---|---|
+| `connection_status` | `{connected, source: environment\|keychain\|session, key_hint, keychain_available}` |
+| `connect_start` | `{user_code, verification_uri, verification_uri_complete, expires_in, interval}`. The device code stays in the agent. |
+| `connect_wait` | Polls until approval, then stores the key and answers with the status plus `key_name` and `account_name`. Cancellable with `cancel`; errors `access_denied`, `expired_token`, `invalid_grant`, `no_pending_connection`. |
+| `disconnect` | Removes the stored key and answers with the status. A key from the environment remains. |
+| `store_key` | `{"key": "..."}`: stores a pasted key the same way. The key is never echoed. |
 
 ## Protocol
 

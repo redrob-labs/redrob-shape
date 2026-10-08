@@ -37,7 +37,9 @@ The sidecar is not linked into Blender. CMake maps Windows x64/arm64, Linux x64/
 
 ## Connect Redrob
 
-Set the API key in the environment that launches Blender:
+Open the **Redrob Shape** tab in the 3D View sidebar and choose **Connect Redrob Console**. Approve the code on the page that opens; the key goes to the system keychain (Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux, such as GNOME Keyring or KWallet). Without a keychain the connection lasts until Blender closes. Building the sidecar on Linux needs the libdbus-1 development files (`libdbus-1-dev` on Debian and Ubuntu).
+
+For development and CI, a key in the environment that launches Blender overrides the keychain:
 
 ```sh
 export REDROB_API_KEY="your-workspace-key"
@@ -47,6 +49,7 @@ Optional variables:
 
 - `REDROB_MODEL` defaults to `auto`.
 - `REDROB_BASE_URL` defaults to `https://console.redrob.ai/api/backend/v1/chat/completions` and must be HTTPS.
+- `REDROB_DEVICE_BASE_URL` defaults to `https://console.redrob.ai/api/backend/v1`, where the device endpoints live, and must be HTTPS.
 - `REDROB_AGENT_BIN` overrides sidecar discovery for development builds.
 
 Use [Redrob Console](https://console.redrob.ai/) to manage the workspace key, balance, logs, and revocation. Secrets are consumed by the sidecar and are never sent through Blender's JSON protocol.

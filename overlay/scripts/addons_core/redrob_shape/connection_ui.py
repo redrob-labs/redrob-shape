@@ -25,6 +25,8 @@ Two things are deliberately absent:
 # then fails at add-on enable time -- a failure that only appears inside Blender, which is why the
 # structural test in tests/test_connection_ui.py asserts the annotations are objects.
 
+import time
+
 import bpy
 from bpy.props import BoolProperty, EnumProperty, StringProperty
 from bpy.types import AddonPreferences, Operator, Panel
@@ -65,17 +67,34 @@ def preferences():
     return bpy.context.preferences.addons[__package__].preferences
 
 
+def _session():
+    return getattr(bpy.context.window_manager, "redrob_shape", None)
+
+
 def resolve_now():
     prefs = preferences()
     preferred = None
     if prefs.transport_choice != "AUTO":
         preferred = [_KIND_BY_ITEM[prefs.transport_choice]]
+    current = _session()
     return transport.resolve(
         _STORE,
         _health_check,
         subscription_enabled=prefs.subscription_enabled,
         preferred=preferred,
+        gateway_connected=(current is not None and current.connection == 'CONNECTED'),
+        supported=transport.AGENT_KINDS,
     )
+
+
+def _agent():
+    """The running agent, started on demand. None, with the reason reported, when it cannot run."""
+    from . import runtime
+
+    agent = runtime.runtime()
+    if agent.running or agent.start():
+        return agent
+    return None
 
 
 class REDROB_Preferences(AddonPreferences):
@@ -134,6 +153,12 @@ class REDROB_Preferences(AddonPreferences):
             )
         for account, state in _STORE.status().items():
             row = box.row()
+            if account == "redrob":
+                # The agent keeps this one; ask it, and let the panel's Disconnect remove it.
+                current = _session()
+                state = _redrob_key_state(current) if current is not None else "unknown"
+                row.label(text=f"{account}: {state}")
+                continue
             row.label(text=f"{account}: {state}")
             remove = row.operator("redrob.forget_key", text="", icon="X")
             remove.account = account
@@ -156,6 +181,19 @@ class REDROB_OT_store_key(Operator):
         # Cleared before anything else can fail, so a rejected key does not linger in the field
         # where it would be written to userpref.blend on the next save.
         prefs.key_entry = ""
+        if prefs.key_target == "redrob":
+            # Same home as a device-flow key: the agent's keychain entry. Never the local store.
+            agent = _agent()
+            if agent is None:
+                self.report({"ERROR"}, "The local agent is not running, so the key was not stored")
+                return {"CANCELLED"}
+            try:
+                agent.store_key(value)
+            except RuntimeError as error:
+                self.report({"ERROR"}, credentials.redact(str(error)))
+                return {"CANCELLED"}
+            self.report({"INFO"}, "Sent the Redrob key to the system keychain")
+            return {"FINISHED"}
         try:
             _STORE.set(prefs.key_target, value)
         except ValueError as error:
@@ -183,6 +221,177 @@ class REDROB_OT_forget_key(Operator):
         return {"FINISHED"}
 
 
+_SOURCE_NOTES = {
+    "keychain": ("Saved in your system keychain", "LOCKED"),
+    "session": ("No system keychain here: connected until Blender closes", "INFO"),
+    "environment": ("Using REDROB_API_KEY from the environment", "INFO"),
+}
+
+
+def _redrob_key_state(current):
+    if current.connection != 'CONNECTED':
+        return "not connected"
+    hint = f", ending {current.connection_hint}" if current.connection_hint else ""
+    return f"connected ({current.connection_source or 'agent'}{hint})"
+
+
+def _remaining(current):
+    seconds = max(0, int(current.connect_expires_at - time.time()))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def draw_console_connection(layout, current):
+    """The Redrob Console connection, in whichever state it is. Shared by both sidebar panels."""
+    box = layout.box()
+    state = current.connection
+    box.label(text="Redrob Console", icon='LINKED' if state == 'CONNECTED' else 'UNLINKED')
+
+    if state == 'CONNECTED':
+        box.label(
+            text=f"Key ending {current.connection_hint}" if current.connection_hint else "Key stored",
+            icon='CHECKMARK',
+        )
+        note = _SOURCE_NOTES.get(current.connection_source)
+        if note:
+            box.label(text=note[0], icon=note[1])
+        if current.key_name:
+            box.label(text=f"Listed in Console as {current.key_name}")
+        row = box.row()
+        # A key the environment supplies cannot be removed from here.
+        row.enabled = current.connection_source != "environment"
+        row.operator("redrob_shape.disconnect", icon='UNLINKED')
+        return
+
+    if state == 'WAITING':
+        box.label(text="Enter this code on the page that opened:")
+        code = box.row()
+        code.alignment = 'CENTER'
+        code.scale_y = 2.0
+        code.label(text=current.user_code)
+        row = box.row(align=True)
+        row.operator("redrob_shape.open_connect_page", icon='URL')
+        row.operator("redrob_shape.copy_connect_code", text="", icon='COPYDOWN')
+        box.label(text=f"Waiting for approval, expires in {_remaining(current)}", icon='TIME')
+        box.operator("redrob_shape.connect_cancel", icon='CANCEL')
+        return
+
+    if state == 'STARTING':
+        box.label(text="Asking Redrob Console for a code", icon='TIME')
+        return
+
+    if state == 'UNKNOWN':
+        box.label(text="Checking the connection", icon='TIME')
+    elif current.connection_message:
+        box.label(text=current.connection_message, icon='ERROR' if state == 'ERROR' else 'INFO')
+    else:
+        box.label(text="Connect to plan with your Redrob Console workspace")
+    connect = box.row()
+    connect.scale_y = 1.4
+    connect.operator("redrob_shape.connect", icon='LINKED')
+
+
+class REDROB_OT_connect(Operator):
+    bl_idname = "redrob_shape.connect"
+    bl_label = "Connect Redrob Console"
+    bl_description = (
+        "Approve this computer in Redrob Console, in your browser. The key it issues is kept in "
+        "your system keychain, never in Blender's files"
+    )
+
+    def execute(self, context):
+        from . import runtime
+
+        current = context.window_manager.redrob_shape
+        if current.connection in {'STARTING', 'WAITING'}:
+            return {"CANCELLED"}
+        agent = _agent()
+        if agent is None:
+            current.connection = 'ERROR'
+            current.connection_message = runtime.runtime().start_error or "The local agent could not start"
+            self.report({"ERROR"}, current.connection_message)
+            return {"CANCELLED"}
+        current.connection = 'STARTING'
+        current.connection_message = ""
+        try:
+            agent.connect_start()
+        except RuntimeError as error:
+            current.connection = 'ERROR'
+            current.connection_message = str(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class REDROB_OT_connect_cancel(Operator):
+    bl_idname = "redrob_shape.connect_cancel"
+    bl_label = "Cancel"
+    bl_description = "Stop waiting for approval. The code stops working when it expires"
+
+    def execute(self, context):
+        from . import runtime
+
+        current = context.window_manager.redrob_shape
+        request_id = current.connect_request_id
+        if request_id:
+            try:
+                runtime.runtime().cancel(request_id)
+            except RuntimeError:
+                pass
+        runtime.clear_connect_code(current)
+        current.connection = 'DISCONNECTED'
+        current.connection_message = "Connecting was cancelled"
+        return {"FINISHED"}
+
+
+class REDROB_OT_open_connect_page(Operator):
+    bl_idname = "redrob_shape.open_connect_page"
+    bl_label = "Open Approval Page"
+    bl_description = "Open the Redrob Console page where you approve this computer"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.window_manager.redrob_shape.verification_uri_complete)
+
+    def execute(self, context):
+        bpy.ops.wm.url_open(url=context.window_manager.redrob_shape.verification_uri_complete)
+        return {"FINISHED"}
+
+
+class REDROB_OT_copy_connect_code(Operator):
+    bl_idname = "redrob_shape.copy_connect_code"
+    bl_label = "Copy Code"
+    bl_description = "Copy the code, to type it on the approval page"
+
+    def execute(self, context):
+        context.window_manager.clipboard = context.window_manager.redrob_shape.user_code
+        self.report({"INFO"}, "Code copied")
+        return {"FINISHED"}
+
+
+class REDROB_OT_disconnect(Operator):
+    bl_idname = "redrob_shape.disconnect"
+    bl_label = "Disconnect"
+    bl_description = (
+        "Remove the Redrob key from this computer's keychain. Revoke it in Redrob Console to stop "
+        "it working anywhere else"
+    )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, _context):
+        agent = _agent()
+        if agent is None:
+            self.report({"ERROR"}, "The local agent is not running")
+            return {"CANCELLED"}
+        try:
+            agent.disconnect()
+        except RuntimeError as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 class REDROB_PT_connection(Panel):
     bl_idname = "REDROB_PT_connection"
     bl_space_type = "VIEW_3D"
@@ -191,8 +400,9 @@ class REDROB_PT_connection(Panel):
     bl_label = "Connection"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw(self, _context):
+    def draw(self, context):
         layout = self.layout
+        draw_console_connection(layout, context.window_manager.redrob_shape)
         resolution = resolve_now()
 
         header = layout.box()
@@ -205,7 +415,7 @@ class REDROB_PT_connection(Panel):
                 )
         else:
             header.label(text="No transport available", icon="ERROR")
-            header.label(text="Add a key in Preferences, or start redrob-code")
+            header.label(text="Connect Redrob Console, or paste a Redrob key in Preferences")
 
         # Everything considered, not just the winner: "why is it not using my key" is the question
         # this panel exists to answer.
@@ -229,6 +439,11 @@ _CLASSES = (
     REDROB_Preferences,
     REDROB_OT_store_key,
     REDROB_OT_forget_key,
+    REDROB_OT_connect,
+    REDROB_OT_connect_cancel,
+    REDROB_OT_open_connect_page,
+    REDROB_OT_copy_connect_code,
+    REDROB_OT_disconnect,
     REDROB_PT_connection,
 )
 

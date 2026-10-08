@@ -51,6 +51,21 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(protocol.ProtocolError):
             protocol.decode_event(invalid)
 
+    def test_connection_methods_can_be_sent(self):
+        for method in ("connection_status", "connect_start", "connect_wait", "disconnect"):
+            self.assertEqual(json.loads(protocol.encode_request("r", method, {}))["method"], method)
+        stored = json.loads(protocol.encode_request("r", "store_key", {"key": "rdb_test_key_0000"}))
+        self.assertEqual(stored["params"], {"key": "rdb_test_key_0000"})
+
+    def test_every_method_the_addon_sends_is_one_the_agent_decodes(self):
+        # Both lists are hand-written, in two languages. A method only one side knows fails at
+        # runtime with method_not_found, inside Blender, where no CI looks.
+        agent_source = (
+            Path(__file__).resolve().parents[4] / "intern" / "redrob_agent" / "src" / "protocol.rs"
+        ).read_text(encoding="utf-8")
+        for method in protocol._ALLOWED_METHODS:
+            self.assertIn(f'"{method}" => decode_params', agent_source, method)
+
 
 if __name__ == "__main__":
     unittest.main()

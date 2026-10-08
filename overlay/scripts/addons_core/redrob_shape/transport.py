@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Callable, List, Optional, Sequence
 
@@ -61,6 +61,13 @@ class Kind(str, Enum):
 #: Transports whose availability depends on a vendor policy that has moved before and may move
 #: again. The UI must say so rather than presenting them as settled.
 POLICY_VOLATILE = frozenset({Kind.SUBSCRIPTION})
+
+#: What the agent in this build can actually plan through. It speaks the Redrob gateway's
+#: OpenAI-compatible endpoint only: it has no loopback-HTTP path for the local engine, reads no
+#: OpenAI or Anthropic key, and runs no vendor tool. The other kinds stay resolvable so the panel
+#: can explain them, but they are never chosen while this says so.
+AGENT_KINDS = frozenset({Kind.GATEWAY})
+UNSUPPORTED_REASON = "not used by this version: plans go through the Redrob gateway"
 
 #: The vendor tools we are willing to invoke, and the subcommand that makes them non-interactive.
 #: The executable name is all we look for -- presence on PATH means the user installed it.
@@ -132,14 +139,16 @@ def _probe_local(health_check: Callable[[str], bool]) -> Transport:
     )
 
 
-def _probe_gateway(store) -> Transport:
-    has_key = store.has("redrob")
+def _probe_gateway(store, connected: Optional[bool] = None) -> Transport:
+    # The key lives in the agent's keychain entry, so the agent's answer is the authority; the
+    # local store is the fallback for callers that have not asked the agent.
+    has_key = connected if connected is not None else store.has("redrob")
     return Transport(
         kind=Kind.GATEWAY,
         label="Redrob gateway",
         detail=GATEWAY_URL,
         available=has_key,
-        reason="a Redrob key is stored" if has_key else "connect Redrob, or paste a Redrob key",
+        reason="connected to Redrob Console" if has_key else "connect Redrob Console, or paste a Redrob key",
         provider="redrob",
     )
 
@@ -191,18 +200,31 @@ def resolve(
     subscription_enabled: bool = False,
     which: Callable[[str], Optional[str]] = shutil.which,
     preferred: Optional[Sequence[Kind]] = None,
+    gateway_connected: Optional[bool] = None,
+    supported: Optional[frozenset] = None,
 ) -> Resolution:
     """Pick a transport, and record everything considered so the UI can explain the choice.
 
     `preferred` overrides the order for a user who has made an explicit choice. An unavailable
     preference does not strand the session -- resolution continues down the default order -- but the
     reason it was skipped is kept in `considered`.
+
+    `gateway_connected` is the agent's own answer about the Redrob key, which it keeps. `supported`
+    restricts the choice to the kinds the agent can plan through (`AGENT_KINDS`); the others are
+    still listed, as unavailable, with the reason.
     """
     candidates: List[Transport] = []
     candidates.append(_probe_local(health_check))
-    candidates.append(_probe_gateway(store))
+    candidates.append(_probe_gateway(store, gateway_connected))
     candidates.extend(_probe_byo(store))
     candidates.extend(_probe_subscription(which, subscription_enabled))
+    if supported is not None:
+        candidates = [
+            candidate
+            if candidate.kind in supported
+            else replace(candidate, available=False, reason=UNSUPPORTED_REASON)
+            for candidate in candidates
+        ]
 
     order = list(preferred) if preferred else [Kind.LOCAL, Kind.GATEWAY, Kind.BYO, Kind.SUBSCRIPTION]
     # Any kind the caller did not rank still gets tried, after the ones they did.
@@ -230,8 +252,10 @@ def agent_environment(transport: Transport, store, base: Optional[dict] = None) 
         env.pop(name, None)
 
     if transport.kind is Kind.GATEWAY:
-        env["REDROB_API_KEY"] = store.get("redrob") or ""
-        env["REDROB_BASE_URL"] = GATEWAY_URL
+        # Nothing to add. The agent keeps the Redrob key in the system keychain itself, and its
+        # default endpoint IS the gateway's completion URL. Setting REDROB_BASE_URL to GATEWAY_URL,
+        # as this did, pointed the agent at /api/backend, which it treats as the full endpoint.
+        pass
     elif transport.kind is Kind.LOCAL:
         env["REDROB_BASE_URL"] = LOCAL_ENGINE_URL
     elif transport.kind is Kind.BYO:

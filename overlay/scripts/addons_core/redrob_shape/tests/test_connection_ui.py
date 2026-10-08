@@ -151,5 +151,29 @@ class HealthCheckTests(unittest.TestCase):
         self.assertFalse(connection_ui._health_check("http://127.0.0.1:1"))
 
 
+class ConnectOperatorTests(unittest.TestCase):
+    def test_every_connect_step_has_a_registered_operator(self):
+        registered = {getattr(cls, "bl_idname", None) for cls in connection_ui._CLASSES}
+        for name in (
+            "redrob_shape.connect",
+            "redrob_shape.connect_cancel",
+            "redrob_shape.open_connect_page",
+            "redrob_shape.copy_connect_code",
+            "redrob_shape.disconnect",
+        ):
+            self.assertIn(name, registered)
+
+    def test_disconnect_asks_before_removing_the_key(self):
+        self.assertIn("invoke", vars(connection_ui.REDROB_OT_disconnect))
+
+    def test_the_key_is_described_by_its_last_four_characters_only(self):
+        current = types.SimpleNamespace(
+            connection='CONNECTED', connection_hint="cdef", connection_source="keychain"
+        )
+        self.assertEqual(connection_ui._redrob_key_state(current), "connected (keychain, ending cdef)")
+        current.connection = 'DISCONNECTED'
+        self.assertEqual(connection_ui._redrob_key_state(current), "not connected")
+
+
 if __name__ == "__main__":
     unittest.main()
