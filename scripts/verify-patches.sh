@@ -128,19 +128,36 @@ if ! grep -q "Redrob Shape" "$target/release/darwin/Blender.app/Contents/Info.pl
 fi
 echo "splash, player, window and macOS bundle all branded"
 
-# And the icons must be OURS, not upstream's. Compared by content, because a file merely existing
-# at the right path proves nothing -- upstream ships one there too.
-for pair in \
-  "brand/release/windows/icons/winblender.ico:release/windows/icons/winblender.ico" \
-  "brand/release/darwin/Blender.app/Contents/Resources/blender_icon_legacy.icns:release/darwin/Blender.app/Contents/Resources/blender_icon_legacy.icns"; do
-  src="${pair%%:*}"
-  dest="${pair#*:}"
-  if ! cmp -s "$src" "$target/$dest"; then
-    echo "error: $dest is not our brand asset" >&2
+# And the icons, splash and window icon must be OURS, built from the design system's own files
+# and pinned by sha256 (brand/SOURCES.json). Compared by content, because a file merely existing
+# at the right path proves nothing -- upstream ships one there too -- and because a build reads no
+# pixels, so a hand-drawn mark would otherwise pass forever.
+python3 scripts/check-brand.py "$target"
+# The brand files are copied, never patched: a patch touching one would fight the copy.
+brand_paths=$(python3 -c "
+import json, re
+pins = json.load(open('brand/SOURCES.json'))['outputs']
+print('\n'.join(('release/freedesktop/icons/' + r) if re.match(r'^\d+x\d+/', r) else r for r in pins))
+")
+while IFS= read -r path; do
+  if grep -qF "diff --git a/$path " patches/*.patch; then
+    echo "error: a patch edits $path, which brand/ owns" >&2
     exit 1
   fi
-done
-echo "application icons are ours"
+done <<< "$brand_paths"
+# One icon on every macOS: CFBundleIconName would select upstream's compiled Assets.car instead.
+if grep -q "CFBundleIconName" "$target/release/darwin/Blender.app/Contents/Info.plist"; then
+  echo "error: Info.plist names an asset-catalog icon, so macOS 26 would show Blender's" >&2
+  exit 1
+fi
+# The launcher must match the window it opens. The window class is the executable's (Blender),
+# a functional name like Exec=blender, so the desktop entry names that.
+wm_class=$(grep -oP '(?<=define GHOST_X11_RES_CLASS ")[^"]+' "$target/intern/ghost/intern/GHOST_SystemX11.hh")
+if ! grep -qx "StartupWMClass=$wm_class" "$target/release/freedesktop/blender.desktop"; then
+  echo "error: StartupWMClass does not match the window class $wm_class" >&2
+  exit 1
+fi
+echo "application icons, splash and window icon are ours; launcher matches window class $wm_class"
 
 # --- 5. Blender's attribution and licences are intact ----------------------------
 # The branding above is deliberately narrow. Blender is GPL and its trademark policy asks that a

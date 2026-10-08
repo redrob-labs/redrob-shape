@@ -53,7 +53,7 @@ class PaletteTests(unittest.TestCase):
             self.assertIn(role, theme._PALETTE, f"{path} refers to unknown palette role {role!r}")
 
     def test_accent_is_the_canonical_brand_blue(self):
-        # The accent comes from redrob-design/packages/brand/src/tokens.css (--rr-blue-6, #2b52ff).
+        # The accent is the design system token --blue-6 (#2b52ff), pinned in brand/SOURCES.json.
         #
         # This test previously asserted the accent was RED, because an earlier version of theme.py
         # used a red palette invented for the purpose. The test agreed with the code and both were
@@ -72,6 +72,18 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(theme._PALETTE["line"], theme._rgba(theme.RR_GRAY_8))
         self.assertEqual(theme._PALETTE["text"], theme._rgba(theme.RR_GRAY_1))
         self.assertEqual(theme._PALETTE["text_bright"], theme._rgba(theme.RR_WHITE))
+
+    def test_every_colour_the_theme_sets_is_a_design_system_token(self):
+        # No colour is chosen in theme.py and none is mixed between two tokens: every RGB(A) value
+        # it writes is one of TOKENS, opaque. scripts/check-brand.py pins TOKENS to tokens.css.
+        tokens = {theme._token(name) for name in theme.TOKENS}
+        for path, value in theme._THEME_VALUES:
+            if isinstance(value, tuple) and len(value) in (3, 4):
+                self.assertIn(tuple(value[:3]), tokens, path)
+                if len(value) == 4:
+                    self.assertEqual(value[3], 1.0, path)
+        for role, value in theme._PALETTE.items():
+            self.assertIn(tuple(value[:3]), tokens, role)
 
 
 class CoverageTests(unittest.TestCase):
@@ -118,7 +130,8 @@ class CoverageTests(unittest.TestCase):
         dark_roles = ("bg_deep", "bg", "bg_raised", "bg_hover")
         for role in dark_roles:
             r, g, b, _a = theme._PALETTE[role]
-            self.assertLess(max(r, g, b), 0.2, f"{role} is not dark")
+            # gray-8 (#292e37, 0.216 at most) is the lightest token the dark theme uses as a surface.
+            self.assertLessEqual(max(r, g, b), 0.216, f"{role} is not dark")
 
     def test_values_are_either_colours_or_scalars(self):
         for path, value in theme._THEME_VALUES:
