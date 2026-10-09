@@ -1,0 +1,106 @@
+# Does Redrob Shape compile, start and carry our add-on, agent and brand on macOS? This answers that,
+# on a GitHub-hosted Apple Silicon runner.
+#
+# It is NOT a release. The output is an UNSIGNED Blender.app in a zip, kept as a workflow artifact.
+# Signing, notarizing and publishing belong to sign-and-publish.yml, which takes this artifact, the
+# same split redrob-browser uses.
+#
+# Manual dispatch only, like redrob-browser's macos.yml: a multi-hour build on every push would
+# teach everyone to ignore it.
+#
+# What it builds is exactly what verify-patches.sh proves: pinned upstream + patches + overlay +
+# brand. Blender's precompiled libraries come from projects.blender.org at the commit upstream
+# pins (scripts/fetch-build-deps.sh), so nothing here is a dependency we built ourselves.
+name: macos
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build (defaults to the branch the run starts from)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: compile, check and launch (arm64)
+    runs-on: macos-15
+    # The platform caps a hosted job at 6 hours; a larger number would only mean GitHub kills it
+    # without a message of ours.
+    timeout-minutes: 350
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: what we are working with
+        # First, because a failed run is only useful if the log says which resource ran out.
+        run: |
+          sw_vers
+          xcodebuild -version
+          sysctl -n hw.ncpu | awk '{print "CPUs: " $1}'
+          sysctl -n hw.memsize | awk '{printf "RAM: %.1f GB\n", $1/1024/1024/1024}'
+          df -h . | tail -1
+          cargo --version
+          cmake --version | head -1
+
+      - name: tools
+        run: |
+          command -v ninja || brew install ninja
+          rustup target add aarch64-apple-darwin
+
+      - name: the gate's tree (pinned upstream + patches + overlay + brand)
+        run: ./scripts/verify-patches.sh
+
+      - name: LFS content and lib/macos_arm64
+        run: ./scripts/fetch-build-deps.sh macos_arm64
+
+      - name: configure
+        run: |
+          cmake -S build/blender -B build/out -G Ninja \
+            -C build/blender/build_files/cmake/config/redrob_shape.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/build/install"
+
+      - name: build and install
+        run: cmake --build build/out --target install -- -j"$(sysctl -n hw.ncpu)"
+
+      - name: check the installed app
+        run: python3 scripts/check-installed.py build/install
+
+      - name: open the app with a window
+        # The check above runs Blender in the background. This opens the real app with its UI and
+        # requires a marker printed from inside the opened window.
+        run: |
+          set -euo pipefail
+          ( sleep 20; screencapture -x launch.png || true ) &
+          python3 scripts/check-installed.py build/install --window 2>&1 | tee launch.log
+
+      - name: zip the unsigned app
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # ditto keeps the bundle's symlinks and extended attributes; plain zip does not.
+          ditto -c -k --keepParent build/install/Blender.app dist/redrob-shape-macos-arm64-unsigned.zip
+          ls -la dist
+
+      - name: Upload the app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: redrob-shape-macos-arm64-unsigned
+          path: dist/redrob-shape-macos-arm64-unsigned.zip
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload the launch log and screen
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-launch
+          path: |
+            launch.log
+            launch.png
+          if-no-files-found: warn
