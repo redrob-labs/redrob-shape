@@ -152,7 +152,8 @@ if grep -q "CFBundleIconName" "$target/release/darwin/Blender.app/Contents/Info.
 fi
 # The launcher must match the window it opens. The window class is the executable's (Blender),
 # a functional name like Exec=blender, so the desktop entry names that.
-wm_class=$(grep -oP '(?<=define GHOST_X11_RES_CLASS ")[^"]+' "$target/intern/ghost/intern/GHOST_SystemX11.hh")
+# sed -E, not grep -P: macOS grep has no -P.
+wm_class=$(sed -nE 's/.*define GHOST_X11_RES_CLASS "([^"]+)".*/\1/p' "$target/intern/ghost/intern/GHOST_SystemX11.hh" | head -1)
 if ! grep -qx "StartupWMClass=$wm_class" "$target/release/freedesktop/blender.desktop"; then
   echo "error: StartupWMClass does not match the window class $wm_class" >&2
   exit 1
@@ -184,15 +185,17 @@ version_header="$target/source/blender/blenkernel/BKE_blender_version.h"
 declared=$(python3 -c "
 import json
 print(json.load(open('upstream.json'))['version'])
-")
-major=$(grep -oP '(?<=#define BLENDER_VERSION )\d+' "$version_header")
-cycle=$(grep -oP '(?<=#define BLENDER_VERSION_CYCLE )\w+' "$version_header")
+" | tr -d '\r')
+# sed -E, not grep -P: macOS grep has no -P.
+header_value() { sed -nE "s/^#define $1 ([A-Za-z0-9_]+).*/\1/p" "$version_header" | head -1; }
+major=$(header_value BLENDER_VERSION)
+cycle=$(header_value BLENDER_VERSION_CYCLE)
 built="$((major / 100)).$((major % 100)).0-$cycle"
 if [ "$declared" != "$built" ]; then
   echo "error: upstream.json says $declared but the checkout says $built" >&2
   exit 1
 fi
-echo "upstream version matches the pin: $built (blend subversion $(grep -oP '(?<=#define BLENDER_FILE_SUBVERSION )\d+' "$version_header"))"
+echo "upstream version matches the pin: $built (blend subversion $(header_value BLENDER_FILE_SUBVERSION))"
 
 # --- 7. no patch REMOVES Blender's own tests, editors or operators ----------------
 # UPSTREAM.md: never resolve a sync by silently dropping upstream operators, keymaps, editors,
