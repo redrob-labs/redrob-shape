@@ -16,13 +16,12 @@ this file only chooses Blender's semantic states -- alert, active, enabled -- ne
 """
 
 import json
-import textwrap
 import time
 
 import bpy
 from bpy.types import Panel
 
-from . import catalog, connection_ui, conversation, theme, tools
+from . import catalog, connection_ui, conversation, layout_text, theme, tools
 from .i18n import iface_
 from .state import session
 
@@ -94,14 +93,8 @@ _OUTCOME_NAMES = {
 }
 
 
-def _wrapped_labels(layout, text, width=42, limit=6):
-    lines = []
-    for paragraph in text.splitlines() or ("",):
-        lines.extend(textwrap.wrap(paragraph, width=width) or [""])
-    for line in lines[:limit]:
-        layout.label(text=line, translate=False)
-    if len(lines) > limit:
-        layout.label(text="…", translate=False)
+def _wrapped_labels(layout, text, limit=6):
+    layout_text.wrapped_labels(layout, text, limit=limit)
 
 
 def _plan_actions(raw):
@@ -206,7 +199,7 @@ def _draw_plan(layout, current):
     row = box.row(align=True)
     row.label(text=iface_("{} of {} steps").format(enabled, len(actions)), icon='PREVIEW_RANGE', translate=False)
     if not applied:
-        box.label(text="Switch off any step you do not want, then apply", icon='INFO')
+        layout_text.wrapped_labels(box, iface_("Switch off any step you do not want, then apply"), icon='INFO')
     for index, (action, step) in enumerate(zip(actions, steps), 1):
         if isinstance(action, dict):
             _draw_step(box, index, action, step, locked=applied or current.status == 'APPLYING')
@@ -237,9 +230,13 @@ class REDROB_PT_workspace(Panel):
     bl_category = "Redrob Shape"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
+    # The workspace is the tab's main panel: it goes first, above Connection.
+    bl_order = 0
 
     def draw_header(self, _context):
-        self.layout.label(text="", icon='LIGHT')
+        # 'BLENDER' is the icon slot the brand step fills with the design system's own Redrob
+        # symbol (release/datafiles/icons_svg/blender.svg, pinned by sha256). No stock glyph.
+        self.layout.label(text="", icon='BLENDER')
 
     def draw(self, context):
         layout = self.layout

@@ -31,7 +31,8 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, StringProperty
 from bpy.types import AddonPreferences, Operator, Panel
 
-from . import credentials, transport
+from . import credentials, layout_text, transport
+from .i18n import iface_
 
 _STORE = credentials.CredentialStore()
 
@@ -282,9 +283,11 @@ def draw_console_connection(layout, current):
     if state == 'UNKNOWN':
         box.label(text="Checking the connection", icon='TIME')
     elif current.connection_message:
-        box.label(text=current.connection_message, icon='ERROR' if state == 'ERROR' else 'INFO')
+        layout_text.wrapped_labels(
+            box, current.connection_message, limit=4, icon='ERROR' if state == 'ERROR' else 'INFO'
+        )
     else:
-        box.label(text="Connect to plan with your Redrob Console workspace")
+        layout_text.wrapped_labels(box, iface_("Connect to plan with your Redrob Console workspace"))
     connect = box.row()
     connect.scale_y = 1.4
     connect.operator("redrob_shape.connect", icon='LINKED')
@@ -399,6 +402,8 @@ class REDROB_PT_connection(Panel):
     bl_category = "Redrob Shape"
     bl_label = "Connection"
     bl_options = {"DEFAULT_CLOSED"}
+    # Below the Redrob Shape panel: registration order would otherwise put it on top.
+    bl_order = 1
 
     def draw(self, context):
         layout = self.layout
