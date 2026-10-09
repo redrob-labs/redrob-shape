@@ -302,7 +302,7 @@ class AgentRuntime:
             if current.connection in {'STARTING', 'WAITING'}:
                 clear_connect_code(current)
                 current.connection = 'ERROR'
-                current.connection_message = "Local agent exited before the connection finished"
+                current.connection_message = iface_("Local agent exited before the connection finished")
             current.sidecar_available = False
             self._cleanup_exited_process()
         ticking = current.connection == 'WAITING' or current.status == 'WORKING'
@@ -448,7 +448,7 @@ class AgentRuntime:
                 clear_connect_code(current)
                 if error["code"] == "cancelled":
                     current.connection = 'DISCONNECTED'
-                    current.connection_message = "Connecting was cancelled"
+                    current.connection_message = iface_("Connecting was cancelled")
                 else:
                     current.connection = 'ERROR'
                     current.connection_message = error["message"]
@@ -467,7 +467,7 @@ class AgentRuntime:
             )
             current.connect_expires_at = time.time() + float(result.get("expires_in", 0))
             current.connection = 'WAITING'
-            current.connection_message = "Approve the code on the page that opened"
+            current.connection_message = iface_("Approve the code on the page that opened")
             try:
                 current.connect_request_id = self.connect_wait()
             except RuntimeError as exc:
@@ -486,17 +486,19 @@ class AgentRuntime:
             current.account_name = str(result.get("account_name", ""))
         self._apply_connection(current, result)
         if method == "connect_wait":
-            current.connection_message = f"Connected to {current.account_name or 'Redrob Console'}"
+            current.connection_message = iface_("Connected to {}").format(
+                current.account_name or "Redrob Console"
+            )
         elif method == "disconnect":
             current.key_name = ""
             current.account_name = ""
             current.connection_message = (
-                "Still connected through REDROB_API_KEY in the environment"
+                iface_("Still connected through REDROB_API_KEY in the environment")
                 if current.connection == 'CONNECTED'
-                else "Disconnected. Revoke the key in Redrob Console if you no longer need it"
+                else iface_("Disconnected. Revoke the key in Redrob Console if you no longer need it")
             )
         elif method == "store_key":
-            current.connection_message = "Key stored"
+            current.connection_message = iface_("Key stored")
 
     def _cleanup_exited_process(self):
         process = self.process

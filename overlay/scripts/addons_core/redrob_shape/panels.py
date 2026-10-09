@@ -378,8 +378,9 @@ class REDROB_PT_workspace(Panel):
         tools_row.operator("redrob_shape.new_conversation", text="", icon='FILE_NEW')
 
         # A first-time user's first question is "why does Send not work". Answer it here, not in
-        # the collapsed Connection panel.
-        if current.connection != 'CONNECTED':
+        # the collapsed Connection panel: online access first (Blender ships with it off), then
+        # the Console connection.
+        if current.connection != 'CONNECTED' or not bpy.app.online_access:
             connection_ui.draw_console_connection(layout, current)
 
         _draw_transcript(layout.column(), current)
