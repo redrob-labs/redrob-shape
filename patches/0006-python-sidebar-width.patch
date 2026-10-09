@@ -1,0 +1,78 @@
+diff --git a/source/blender/makesrna/intern/rna_screen.cc b/source/blender/makesrna/intern/rna_screen.cc
+index 8aaa5758ec6630bddcd998cfea87c5d561f38473..accf41a2d0f0207bfd5a210427d1572c59cb6abd 100644
+--- a/source/blender/makesrna/intern/rna_screen.cc
++++ b/source/blender/makesrna/intern/rna_screen.cc
+@@ -6,6 +6,7 @@
+  * \ingroup RNA
+  */
+ 
++#include <algorithm>
+ #include <cstddef>
+ #include <cstdlib>
+ 
+@@ -449,6 +450,45 @@ static void rna_Region_search_filter_update(Main * /*bmain*/, Scene * /*scene*/,
+   ED_region_search_filter_update(nullptr, region);
+ }
+ 
++/* Redrob Shape: let an add-on open a sidebar at a set width, as dragging its edge does. */
++static int rna_Region_sidebar_width_get(PointerRNA *ptr)
++{
++  const ARegion *region = static_cast<const ARegion *>(ptr->data);
++  return region->sizex;
++}
++
++static void rna_Region_sidebar_width_set(PointerRNA *ptr, const int value)
++{
++  ARegion *region = static_cast<ARegion *>(ptr->data);
++  region->sizex = short(std::clamp(value, 0, 4000));
++}
++
++static int rna_Region_sidebar_width_editable(const PointerRNA *ptr, const char **r_info)
++{
++  const ARegion *region = static_cast<const ARegion *>(ptr->data);
++  if (region->regiontype != RGN_TYPE_UI) {
++    *r_info = N_("Only for sidebars");
++    return 0;
++  }
++  return PROP_EDITABLE;
++}
++
++static void rna_Region_sidebar_width_update(Main * /*bmain*/, Scene * /*scene*/, PointerRNA *ptr)
++{
++  ARegion *region = static_cast<ARegion *>(ptr->data);
++  bScreen *screen = reinterpret_cast<bScreen *>(ptr->owner_id);
++  if (screen != nullptr) {
++    for (ScrArea &area : screen->areabase) {
++      if (BLI_findindex(&area.regionbase, region) != -1) {
++        ED_area_tag_region_size_update(&area, region);
++        ED_area_tag_redraw(&area);
++        break;
++      }
++    }
++  }
++  ED_region_tag_redraw(region);
++}
++
+ }  // namespace blender
+ 
+ #else
+@@ -746,6 +786,19 @@ static void rna_def_region(BlenderRNA *brna)
+   RNA_def_property_flag(prop, PROP_TEXTEDIT_UPDATE);
+   RNA_def_property_update(prop, 0, "rna_Region_search_filter_update");
+ 
++  prop = RNA_def_property(srna, "sidebar_width", PROP_INT, PROP_UNSIGNED);
++  RNA_def_property_int_funcs(
++      prop, "rna_Region_sidebar_width_get", "rna_Region_sidebar_width_set", nullptr);
++  RNA_def_property_editable_func(prop, "rna_Region_sidebar_width_editable");
++  RNA_def_property_range(prop, 0, 4000);
++  RNA_def_property_ui_text(prop,
++                           "Sidebar Width",
++                           "Width of a sidebar region before interface scaling, as set by "
++                           "dragging its edge");
++  /* NC_SCREEN | NA_EDITED, as the drag in region_scale_modal sends: it re-lays the region out, so
++   * the panels take the new width instead of keeping the old one. */
++  RNA_def_property_update(prop, NC_SCREEN | NA_EDITED, "rna_Region_sidebar_width_update");
++
+   rna_def_region_api(srna);
+ }
+ 

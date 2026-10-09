@@ -2,14 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The Redrob Shape sidebar: ask, review step by step, apply, then keep or undo.
+"""The Redrob Shape sidebar: a chat with Redrob about the scene.
 
-The flow the panel walks through, top to bottom:
+Messages stack top to bottom, newest last, and the composer sits under them:
 
-  1. Say what should change, and whether to shape the selection or the whole scene.
-  2. Review the plan. Every step shows its exact values on request, and can be switched off.
-  3. Apply. The result is in the viewport as one Undo step: keep it, undo it, or try again.
+  1. You say what should change (right-hand bubble), on the selection or the whole scene.
+  2. Redrob answers with a plan (left-hand bubble). Every step shows its values on request and can
+     be switched off; Apply is inside the answer.
+  3. Applying, undoing, keeping or discarding leaves one line in the chat ("Applied: Bevel · Cube").
   4. Refine ("rounder"). The conversation travels with the request, so the plan builds on the last.
+
+What the chat shows is chat.py; what the agent is told is conversation.py.
 
 Colours come from the theme (theme.py maps the design-system tokens onto Blender's own theme);
 this file only chooses Blender's semantic states -- alert, active, enabled -- never a colour.
@@ -21,7 +24,7 @@ import time
 import bpy
 from bpy.types import Panel
 
-from . import catalog, connection_ui, conversation, layout_text, theme, tools
+from . import catalog, chat, connection_ui, layout_text, theme, tools
 from .i18n import iface_
 from .state import session
 
@@ -77,26 +80,6 @@ _STEP_ICONS = {
     "rename_object": 'SORTALPHA',
     "set_material": 'MATERIAL',
 }
-_OUTCOME_ICONS = {
-    "applied": 'CHECKMARK',
-    "pending": 'PREVIEW_RANGE',
-    "discarded": 'X',
-    "undone": 'LOOP_BACK',
-    "failed": 'ERROR',
-}
-_OUTCOME_NAMES = {
-    "applied": "Applied",
-    "pending": "In review",
-    "discarded": "Discarded",
-    "undone": "Undone",
-    "failed": "Stopped",
-}
-
-
-def _wrapped_labels(layout, text, limit=6):
-    layout_text.wrapped_labels(layout, text, limit=limit)
-
-
 def _plan_actions(raw):
     try:
         payload = json.loads(raw)
@@ -157,63 +140,200 @@ def _draw_step(layout, index, action, step, locked):
         row.label(text=_format_value(arguments[name]), translate=False)
 
 
-def _draw_progress(layout, current):
+#: The newest messages the sidebar draws; "Show Earlier" brings back the rest.
+_VISIBLE_MESSAGES = 14
+#: Share of the sidebar's width a bubble takes. Yours sit on the right, Redrob's on the left.
+_USER_SHARE = 0.82
+_AGENT_SHARE = 0.94
+
+#: One line in the chat for what happened to the plan, between the bubbles.
+_EVENT_PRESENTATION = {
+    "applied": ('CHECKMARK', "Applied: {}"),
+    "undone": ('LOOP_BACK', "Undone"),
+    "redone": ('LOOP_FORWARDS', "Applied again"),
+    "kept": ('CHECKMARK', "Kept"),
+    "discarded": ('X', "Plan discarded"),
+    "cancelled": ('CANCEL', "Request cancelled"),
+    "retry": ('FILE_REFRESH', "Asked again for a different plan"),
+}
+
+
+def _bubble(layout, role):
+    """A chat bubble: a box on the right for you, on the left for Redrob. Returns the column to
+    draw into and the share of the sidebar it has, which the text wraps to."""
+    if role == "user":
+        split = layout.split(factor=1.0 - _USER_SHARE)
+        split.label(text="")
+        return split.box().column(align=True), _USER_SHARE
+    split = layout.split(factor=_AGENT_SHARE)
+    column = split.box().column(align=True)
+    split.label(text="")
+    return column, _AGENT_SHARE
+
+
+def _agent_header(column):
+    # 'BLENDER' is the brand slot: the design system's Redrob symbol, as in the panel header.
+    column.label(text="Redrob Shape", icon='BLENDER')
+
+
+def _steps_line(steps):
+    return ", ".join(step_title(step) for step in steps)
+
+
+def _draw_user(layout, index, item):
+    column, share = _bubble(layout, "user")
+    header = column.row(align=True)
+    header.alignment = 'RIGHT'
+    reuse = header.operator("redrob_shape.reuse_instruction", text="", icon='PASTEDOWN', emboss=False)
+    reuse.index = index
+    header.label(text="You", icon='USER')
+    layout_text.wrapped_labels(column, item["text"], limit=12, fraction=share, alignment='RIGHT')
+
+
+def _draw_agent(layout, current, item, live):
+    column, share = _bubble(layout, "agent")
+    _agent_header(column)
+    kind = item.get("kind")
+    if kind == "error":
+        body = column.column(align=True)
+        body.alert = True
+        layout_text.wrapped_labels(body, item["text"], limit=8, icon='ERROR', fraction=share)
+        return
+    text = item["text"] or (iface_("Proposed changes") if kind == "plan" else "")
+    layout_text.wrapped_labels(column, text, limit=8, fraction=share)
+    if kind != "plan":
+        return
+    if live:
+        _draw_plan_card(column, current, share)
+        return
+    steps = item.get("steps", [])
+    earlier = column.column(align=True)
+    earlier.active = False
+    earlier.label(text=iface_("{} steps").format(len(steps)), icon='PREVIEW_RANGE', translate=False)
+    if steps:
+        layout_text.wrapped_labels(earlier, _steps_line(steps), limit=3, fraction=share)
+
+
+def _draw_event(layout, item):
+    icon, text = _EVENT_PRESENTATION[item["kind"]]
+    text = iface_(text)
+    if item["kind"] == "applied":
+        text = text.format(_steps_line(item.get("steps", ())))
+    column = layout.column(align=True)
+    column.active = False
+    layout_text.wrapped_labels(column, text, limit=4, icon=icon, alignment='CENTER')
+
+
+def _draw_thinking(layout, current):
+    column, _share = _bubble(layout, "agent")
+    _agent_header(column)
     seconds = max(0, int(time.monotonic() - current.started_at)) if current.started_at else 0
-    row = layout.row(align=True)
-    row.label(text=iface_("Planning… {} s").format(seconds), icon='SORTTIME', translate=False)
-    row.operator("redrob_shape.cancel", text="Cancel", icon='CANCEL')
+    row = column.row(align=True)
+    row.label(text=iface_("Thinking… {} s").format(seconds), icon='SORTTIME', translate=False)
+    row.operator("redrob_shape.cancel", text="", icon='CANCEL')
 
 
-def _draw_prompt(layout, current):
+def _draw_greeting(layout):
+    column, share = _bubble(layout, "agent")
+    _agent_header(column)
+    layout_text.wrapped_labels(
+        column,
+        iface_("Tell me what to change. You see every step before anything in the scene changes."),
+        fraction=share,
+    )
+    hint = column.column(align=True)
+    hint.active = False
+    layout_text.wrapped_labels(hint, iface_("Try: “bevel the cube and smooth it”"), fraction=share)
+
+
+def _plan_is_live(current):
+    """The plan under review, applied or stopped part-way still has buttons; nothing else does."""
+    return bool(current.plan_json) and current.status in {'READY', 'APPLYING', 'APPLIED', 'ERROR'}
+
+
+def _draw_transcript(layout, current):
+    messages = chat.load(current.chat_json)
+    if not messages and current.status != 'WORKING':
+        _draw_greeting(layout)
+        return
+    limit = 0 if current.show_earlier else _VISIBLE_MESSAGES
+    shown, hidden = chat.visible(messages, limit)
+    if hidden:
+        layout.prop(
+            current,
+            "show_earlier",
+            text=iface_("Show {} earlier messages").format(hidden),
+            icon='TRIA_UP',
+            toggle=True,
+            translate=False,
+        )
+    elif current.show_earlier and len(messages) > _VISIBLE_MESSAGES:
+        layout.prop(current, "show_earlier", text="Show Fewer", icon='TRIA_DOWN', toggle=True)
+    live_index = chat.latest_plan_index(messages) if _plan_is_live(current) else -1
+    for index, item in shown:
+        if item["role"] == "user":
+            _draw_user(layout, index, item)
+        elif item["role"] == "agent":
+            _draw_agent(layout, current, item, live=index == live_index)
+        else:
+            _draw_event(layout, item)
+    if current.status == 'WORKING':
+        _draw_thinking(layout, current)
+
+
+def _draw_composer(layout, current):
     pending = current.status in {'READY', 'APPLIED'} and bool(current.plan_json)
+    busy = current.status in {'WORKING', 'APPLYING'}
     box = layout.box()
-    has_history = bool(conversation.load(current.history_json))
-    heading = "Refine it, or ask for something new" if has_history else "What should change?"
-    box.label(text=heading, icon='GREASEPENCIL')
-    box.prop(current, "prompt", text="")
+    hint = iface_("Refine it, or ask for something new") if pending else iface_("What should change?")
+    field = box.column(align=True)
+    field.enabled = not busy
+    if hasattr(field, "textbox"):  # Blender 5.3: a multi-line field that grows with the text
+        field.textbox(current, "prompt", initial_visible_lines=2, placeholder=hint, translate=False)
+    else:
+        field.prop(current, "prompt", text="", placeholder=hint, translate=False)
     row = box.row(align=True)
     row.label(text="Work on")
     row.prop(current, "scope", expand=True)
     row = box.row(align=True)
     row.scale_y = 1.35
-    busy = current.status in {'WORKING', 'APPLYING'}
     submit = row.row(align=True)
     submit.enabled = not busy
-    submit.operator("redrob_shape.submit", text="Refine Plan" if pending else "Create Plan", icon='PLAY')
+    submit.operator("redrob_shape.submit", text="Send", icon='PLAY')
     again = row.row(align=True)
     again.enabled = not busy and bool(current.last_instruction)
     again.operator("redrob_shape.retry", text="", icon='FILE_REFRESH')
 
 
-def _draw_plan(layout, current):
+def _draw_plan_card(layout, current, share):
+    """The live plan inside Redrob's answer: every step, then Apply, or Keep and Undo."""
     actions = _plan_actions(current.plan_json)
-    if not actions:
-        return
     steps = list(current.steps)
-    if len(steps) != len(actions):
+    if not actions or len(steps) != len(actions):
         return  # a plan from an older session; the next request rebuilds the rows
     applied = current.status == 'APPLIED'
-    box = layout.box()
-    _wrapped_labels(box, current.plan_summary or iface_("Proposed changes"), limit=3)
+    layout.separator()
     enabled = sum(1 for step in steps if step.enabled)
-    row = box.row(align=True)
-    row.label(text=iface_("{} of {} steps").format(enabled, len(actions)), icon='PREVIEW_RANGE', translate=False)
+    layout.label(text=iface_("{} of {} steps").format(enabled, len(actions)), icon='PREVIEW_RANGE', translate=False)
     if not applied:
-        layout_text.wrapped_labels(box, iface_("Switch off any step you do not want, then apply"), icon='INFO')
+        layout_text.wrapped_labels(
+            layout, iface_("Switch off any step you do not want, then apply"), icon='INFO', fraction=share
+        )
     for index, (action, step) in enumerate(zip(actions, steps), 1):
         if isinstance(action, dict):
-            _draw_step(box, index, action, step, locked=applied or current.status == 'APPLYING')
+            _draw_step(layout, index, action, step, locked=applied or current.status == 'APPLYING')
     if current.plan_problem:
-        problem = box.row()
+        problem = layout.column(align=True)
         problem.alert = True
-        problem.label(text=current.plan_problem, icon='ERROR', translate=False)
+        layout_text.wrapped_labels(problem, current.plan_problem, limit=4, icon='ERROR', fraction=share)
 
-    row = box.row(align=True)
+    if applied:
+        layout_text.wrapped_labels(
+            layout, iface_("Look at the result in the viewport, then keep or undo it"), icon='HIDE_OFF', fraction=share
+        )
+    row = layout.row(align=True)
     row.scale_y = 1.3
     if applied:
-        box.label(text="Look at the result in the viewport", icon='HIDE_OFF')
-        row = box.row(align=True)
-        row.scale_y = 1.3
         row.operator("redrob_shape.keep", text="Keep", icon='CHECKMARK')
         row.operator("ed.undo", text="Undo", icon='LOOP_BACK')
     elif current.status == 'ERROR' and current.revision_before_apply:
@@ -225,6 +345,8 @@ def _draw_plan(layout, current):
 
 
 class REDROB_PT_workspace(Panel):
+    """The chat: messages top to bottom, the plan inside Redrob's answer, the composer last."""
+
     bl_idname = "REDROB_PT_workspace"
     bl_label = "Redrob Shape"
     bl_category = "Redrob Shape"
@@ -243,58 +365,29 @@ class REDROB_PT_workspace(Panel):
         current = session(context)
         icon, title = _STATUS_PRESENTATION.get(current.status, ('INFO', "Status"))
 
-        status = layout.box()
-        row = status.row(align=True)
-        row.alert = current.status == 'ERROR'
-        row.label(text=title, icon=icon)
-        row.label(text="Connected" if current.connection == 'CONNECTED' else "Not connected")
-        if current.status == 'WORKING':
-            _draw_progress(status, current)
-        else:
-            _wrapped_labels(status, current.status_message, limit=3)
+        row = layout.row(align=True)
+        status = row.row(align=True)
+        status.alert = current.status == 'ERROR'
+        status.label(text=title, icon=icon)
+        # Not connected is said by the Connect block right under this row.
+        if current.connection == 'CONNECTED':
+            status.label(text="Connected")
+        tools_row = row.row(align=True)
+        tools_row.alignment = 'RIGHT'
+        tools_row.operator("redrob_shape.open_workspace", text="", icon='FULLSCREEN_ENTER')
+        tools_row.operator("redrob_shape.new_conversation", text="", icon='FILE_NEW')
 
-        # A first-time user's first question is "why does Create Plan not work". Answer it here,
-        # not in the collapsed Connection panel.
+        # A first-time user's first question is "why does Send not work". Answer it here, not in
+        # the collapsed Connection panel.
         if current.connection != 'CONNECTED':
             connection_ui.draw_console_connection(layout, current)
 
-        _draw_prompt(layout, current)
-        _draw_plan(layout, current)
+        _draw_transcript(layout.column(), current)
+        _draw_composer(layout, current)
 
         footer = layout.row(align=True)
         footer.operator("redrob_shape.open_console", text="Console", icon='URL')
         footer.operator("redrob_shape.restart_agent", text="Reconnect", icon='FILE_REFRESH')
-
-
-class REDROB_PT_history(Panel):
-    bl_idname = "REDROB_PT_history"
-    bl_parent_id = "REDROB_PT_workspace"
-    bl_label = "History"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_options = {'DEFAULT_CLOSED'}  # noqa: RUF012
-
-    def draw(self, context):
-        layout = self.layout
-        current = session(context)
-        turns = conversation.load(current.history_json)
-        if not turns:
-            layout.label(text="Nothing asked yet", icon='INFO')
-            return
-        for index in range(len(turns) - 1, -1, -1):
-            turn = turns[index]
-            box = layout.box()
-            row = box.row(align=True)
-            outcome = turn["outcome"]
-            row.label(text=iface_(_OUTCOME_NAMES[outcome]), icon=_OUTCOME_ICONS[outcome], translate=False)
-            row.label(text=iface_("{} steps").format(turn.get("steps", 0)), translate=False)
-            reuse = row.operator("redrob_shape.reuse_instruction", text="", icon='PASTEDOWN')
-            reuse.index = index
-            _wrapped_labels(box, turn["instruction"], limit=2)
-            summary = box.column()
-            summary.active = False
-            _wrapped_labels(summary, turn["summary"], limit=2)
-        layout.operator("redrob_shape.new_conversation", text="New Conversation", icon='FILE_NEW')
 
 
 class REDROB_PT_scene_context(Panel):
@@ -341,7 +434,6 @@ class REDROB_PT_appearance(Panel):
 
 _CLASSES = (
     REDROB_PT_workspace,
-    REDROB_PT_history,
     REDROB_PT_scene_context,
     REDROB_PT_appearance,
 )

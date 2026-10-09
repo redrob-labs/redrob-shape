@@ -32,6 +32,11 @@ def _load_runtime():
     )
     conversation = importlib.util.module_from_spec(conversation_spec)
     conversation_spec.loader.exec_module(conversation)
+    chat_spec = importlib.util.spec_from_file_location(
+        "redrob_shape.chat", Path(__file__).resolve().parents[1] / "chat.py"
+    )
+    chat = importlib.util.module_from_spec(chat_spec)
+    chat_spec.loader.exec_module(chat)
 
     replacements = {
         "bpy": bpy,
@@ -40,6 +45,7 @@ def _load_runtime():
         "redrob_shape.tools": tools,
         "redrob_shape.i18n": i18n,
         "redrob_shape.conversation": conversation,
+        "redrob_shape.chat": chat,
     }
     previous = {name: sys.modules.get(name) for name in replacements}
     sys.modules.update(replacements)
@@ -276,6 +282,22 @@ class RuntimeRaceTests(unittest.TestCase):
         self.assertEqual(turns[-1]["instruction"], "Rounder")
         self.assertEqual(turns[-1]["plan"], plan)
         self.assertNotIn("plan", turns[0])
+        # The answer lands in the chat as Redrob's message, carrying the steps it names.
+        answer = runtime_module.chat.load(state.chat_json)[-1]
+        self.assertEqual((answer["role"], answer["kind"], answer["text"]), ("agent", "plan", "Bevel it"))
+        self.assertEqual([step["type"] for step in answer["steps"]], ["a", "b"])
+
+    def test_a_refused_plan_is_answered_in_the_chat(self):
+        runtime_module = _load_runtime()
+        agent = runtime_module.AgentRuntime()
+        state = SimpleNamespace(status='WORKING', status_message="Planning", request_id="plan-3", chat_json="[]")
+        agent.requests["plan-3"] = {"method": "plan"}
+        context = SimpleNamespace(window_manager=SimpleNamespace(redrob_shape=state))
+        error = {"code": "out_of_credit", "message": "This workspace is out of credit", "retryable": False}
+        agent._handle_event(context, {"version": 1, "id": "plan-3", "event": "error", "error": error})
+        self.assertEqual(state.status, 'ERROR')
+        answer = runtime_module.chat.load(state.chat_json)[-1]
+        self.assertEqual((answer["role"], answer["kind"], answer["text"]), ("agent", "error", error["message"]))
 
 
 def _connection_state(**overrides):

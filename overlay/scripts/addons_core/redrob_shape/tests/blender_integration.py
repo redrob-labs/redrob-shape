@@ -23,7 +23,7 @@ if str(_ADDONS_CORE) not in sys.path:
 
 import redrob_shape
 from redrob_shape import context as scene_context
-from redrob_shape import conversation, i18n, runtime, theme, tools
+from redrob_shape import chat, conversation, i18n, runtime, theme, tools, workspace
 
 
 def _clear_objects():
@@ -370,26 +370,52 @@ def _test_undo_and_redo_move_the_review_state():
         {"type": "add_modifier", "arguments": {"object": "Box", "modifier": "bevel", "width": 0.1, "segments": 3}},
     ]})
     current = bpy.context.window_manager.redrob_shape
+    current.chat_json = "[]"
     bpy.ops.ed.undo_push(message="Before rounding")
     assert bpy.ops.redrob_shape.apply_plan() == {'FINISHED'}
     assert current.status == 'APPLIED'
+    applied = chat.load(current.chat_json)[-1]
+    assert (applied["role"], applied["kind"]) == ("event", "applied"), applied
+    assert applied["steps"][0]["arguments"] == {"object": "Box", "modifier": "bevel"}, applied
     bpy.ops.ed.undo_push(message="Rounded")
     assert bpy.ops.ed.undo() == {'FINISHED'}
     current = bpy.context.window_manager.redrob_shape
     assert current.status == 'READY', current.status
     assert not bpy.data.objects["Box"].modifiers
     assert conversation.load(current.history_json)[-1]["outcome"] == "undone"
+    assert chat.load(current.chat_json)[-1]["kind"] == "undone"
     assert len(current.steps) == 1 and current.steps[0].outcome == ""
     assert bpy.ops.ed.redo() == {'FINISHED'}
     current = bpy.context.window_manager.redrob_shape
     assert current.status == 'APPLIED', current.status
     assert conversation.load(current.history_json)[-1]["outcome"] == "applied"
+    assert chat.load(current.chat_json)[-1]["kind"] == "redone"
     # Undo again, then apply the same plan a second time: the review state allows it.
     assert bpy.ops.ed.undo() == {'FINISHED'}
     assert bpy.ops.redrob_shape.apply_plan() == {'FINISHED'}
     assert bpy.data.objects["Box"].modifiers[0].type == 'BEVEL'
+    assert bpy.ops.redrob_shape.keep() == {'FINISHED'}
+    kinds = [item.get("kind") for item in chat.load(bpy.context.window_manager.redrob_shape.chat_json)]
+    assert kinds == ["applied", "undone", "redone", "undone", "applied", "kept"], kinds
     assert bpy.ops.redrob_shape.clear() == {'FINISHED'}
     assert bpy.context.window_manager.redrob_shape.status == 'IDLE'
+
+
+def _test_wide_sidebar_for_the_shape_workspace():
+    """patches/0006: a sidebar's width can be set from Python, and only a sidebar's."""
+    screen = next(screen for screen in bpy.data.screens if workspace.largest_area(screen) is not None)
+    area = workspace.largest_area(screen)
+    sidebar = next(region for region in area.regions if region.type == 'UI')
+    workspace.prepare(screen, width=512)
+    assert area.spaces.active.show_region_ui
+    assert sidebar.sidebar_width == 512, sidebar.sidebar_width
+    header = next(region for region in area.regions if region.type == 'HEADER')
+    before = header.sidebar_width
+    try:
+        header.sidebar_width = 999
+    except (AttributeError, TypeError):
+        pass
+    assert header.sidebar_width == before, "a header's width must not be settable"
 
 
 def _test_selection_scope_limits_the_plan():
@@ -488,6 +514,7 @@ def main():
         _test_every_shaping_tool_runs_and_one_undo_restores()
         _test_switched_off_steps_and_their_dependencies()
         _test_undo_and_redo_move_the_review_state()
+        _test_wide_sidebar_for_the_shape_workspace()
         _test_selection_scope_limits_the_plan()
         _test_korean_interface()
         _test_sidecar_lifecycle()
