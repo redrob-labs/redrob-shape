@@ -229,6 +229,32 @@ _SOURCE_NOTES = {
 }
 
 
+def online_access_locked(context=None):
+    """True when Blender was started with --offline-mode: the preference cannot be switched on."""
+    system = (context or bpy.context).preferences.system
+    return system.is_property_readonly("use_online_access")
+
+
+def draw_online_access(layout, context=None):
+    """Blender ships with online access off, and Redrob Shape needs it. Say so first, with the
+    switch right here, instead of letting the first Send fail."""
+    box = layout.box()
+    title = box.row()
+    title.alert = True
+    title.label(text="Online access is off", icon='INTERNET_OFFLINE')
+    if online_access_locked(context):
+        layout_text.wrapped_labels(
+            box, iface_("Blender was started with --offline-mode. Restart it without that option.")
+        )
+        return
+    layout_text.wrapped_labels(
+        box, iface_("Redrob Shape reaches Redrob Console over the internet to make plans.")
+    )
+    row = box.row()
+    row.scale_y = 1.4
+    row.operator("redrob_shape.allow_online_access", icon='INTERNET')
+
+
 def _redrob_key_state(current):
     if current.connection != 'CONNECTED':
         return "not connected"
@@ -243,20 +269,25 @@ def _remaining(current):
 
 def draw_console_connection(layout, current):
     """The Redrob Console connection, in whichever state it is. Shared by both sidebar panels."""
+    if not bpy.app.online_access:
+        draw_online_access(layout)
+        if current.connection != 'CONNECTED':
+            return  # connecting needs the internet too: the switch above comes first
     box = layout.box()
     state = current.connection
     box.label(text="Redrob Console", icon='LINKED' if state == 'CONNECTED' else 'UNLINKED')
 
     if state == 'CONNECTED':
         box.label(
-            text=f"Key ending {current.connection_hint}" if current.connection_hint else "Key stored",
+            text=iface_("Key ending {}").format(current.connection_hint) if current.connection_hint else iface_("Key stored"),
             icon='CHECKMARK',
+            translate=False,
         )
         note = _SOURCE_NOTES.get(current.connection_source)
         if note:
-            box.label(text=note[0], icon=note[1])
+            layout_text.wrapped_labels(box, iface_(note[0]), icon=note[1])
         if current.key_name:
-            box.label(text=f"Listed in Console as {current.key_name}")
+            box.label(text=iface_("Listed in Console as {}").format(current.key_name), translate=False)
         row = box.row()
         # A key the environment supplies cannot be removed from here.
         row.enabled = current.connection_source != "environment"
@@ -264,15 +295,19 @@ def draw_console_connection(layout, current):
         return
 
     if state == 'WAITING':
-        box.label(text="Enter this code on the page that opened:")
+        layout_text.wrapped_labels(box, iface_("Enter this code on the page that opened:"))
         code = box.row()
         code.alignment = 'CENTER'
         code.scale_y = 2.0
-        code.label(text=current.user_code)
+        code.label(text=current.user_code, translate=False)
         row = box.row(align=True)
         row.operator("redrob_shape.open_connect_page", icon='URL')
         row.operator("redrob_shape.copy_connect_code", text="", icon='COPYDOWN')
-        box.label(text=f"Waiting for approval, expires in {_remaining(current)}", icon='TIME')
+        box.label(
+            text=iface_("Waiting for approval, expires in {}").format(_remaining(current)),
+            icon='TIME',
+            translate=False,
+        )
         box.operator("redrob_shape.connect_cancel", icon='CANCEL')
         return
 
@@ -307,10 +342,13 @@ class REDROB_OT_connect(Operator):
         current = context.window_manager.redrob_shape
         if current.connection in {'STARTING', 'WAITING'}:
             return {"CANCELLED"}
+        if not bpy.app.online_access:
+            self.report({"WARNING"}, iface_("Allow online access first"))
+            return {"CANCELLED"}
         agent = _agent()
         if agent is None:
             current.connection = 'ERROR'
-            current.connection_message = runtime.runtime().start_error or "The local agent could not start"
+            current.connection_message = runtime.runtime().start_error or iface_("The local agent could not start")
             self.report({"ERROR"}, current.connection_message)
             return {"CANCELLED"}
         current.connection = 'STARTING'
@@ -342,7 +380,36 @@ class REDROB_OT_connect_cancel(Operator):
                 pass
         runtime.clear_connect_code(current)
         current.connection = 'DISCONNECTED'
-        current.connection_message = "Connecting was cancelled"
+        current.connection_message = iface_("Connecting was cancelled")
+        return {"FINISHED"}
+
+
+class REDROB_OT_allow_online_access(Operator):
+    bl_idname = "redrob_shape.allow_online_access"
+    # Not "Allow Online Access": Blender's own Korean for that msgid would win over ours.
+    bl_label = "Turn On Online Access"
+    bl_description = (
+        "Turn on Blender's own Allow Online Access preference, so Redrob Shape can reach Redrob "
+        "Console. The scene stays on this computer; only what a plan needs is sent"
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return not bpy.app.online_access and not online_access_locked(context)
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        preferences = context.preferences
+        preferences.system.use_online_access = True
+        # Kept for the next start too. With auto-save on, Blender saves preferences when it quits.
+        if not preferences.use_preferences_save:
+            bpy.ops.wm.save_userpref()
+        if not bpy.app.online_access:
+            self.report({"ERROR"}, iface_("Blender kept online access off"))
+            return {"CANCELLED"}
+        self.report({"INFO"}, iface_("Online access is on"))
         return {"FINISHED"}
 
 
@@ -367,7 +434,7 @@ class REDROB_OT_copy_connect_code(Operator):
 
     def execute(self, context):
         context.window_manager.clipboard = context.window_manager.redrob_shape.user_code
-        self.report({"INFO"}, "Code copied")
+        self.report({"INFO"}, iface_("Code copied"))
         return {"FINISHED"}
 
 
@@ -446,6 +513,7 @@ _CLASSES = (
     REDROB_OT_forget_key,
     REDROB_OT_connect,
     REDROB_OT_connect_cancel,
+    REDROB_OT_allow_online_access,
     REDROB_OT_open_connect_page,
     REDROB_OT_copy_connect_code,
     REDROB_OT_disconnect,

@@ -76,6 +76,49 @@ def _shown(name):
     return found
 
 
+#: The parts of connection_ui.py a first-time user sees in the sidebar.
+_FIRST_RUN = {
+    "draw_console_connection",
+    "draw_online_access",
+    "REDROB_OT_connect",
+    "REDROB_OT_connect_cancel",
+    "REDROB_OT_allow_online_access",
+    "REDROB_OT_open_connect_page",
+    "REDROB_OT_copy_connect_code",
+    "REDROB_OT_disconnect",
+}
+
+
+def _first_run_strings():
+    found = set()
+    tree = _tree("connection_ui.py")
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in _FIRST_RUN:
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.Call):
+                    keywords = {k.arg: k.value for k in inner.keywords}
+                    untranslated = (
+                        isinstance(keywords.get("translate"), ast.Constant) and keywords["translate"].value is False
+                    )
+                    text = _constant(keywords["text"]) if "text" in keywords else None
+                    if text and not untranslated:
+                        found.add(text)
+                    if getattr(inner.func, "id", None) == "iface_" and inner.args and _constant(inner.args[0]):
+                        found.add(inner.args[0].value)
+                elif isinstance(inner, ast.Assign):
+                    target = getattr(inner.targets[0], "id", None)
+                    if target == "bl_label" and _constant(inner.value):
+                        found.add(inner.value.value)
+                    if target == "bl_description":
+                        value = inner.value
+                        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                            found.add(value.value)
+        elif isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "_SOURCE_NOTES":
+            found.update(text for text, _icon in ast.literal_eval(node.value).values())
+    found.discard("Redrob Console")  # a product name: it is its own Korean
+    return found
+
+
 class TranslationCoverageTests(unittest.TestCase):
     def test_the_sidebar_flow_is_translated(self):
         korean = _korean()
@@ -108,12 +151,17 @@ class TranslationCoverageTests(unittest.TestCase):
                 wanted.add(tool["variant_field"].title())
         self.assertEqual(sorted(wanted - set(korean)), [])
 
+    def test_first_run_connection_is_translated(self):
+        """What a new user meets before the first plan: online access and Connect. The advanced
+        Connection sub-panel and Preferences (transports, pasted keys) keep their English."""
+        self.assertEqual(sorted(_first_run_strings() - set(_korean())), [])
+
     def test_holes_survive_translation(self):
         for message, text in _korean().items():
             self.assertEqual(message.count("{}"), text.count("{}"), message)
 
     def test_no_translation_is_left_over(self):
-        used = set()
+        used = _first_run_strings()
         for name in SHOWN_BY:
             used |= _shown(name)
         catalog = json.loads((ROOT / "tool_catalog.json").read_text(encoding="utf-8"))
