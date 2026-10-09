@@ -76,6 +76,14 @@ class REDROB_PG_session(PropertyGroup):
     scope: EnumProperty(name="Shape", items=_SCOPE_ITEMS, default='SELECTION', options={'SKIP_SAVE'})
     plan_scope: StringProperty(default="SCENE", options={'SKIP_SAVE'})
     history_json: StringProperty(default="[]", options={'SKIP_SAVE'})
+    # What the chat shows (chat.py): every message, including the ones the agent is never sent.
+    chat_json: StringProperty(default="[]", options={'SKIP_SAVE'})
+    show_earlier: BoolProperty(
+        name="Show Earlier Messages",
+        description="Show the whole conversation, not only the newest messages",
+        default=False,
+        options={'SKIP_SAVE'},
+    )
     last_instruction: StringProperty(default="", options={'SKIP_SAVE'})
     steps: CollectionProperty(type=REDROB_PG_step, options={'SKIP_SAVE'})
     plan_problem: StringProperty(default="", options={'SKIP_SAVE'})

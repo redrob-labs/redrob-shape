@@ -16,7 +16,7 @@ from pathlib import Path
 
 import bpy
 
-from . import conversation, protocol, tools
+from . import chat, conversation, protocol, tools
 from .i18n import iface_
 
 _POLL_INTERVAL = 0.2
@@ -281,14 +281,12 @@ class AgentRuntime:
                 continue
             if "local_error" in raw:
                 if current.status == 'WORKING':
-                    current.status = 'ERROR'
-                    current.status_message = raw["local_error"]
+                    chat.fail(current, raw["local_error"])
                     current.request_id = ""
                 continue
             if "diagnostic" in raw:
                 if not self.running and current.status == 'WORKING':
-                    current.status = 'ERROR'
-                    current.status_message = raw["diagnostic"]
+                    chat.fail(current, raw["diagnostic"])
                 continue
             try:
                 event = protocol.decode_event(raw["line"])
@@ -299,8 +297,7 @@ class AgentRuntime:
 
         if self.process is not None and self.process.poll() is not None and not self.stopping:
             if current.status == 'WORKING':
-                current.status = 'ERROR'
-                current.status_message = iface_("Local agent exited before completing the request")
+                chat.fail(current, iface_("Local agent exited before completing the request"))
                 current.request_id = ""
             if current.connection in {'STARTING', 'WAITING'}:
                 clear_connect_code(current)
@@ -324,8 +321,7 @@ class AgentRuntime:
         self.requests.clear()
         self.cancelled_requests.clear()
         current.sidecar_available = False
-        current.status = 'ERROR'
-        current.status_message = message
+        chat.fail(current, message)
         current.request_id = ""
         if current.connection in {'UNKNOWN', 'STARTING', 'WAITING'}:
             clear_connect_code(current)
@@ -353,6 +349,7 @@ class AgentRuntime:
             ):
                 current.status = 'IDLE'
                 current.status_message = iface_("Request cancelled")
+                chat.say(current, "event", "cancelled")
                 current.request_id = ""
             return
 
@@ -371,10 +368,10 @@ class AgentRuntime:
             if error["code"] == "cancelled" and method in {"plan", "cancel"}:
                 current.status = 'IDLE'
                 current.status_message = iface_("Request cancelled")
+                chat.say(current, "event", "cancelled")
                 current.request_id = ""
                 return
-            current.status = 'ERROR'
-            current.status_message = error["message"]
+            chat.fail(current, error["message"])
             if request_id == current.request_id:
                 current.request_id = ""
             return
@@ -396,8 +393,7 @@ class AgentRuntime:
             if request_id != current.request_id:
                 return
             if request.get("scene_revision") != current.scene_revision:
-                current.status = 'ERROR'
-                current.status_message = iface_("The scene changed while planning; create a new plan")
+                chat.fail(current, iface_("The scene changed while planning; create a new plan"))
                 current.request_id = ""
                 return
             allowed_objects = set(request.get("captured_objects", ()))
@@ -406,8 +402,7 @@ class AgentRuntime:
                 result = tools.normalize_plan(result, context)
                 tools.validate_plan(result, context, allowed_objects)
             except tools.PlanValidationError as exc:
-                current.status = 'ERROR'
-                current.status_message = iface_("Rejected plan: {}").format(exc)
+                chat.fail(current, iface_("Rejected plan: {}").format(exc))
                 current.request_id = ""
                 return
             current.request_id = ""
@@ -419,6 +414,7 @@ class AgentRuntime:
                 conversation.load(current.history_json), request.get("instruction", ""), raw_plan
             )
             current.history_json = conversation.dump(turns)
+            chat.say(current, "agent", "plan", result.get("summary", ""), turn=len(turns) - 1, steps=result["actions"])
             current.status = 'READY'
             current.status_message = iface_("Plan ready • switch off any step you do not want, then apply")
         elif method == "cancel":
@@ -427,6 +423,7 @@ class AgentRuntime:
             if target == current.request_id:
                 current.status = 'IDLE'
                 current.status_message = iface_("Request cancelled")
+                chat.say(current, "event", "cancelled")
                 current.request_id = ""
         elif method == "shutdown":
             current.sidecar_available = False

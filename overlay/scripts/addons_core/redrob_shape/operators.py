@@ -13,7 +13,7 @@ from bpy.props import IntProperty
 from bpy.types import Operator
 
 from . import context as scene_context
-from . import conversation, runtime, theme, tools
+from . import chat, conversation, runtime, theme, tools
 from .i18n import iface_
 from .state import session
 
@@ -79,23 +79,31 @@ def steps_changed(context):
         current.plan_problem = ""
 
 
-def _submit(operator, context, instruction, turns):
+def _refuse(operator, current, text, level='WARNING'):
+    """A send that never left Blender. Redrob says why in the chat; a plan under review stays as it
+    was, with its Apply button, because nothing about it changed."""
+    if current.status in {'READY', 'APPLIED'} and current.plan_json:
+        chat.say(current, "agent", "error", text)
+    else:
+        chat.fail(current, text)
+    operator.report({level}, text)
+    return {'CANCELLED'}
+
+
+def _submit(operator, context, instruction, turns, retry=False):
+    """Send ``instruction``. Nothing that stops it here reaches the chat as YOUR message: the
+    prompt keeps the text, and Redrob's answer says what to fix first."""
     current = session(context)
     if not bpy.app.online_access:
-        current.status = 'ERROR'
-        current.status_message = iface_("Online access is disabled in Blender preferences")
-        operator.report({'WARNING'}, current.status_message)
-        return {'CANCELLED'}
+        return _refuse(operator, current, iface_("Online access is disabled in Blender preferences"))
     if current.scope == 'SELECTION' and not context.selected_objects:
+        chat.say(current, "agent", "info", iface_("Select what to shape, or switch to Whole Scene"))
         operator.report({'WARNING'}, iface_("Select what to shape, or switch to Whole Scene"))
         return {'CANCELLED'}
 
     agent = runtime.runtime()
     if not agent.running and not agent.start():
-        current.status = 'ERROR'
-        current.status_message = agent.start_error
-        operator.report({'ERROR'}, agent.start_error)
-        return {'CANCELLED'}
+        return _refuse(operator, current, agent.start_error, 'ERROR')
 
     summary, revision = scene_context.build_scene_context(context, current.scope)
     try:
@@ -103,11 +111,14 @@ def _submit(operator, context, instruction, turns):
             instruction, summary, revision, scene_context.target_objects(summary), turns
         )
     except (RuntimeError, ValueError) as exc:
-        current.status = 'ERROR'
-        current.status_message = str(exc)
+        chat.fail(current, str(exc))
         operator.report({'ERROR'}, str(exc))
         return {'CANCELLED'}
 
+    if retry:
+        chat.say(current, "event", "retry")
+    else:
+        chat.say(current, "user", text=instruction)
     if current.status == 'APPLIED':
         _keep(current)
     _reset_plan(current)
@@ -158,7 +169,7 @@ class REDROB_OT_retry(Operator):
             turns = conversation.set_last_outcome(turns, "discarded")
             turns[-1].pop("plan", None)
             _save_turns(current, turns)
-        return _submit(self, context, current.last_instruction, turns)
+        return _submit(self, context, current.last_instruction, turns, retry=True)
 
 
 class REDROB_OT_cancel(Operator):
@@ -171,14 +182,14 @@ class REDROB_OT_cancel(Operator):
         try:
             cancel_id = runtime.runtime().cancel(current.request_id)
         except RuntimeError as exc:
-            current.status = 'ERROR'
-            current.status_message = str(exc)
+            chat.fail(current, str(exc))
             self.report({'ERROR'}, str(exc))
             return {'CANCELLED'}
         if cancel_id is None:
             current.status = 'IDLE'
             current.status_message = iface_("Request is no longer active")
             current.request_id = ""
+            chat.say(current, "event", "cancelled")
         else:
             current.status_message = iface_("Cancelling request")
         return {'FINISHED'}
@@ -211,8 +222,7 @@ class REDROB_OT_apply_plan(Operator):
                 raise tools.PlanValidationError(iface_("The scene changed after planning; create a new plan"))
             tools.validate_plan(payload, context, allowed_objects)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            current.status = 'ERROR'
-            current.status_message = str(exc)
+            chat.fail(current, str(exc))
             self.report({'ERROR'}, str(exc))
             return {'CANCELLED'}
 
@@ -230,14 +240,12 @@ class REDROB_OT_apply_plan(Operator):
             results = tools.execute_plan(payload, context, allowed_objects, on_step=mark_done)
         except tools.StepFailed as exc:
             current.steps[rows[exc.number - 1]].outcome = "failed"
-            current.status = 'ERROR'
-            current.status_message = iface_("Apply stopped at {}. Use Undo to roll back.").format(exc)
+            chat.fail(current, iface_("Apply stopped at {}. Use Undo to roll back.").format(exc))
             _save_turns(current, conversation.set_last_outcome(_turns(current), "failed"))
             self.report({'ERROR'}, current.status_message)
             return {'FINISHED'}
         except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
-            current.status = 'ERROR'
-            current.status_message = iface_("Apply stopped at {}. Use Undo to roll back.").format(exc)
+            chat.fail(current, iface_("Apply stopped at {}. Use Undo to roll back.").format(exc))
             self.report({'ERROR'}, current.status_message)
             return {'FINISHED'}
 
@@ -248,6 +256,7 @@ class REDROB_OT_apply_plan(Operator):
             len(results)
         )
         _save_turns(current, conversation.set_last_outcome(_turns(current), "applied", len(results)))
+        chat.say(current, "event", "applied", steps=payload["actions"])
         self.report({'INFO'}, current.status_message)
         return {'FINISHED'}
 
@@ -268,7 +277,9 @@ class REDROB_OT_keep(Operator):
         return session(context).status == 'APPLIED'
 
     def execute(self, context):
-        _keep(session(context))
+        current = session(context)
+        _keep(current)
+        chat.say(current, "event", "kept")
         return {'FINISHED'}
 
 
@@ -289,6 +300,7 @@ def _after_undo(*_args):
         current.status = 'READY'
         current.status_message = iface_("Undone • change the steps and apply again, or describe a change")
         _save_turns(current, conversation.set_last_outcome(_turns(current), "undone"))
+        chat.say(current, "event", "undone")
         runtime.redraw()
     except (AttributeError, ReferenceError, RuntimeError):
         pass
@@ -308,6 +320,7 @@ def _after_redo(*_args):
             current.applied_steps
         )
         _save_turns(current, conversation.set_last_outcome(_turns(current), "applied"))
+        chat.say(current, "event", "redone")
         runtime.redraw()
     except (AttributeError, ReferenceError, RuntimeError):
         pass
@@ -325,6 +338,8 @@ class REDROB_OT_clear(Operator):
         turns = _turns(current)
         if turns and turns[-1]["outcome"] in {"pending", "undone"}:
             _save_turns(current, conversation.set_last_outcome(turns, "discarded"))
+        if current.plan_json or current.request_id:
+            chat.say(current, "event", "discarded")
         if current.status == 'APPLIED':
             _keep(current)
         else:
@@ -345,6 +360,8 @@ class REDROB_OT_new_conversation(Operator):
         bpy.ops.redrob_shape.clear()
         current = session(context)
         current.history_json = "[]"
+        current.chat_json = "[]"
+        current.show_earlier = False
         current.last_instruction = ""
         current.prompt = ""
         return {'FINISHED'}
@@ -359,10 +376,10 @@ class REDROB_OT_reuse_instruction(Operator):
 
     def execute(self, context):
         current = session(context)
-        turns = _turns(current)
-        if not 0 <= self.index < len(turns):
+        messages = chat.load(current.chat_json)
+        if not 0 <= self.index < len(messages) or messages[self.index]["role"] != "user":
             return {'CANCELLED'}
-        current.prompt = turns[self.index]["instruction"]
+        current.prompt = messages[self.index]["text"]
         return {'FINISHED'}
 
 
@@ -379,8 +396,7 @@ class REDROB_OT_restart_agent(Operator):
             current.status = 'IDLE'
             current.status_message = "Checking local agent configuration"
             return {'FINISHED'}
-        current.status = 'ERROR'
-        current.status_message = agent.start_error
+        chat.fail(current, agent.start_error)
         self.report({'ERROR'}, agent.start_error)
         return {'CANCELLED'}
 

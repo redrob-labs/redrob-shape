@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOWN_BY = ("panels.py", "operators.py", "runtime.py", "state.py")
+SHOWN_BY = ("panels.py", "operators.py", "runtime.py", "state.py", "workspace.py")
 
 
 def _tree(name):
@@ -68,6 +68,8 @@ def _shown(name):
                 found.update(ast.literal_eval(node.value).values())
             if target == "_STATUS_PRESENTATION":
                 found.update(title for _icon, title in ast.literal_eval(node.value).values())
+            if target == "_EVENT_PRESENTATION":
+                found.update(text for _icon, text in ast.literal_eval(node.value).values())
             if target == "_SCOPE_ITEMS":
                 for item in ast.literal_eval(node.value):
                     found.update(item[1:3])
@@ -78,7 +80,7 @@ class TranslationCoverageTests(unittest.TestCase):
     def test_the_sidebar_flow_is_translated(self):
         korean = _korean()
         shown = set()
-        for name in ("panels.py", "operators.py"):
+        for name in ("panels.py", "operators.py", "workspace.py"):
             shown |= _shown(name)
         missing = sorted(text for text in shown if text not in korean)
         self.assertEqual(missing, [])

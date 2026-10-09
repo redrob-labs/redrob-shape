@@ -44,7 +44,7 @@ if ! grep -q "redrob_shape" "$target/scripts/modules/addon_utils.py"; then
   echo "error: addon_utils.py does not know about the redrob_shape add-on" >&2
   exit 1
 fi
-for f in __init__.py panels.py operators.py runtime.py protocol.py tools.py state.py theme.py context.py credentials.py transport.py connection_ui.py; do
+for f in __init__.py panels.py operators.py runtime.py protocol.py tools.py state.py theme.py context.py credentials.py transport.py connection_ui.py chat.py workspace.py; do
   if [ ! -f "$target/scripts/addons_core/redrob_shape/$f" ]; then
     echo "error: scripts/addons_core/redrob_shape/$f missing from the checkout" >&2
     exit 1
