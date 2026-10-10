@@ -76,8 +76,7 @@ jobs:
         # requires a marker printed from inside the opened window.
         run: |
           set -euo pipefail
-          ( sleep 20; screencapture -x launch.png || true ) &
-          python3 scripts/check-installed.py build/install --window 2>&1 | tee launch.log
+          REDROB_WINDOW_SHOT="$PWD/launch.png" python3 scripts/check-installed.py build/install --window 2>&1 | tee launch.log
 
       - name: zip the unsigned app
         run: |
