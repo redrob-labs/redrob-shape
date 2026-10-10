@@ -86,11 +86,8 @@ jobs:
       - name: check the installed build
         run: python3 scripts/check-installed.py build/install
 
-      - name: open the app with a window
-        run: |
-          set -euo pipefail
-          python3 scripts/check-installed.py build/install --window 2>&1 | tee launch.log
-
+      # Zip and upload BEFORE the window check: the build takes hours, and a failed window check
+      # must not throw it away.
       - name: zip the unsigned build
         run: |
           set -euo pipefail
@@ -106,10 +103,22 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      - name: open the app with a window
+        # The runner has no GPU, so Blender gets Mesa's software OpenGL for this check only. It
+        # is added after the zip, so the shipped build does not carry it.
+        env:
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -euo pipefail
+          ./scripts/windows-software-gl.sh build/install
+          REDROB_WINDOW_SHOT="$(cygpath -w "$PWD/launch.png")" python3 scripts/check-installed.py build/install --window 2>&1 | tee launch.log
+
       - name: Upload the launch log
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-launch
-          path: launch.log
+          path: |
+            launch.log
+            launch.png
           if-no-files-found: warn

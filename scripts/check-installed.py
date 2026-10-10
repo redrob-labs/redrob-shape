@@ -160,10 +160,17 @@ def check_blender(blender):
 
 
 WINDOW_PROBE = r"""
+import os
 import bpy
 def report():
     window = bpy.context.window_manager.windows[0]
     print(f"REDROB_WINDOW {window.width}x{window.height}", flush=True)
+    shot = os.environ.get("REDROB_WINDOW_SHOT")
+    if shot:
+        # Blender's own framebuffer, so the picture is the window that opened, on any platform.
+        with bpy.context.temp_override(window=window, screen=window.screen):
+            bpy.ops.screen.screenshot(filepath=shot)
+        print(f"REDROB_SHOT {shot}", flush=True)
     bpy.ops.wm.quit_blender()
 bpy.app.timers.register(report, first_interval=8.0)
 """

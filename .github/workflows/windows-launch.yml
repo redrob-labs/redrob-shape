@@ -1,0 +1,80 @@
+# Re-run only the window check on a Windows build that windows.yml already made.
+#
+# A Windows build takes about 4.5 hours on a hosted runner. When only the launch check needs
+# another try, this takes the uploaded zip from that run instead of building again.
+#
+# Manual dispatch only.
+name: windows launch
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "windows.yml run id whose redrob-shape-windows-x64-unsigned artifact to launch"
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  launch:
+    name: open the built app with a window (x64)
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: line endings, before anything is cloned
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.1
+
+      - name: python3 on PATH
+        run: |
+          if ! command -v python3 >/dev/null || ! python3 -c "import sys" 2>/dev/null; then
+            mkdir -p "$RUNNER_TEMP/shim"
+            printf '#!/bin/sh\nexec python "$@"\n' > "$RUNNER_TEMP/shim/python3"
+            chmod +x "$RUNNER_TEMP/shim/python3"
+            echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
+          fi
+
+      - name: Download the build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: redrob-shape-windows-x64-unsigned
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+
+      - name: unpack
+        run: |
+          set -euo pipefail
+          mkdir -p build/install
+          7z x -y -obuild/install dist/redrob-shape-windows-x64-unsigned.zip >/dev/null
+          ls build/install | head -20
+
+      - name: check the installed build
+        run: python3 scripts/check-installed.py build/install
+
+      - name: open the app with a window
+        env:
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -euo pipefail
+          ./scripts/windows-software-gl.sh build/install
+          REDROB_WINDOW_SHOT="$(cygpath -w "$PWD/launch.png")" python3 scripts/check-installed.py build/install --window 2>&1 | tee launch.log
+
+      - name: Upload the launch log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-launch
+          path: |
+            launch.log
+            launch.png
+          if-no-files-found: warn

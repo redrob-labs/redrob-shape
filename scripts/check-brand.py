@@ -39,7 +39,8 @@ def main():
     outputs = pins["outputs"]
 
     present = {
-        str(path.relative_to(BRAND)) for path in BRAND.rglob("*") if path.is_file() and path.name != "SOURCES.json"
+        # as_posix: SOURCES.json keys use "/", and on Windows str() would give "\".
+        path.relative_to(BRAND).as_posix() for path in BRAND.rglob("*") if path.is_file() and path.name != "SOURCES.json"
     }
     for rel in sorted(present - set(outputs)):
         errors.append(f"brand/{rel} is not built from the design system (not in SOURCES.json)")
@@ -58,11 +59,11 @@ def main():
     # Every SVG mark carries favicon.svg's own symbol path, untouched.
     for rel in outputs:
         if rel.endswith(".svg"):
-            for d in re.findall(r'<path fill="#FFF" d="([^"]+)"|<path fill="#000" d="([^"]+)"', (BRAND / rel).read_text()):
+            for d in re.findall(r'<path fill="#FFF" d="([^"]+)"|<path fill="#000" d="([^"]+)"', (BRAND / rel).read_text(encoding="utf-8")):
                 path = next(part for part in d if part)
                 if hashlib.sha256(path.encode()).hexdigest() != pins["symbol_path_sha256"]:
                     errors.append(f"brand/{rel} carries a symbol path that is not the design system's")
-            if re.search(r"\b(filter|mask|opacity|transform)=", (BRAND / rel).read_text()):
+            if re.search(r"\b(filter|mask|opacity|transform)=", (BRAND / rel).read_text(encoding="utf-8")):
                 errors.append(f"brand/{rel} applies an effect to the mark (filter, mask, opacity or transform)")
 
     # The theme's colours are design-system tokens, by name and value.
