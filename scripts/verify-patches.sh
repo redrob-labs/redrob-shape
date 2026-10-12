@@ -258,4 +258,17 @@ if ! grep -A1 -x 'msgid "Quit Redrob Shape"' "$target/locale/po/ko.po" | grep -q
 fi
 echo "theme presets, macOS bundle and Korean translations carry our name"
 
+# The version a user reads is the product's, and it is the one the release is tagged with.
+want="$(tr -d '[:space:]' < REDROB_VERSION)"
+if ! grep -qx "#define REDROB_VERSION_STRING \"$want\"" "$target/source/blender/blenkernel/BKE_redrob_version.h"; then
+  echo "error: BKE_redrob_version.h does not say $want (REDROB_VERSION)" >&2
+  exit 1
+fi
+for f in windowmanager/intern/wm_splash_screen.cc windowmanager/intern/wm_window.cc \
+         editors/space_info/info_stats.cc python/intern/bpy_app.cc; do
+  grep -q 'REDROB_VERSION_STRING' "$target/source/blender/$f" || {
+    echo "error: $f does not show the product version" >&2; exit 1; }
+done
+echo "splash, title, status bar and About show version $want"
+
 echo "=== customization verified ==="
