@@ -1,0 +1,124 @@
+# Does Redrob Shape compile, start and carry our add-on, agent and brand on Windows? This answers
+# that, on a GitHub-hosted x64 runner.
+#
+# It is NOT a release. The output is an UNSIGNED zip of the installed build, kept as a workflow
+# artifact. Signing and publishing belong to sign-and-publish.yml, which takes this artifact, the
+# same split redrob-browser uses.
+#
+# Manual dispatch only, like redrob-browser's windows.yml.
+#
+# Line endings matter here more than anywhere: the patches are LF, and a CRLF checkout of this
+# repository makes them fail to apply. So autocrlf is turned off BEFORE the checkout.
+name: windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build (defaults to the branch the run starts from)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: compile, check and launch (x64)
+    runs-on: windows-2025
+    timeout-minutes: 350
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: line endings and long paths, before anything is cloned
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          git config --global core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: what we are working with
+        run: |
+          systeminfo | grep -E "OS Name|OS Version|Total Physical Memory" || true
+          echo "CPUs: $NUMBER_OF_PROCESSORS"
+          df -h . /c 2>/dev/null || true
+          "/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property catalog_productDisplayVersion || true
+          cargo --version
+          cmake --version | head -1
+          git lfs version
+
+      - name: python3 on PATH
+        # The repository's scripts call python3. Windows images ship python, not always python3.
+        run: |
+          if ! command -v python3 >/dev/null || ! python3 -c "import sys" 2>/dev/null; then
+            mkdir -p "$RUNNER_TEMP/shim"
+            printf '#!/bin/sh\nexec python "$@"\n' > "$RUNNER_TEMP/shim/python3"
+            chmod +x "$RUNNER_TEMP/shim/python3"
+            echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
+          fi
+
+      - name: the gate's tree (pinned upstream + patches + overlay + brand)
+        run: |
+          python3 --version
+          ./scripts/verify-patches.sh
+
+      - name: LFS content and lib/windows_x64
+        run: ./scripts/fetch-build-deps.sh windows_x64
+
+      - name: configure and build with the Visual Studio toolchain
+        # cmd, because vcvars64.bat sets the compiler environment for the shell it runs in. Ninja
+        # comes with Visual Studio's CMake component, which vcvars puts on PATH.
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VSROOT=%%i
+          call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          where ninja cl cargo
+          cmake -S build\blender -B build\out -G Ninja ^
+            -C build\blender\build_files\cmake\config\redrob_shape.cmake ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_INSTALL_PREFIX=%CD%\build\install || exit /b 1
+          cmake --build build\out --target install -- -j%NUMBER_OF_PROCESSORS% || exit /b 1
+
+      - name: check the installed build
+        run: python3 scripts/check-installed.py build/install
+
+      # Zip and upload BEFORE the window check: the build takes hours, and a failed window check
+      # must not throw it away.
+      - name: zip the unsigned build
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          7z a -tzip -mx=7 dist/redrob-shape-windows-x64-unsigned.zip ./build/install/*
+          ls -la dist
+
+      - name: Upload the build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: redrob-shape-windows-x64-unsigned
+          path: dist/redrob-shape-windows-x64-unsigned.zip
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: open the app with a window
+        # The runner has no GPU, so Blender gets Mesa's software OpenGL for this check only. It
+        # is added after the zip, so the shipped build does not carry it.
+        env:
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -euo pipefail
+          ./scripts/windows-software-gl.sh build/install
+          REDROB_WINDOW_SHOT="$(cygpath -w "$PWD/launch.png")" python3 scripts/check-installed.py build/install --window 2>&1 | tee launch.log
+
+      - name: Upload the launch log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-launch
+          path: |
+            launch.log
+            launch.png
+          if-no-files-found: warn

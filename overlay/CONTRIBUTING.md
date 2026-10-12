@@ -1,10 +1,10 @@
-# Contributing to Redrob Reblend
+# Contributing to Redrob Shape
 
-Redrob Reblend is a compatibility-first downstream of Blender. Changes should remain small, additive, and straightforward to replay when syncing Blender upstream.
+Redrob Shape is a compatibility-first downstream of Blender. Changes should remain small, additive, and straightforward to replay when syncing Blender upstream.
 
 ## Choose the right project
 
-- Reblend UI, Redrob integration, agent protocol, safe tools, packaging, and downstream documentation belong in this repository.
+- Redrob Shape UI, Redrob integration, agent protocol, safe tools, packaging, and downstream documentation belong in this repository.
 - General Blender fixes should be reported and contributed through [Blender's official contribution process](https://developer.blender.org/docs/handbook/contributing/).
 
 ## Development checks
@@ -12,8 +12,8 @@ Redrob Reblend is a compatibility-first downstream of Blender. Changes should re
 Run checks relevant to the files you changed:
 
 ```sh
-python -m compileall -q scripts/addons_core/redrob_reblend
-ruff check scripts/addons_core/redrob_reblend
+python -m compileall -q scripts/addons_core/redrob_shape
+ruff check scripts/addons_core/redrob_shape
 cargo fmt --check --manifest-path intern/redrob_agent/Cargo.toml
 cargo clippy --manifest-path intern/redrob_agent/Cargo.toml --all-targets --all-features -- -D warnings
 cargo test --manifest-path intern/redrob_agent/Cargo.toml --all-targets --all-features

@@ -1,8 +1,12 @@
-# Redrob Reblend: patch-based customization of Blender
+# Redrob Shape: patch-based customization of Blender
 
-Redrob Reblend is a compatibility-first, agentic Blender distribution with an AI agent sidecar.
+Redrob Shape is an agentic 3D suite that shapes and shades your models by prompt, and opens your existing .blend files.
+
+[한국어](README.ko.md)
+
+It is built as a compatibility-first Blender distribution with a local AI agent sidecar.
 This repository holds **only our changes**.
-Upstream Blender is fetched at build time, never vendored, so `git log` here shows Reblend work
+Upstream Blender is fetched at build time, never vendored, so `git log` here shows Redrob Shape work
 rather than being buried under upstream history.
 
 ```
@@ -19,7 +23,7 @@ Build:
 ```
 
 That leaves a complete, customized Blender tree in `build/blender`, built with Blender's own CMake
-toolchain and the `redrob_reblend` config preset.
+toolchain and the `redrob_shape` config preset.
 
 ## Why this shape
 
@@ -44,15 +48,15 @@ upstream, so this shape discards nothing that cannot be fetched again.
 ## What is ours
 
 - `intern/redrob_agent/`: the agent sidecar, in Rust, built by CMake behind `WITH_REDROB_AGENT`.
-  The option defaults to OFF; the `redrob_reblend` cmake preset is what turns it on, which the gate
+  The option defaults to OFF; the `redrob_shape` cmake preset is what turns it on, which the gate
   asserts, because otherwise a build silently ships with no agent and no error.
-- `scripts/addons_core/redrob_reblend/`: the Blender add-on: panels, operators, runtime,
+- `scripts/addons_core/redrob_shape/`: the Blender add-on: panels, operators, runtime,
   protocol, tools, theme, state, context, and 18 unit tests.
 
 ## Branding, and the line it does not cross
 
 `patches/0004` renames the **application shell** (the window title and the desktop entry) to
-Redrob Reblend. Blender is GPL and its trademark policy asks that a modified redistribution not
+Redrob Shape. Blender is GPL and its trademark policy asks that a modified redistribution not
 present itself as official Blender, so renaming the shell is what compliance looks like, not an
 optional flourish.
 
@@ -68,6 +72,18 @@ It stops there deliberately. The gate asserts what must *not* have changed:
   rule someone has to remember.
 
 Blender's 3D core keeps its own names throughout. What is rebranded is the product wrapping it.
+
+## Brand assets
+
+Every icon, the splash and the X11 window icon under `brand/` are built from the design system's
+published files by `scripts/build-brand-assets.py`, never drawn here. Redrob Shape is not one of the
+seven suite products, so it uses the group icon: the white symbol on a Redrob Blue tile.
+`brand/SOURCES.json` pins every source and output by sha256, and the gate runs
+`scripts/check-brand.py`, which also checks that the theme's colours are design-system tokens.
+
+```
+scripts/build-brand-assets.py --design-system ~/workplace/redrob-design-system
+```
 
 ## Git LFS: the fetched tree has asset pointers, not assets
 

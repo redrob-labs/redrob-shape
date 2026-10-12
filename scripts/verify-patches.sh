@@ -22,6 +22,12 @@ rm -rf build/blender
 
 target="build/blender"
 
+# User-visible strings, RNA tooltips, Python UI labels and the translations that follow them are
+# rewritten here rather than carried as a patch: the .po half alone touches thousands of entries
+# across every language, and a rename that skips the .po files leaves Korean (and every other
+# language) showing English for each renamed string.
+python3 scripts/sweep-strings.py "$target"
+
 # --- 1. LFS pointers stayed pointers ---------------------------------------------
 # Blender tracks bundled assets in LFS and the GitHub mirror cannot serve those objects, so
 # fetch-upstream.sh skips the smudge filter. This asserts the outcome rather than trusting the
@@ -40,34 +46,34 @@ fi
 
 # --- 2. the add-on is registered, not merely present ------------------------------
 # A copied-in add-on that addon_utils does not know about produces a build with no panel.
-if ! grep -q "redrob_reblend" "$target/scripts/modules/addon_utils.py"; then
-  echo "error: addon_utils.py does not know about the redrob_reblend add-on" >&2
+if ! grep -q "redrob_shape" "$target/scripts/modules/addon_utils.py"; then
+  echo "error: addon_utils.py does not know about the redrob_shape add-on" >&2
   exit 1
 fi
-for f in __init__.py panels.py operators.py runtime.py protocol.py tools.py state.py theme.py context.py credentials.py transport.py connection_ui.py; do
-  if [ ! -f "$target/scripts/addons_core/redrob_reblend/$f" ]; then
-    echo "error: scripts/addons_core/redrob_reblend/$f missing from the checkout" >&2
+for f in __init__.py panels.py operators.py runtime.py protocol.py tools.py state.py theme.py context.py credentials.py transport.py connection_ui.py chat.py workspace.py; do
+  if [ ! -f "$target/scripts/addons_core/redrob_shape/$f" ]; then
+    echo "error: scripts/addons_core/redrob_shape/$f missing from the checkout" >&2
     exit 1
   fi
 done
-if [ ! -f "$target/scripts/addons_core/redrob_reblend/blender_manifest.toml" ]; then
+if [ ! -f "$target/scripts/addons_core/redrob_shape/blender_manifest.toml" ]; then
   echo "error: the add-on has no blender_manifest.toml, so Blender will not load it" >&2
   exit 1
 fi
 # The connection UI has to be registered or the preferences it declares never exist, and the
 # transport picker silently does nothing.
-if ! grep -q "connection_ui" "$target/scripts/addons_core/redrob_reblend/__init__.py"; then
+if ! grep -q "connection_ui" "$target/scripts/addons_core/redrob_shape/__init__.py"; then
   echo "error: connection_ui is present but never registered" >&2
   exit 1
 fi
 # PEP 563 stringifies annotations, and Blender registers add-on properties by evaluating them --
 # so this import in a module declaring bpy.props breaks registration at enable time, inside
 # Blender, where CI would not see it.
-if grep -q "^from __future__ import annotations" "$target/scripts/addons_core/redrob_reblend/connection_ui.py"; then
+if grep -q "^from __future__ import annotations" "$target/scripts/addons_core/redrob_shape/connection_ui.py"; then
   echo "error: connection_ui.py uses PEP 563 annotations, which breaks bpy.props registration" >&2
   exit 1
 fi
-echo "Reblend add-on present and registered, with the connection UI wired in"
+echo "Redrob Shape add-on present and registered, with the connection UI wired in"
 
 # --- 3. the Rust agent is wired into the build ------------------------------------
 # Three separate things have to be true, and my first version of this check asserted the wrong
@@ -83,9 +89,9 @@ if ! grep -q "redrob_agent_attach_to_target(blender)" "$target/source/creator/CM
 fi
 # The option defaults to OFF, so without the config preset a build would silently ship with no
 # agent and no error. The preset is what turns it on.
-preset="$target/build_files/cmake/config/redrob_reblend.cmake"
+preset="$target/build_files/cmake/config/redrob_shape.cmake"
 if [ ! -f "$preset" ] || ! grep -q "set(WITH_REDROB_AGENT ON" "$preset"; then
-  echo "error: the redrob_reblend cmake preset does not enable WITH_REDROB_AGENT" >&2
+  echo "error: the redrob_shape cmake preset does not enable WITH_REDROB_AGENT" >&2
   echo "       The option defaults to OFF, so the agent would be silently absent." >&2
   exit 1
 fi
@@ -97,12 +103,18 @@ echo "Rust agent wired in: option declared, attached to the target, enabled by t
 
 # --- 4. the application shell is branded -----------------------------------------
 title_source="$target/source/blender/windowmanager/intern/wm_window.cc"
-if ! grep -q '"Redrob Reblend"' "$title_source"; then
+if ! grep -q '"Redrob Shape"' "$title_source"; then
   echo "error: the window title is not branded -- the app would present itself as Blender" >&2
   exit 1
 fi
-if ! grep -q "^Name=Redrob Reblend$" "$target/release/freedesktop/blender.desktop"; then
+if ! grep -q "^Name=Redrob Shape$" "$target/release/freedesktop/blender.desktop"; then
   echo "error: the desktop entry still names Blender" >&2
+  exit 1
+fi
+# The launcher has to start an executable the build produces. The build keeps Blender's executable
+# name, so a desktop entry naming anything else installs an icon that opens nothing.
+if ! grep -q "^Exec=blender %f$" "$target/release/freedesktop/blender.desktop"; then
+  echo "error: the desktop entry does not launch the blender executable the build produces" >&2
   exit 1
 fi
 echo "application shell branded: $(grep '^Name=' "$target/release/freedesktop/blender.desktop" | cut -d= -f2)"
@@ -110,31 +122,49 @@ echo "application shell branded: $(grep '^Name=' "$target/release/freedesktop/bl
 # The splash screen, the animation player and the window all name the product separately, so a
 # branding pass that misses one leaves the app calling itself Blender somewhere the user looks.
 for f in wm_splash_screen.cc wm_playanim.cc wm_window.cc; do
-  if ! grep -q "Reblend" "$target/source/blender/windowmanager/intern/$f"; then
+  if ! grep -q "Redrob Shape" "$target/source/blender/windowmanager/intern/$f"; then
     echo "error: $f still presents the product as Blender" >&2
     exit 1
   fi
 done
 # macOS reads the bundle name from Info.plist, not from the window title.
-if ! grep -q "Reblend" "$target/release/darwin/Blender.app/Contents/Info.plist"; then
+if ! grep -q "Redrob Shape" "$target/release/darwin/Blender.app/Contents/Info.plist"; then
   echo "error: the macOS bundle Info.plist is not branded" >&2
   exit 1
 fi
 echo "splash, player, window and macOS bundle all branded"
 
-# And the icons must be OURS, not upstream's. Compared by content, because a file merely existing
-# at the right path proves nothing -- upstream ships one there too.
-for pair in \
-  "brand/release/windows/icons/winblender.ico:release/windows/icons/winblender.ico" \
-  "brand/release/darwin/Blender.app/Contents/Resources/blender_icon_legacy.icns:release/darwin/Blender.app/Contents/Resources/blender_icon_legacy.icns"; do
-  src="${pair%%:*}"
-  dest="${pair#*:}"
-  if ! cmp -s "$src" "$target/$dest"; then
-    echo "error: $dest is not our brand asset" >&2
+# And the icons, splash and window icon must be OURS, built from the design system's own files
+# and pinned by sha256 (brand/SOURCES.json). Compared by content, because a file merely existing
+# at the right path proves nothing -- upstream ships one there too -- and because a build reads no
+# pixels, so a hand-drawn mark would otherwise pass forever.
+python3 scripts/check-brand.py "$target"
+# The brand files are copied, never patched: a patch touching one would fight the copy.
+brand_paths=$(python3 -c "
+import json, re
+pins = json.load(open('brand/SOURCES.json'))['outputs']
+print('\n'.join(('release/freedesktop/icons/' + r) if re.match(r'^\d+x\d+/', r) else r for r in pins))
+")
+while IFS= read -r path; do
+  if grep -qF "diff --git a/$path " patches/*.patch; then
+    echo "error: a patch edits $path, which brand/ owns" >&2
     exit 1
   fi
-done
-echo "application icons are ours"
+done <<< "$brand_paths"
+# One icon on every macOS: CFBundleIconName would select upstream's compiled Assets.car instead.
+if grep -q "CFBundleIconName" "$target/release/darwin/Blender.app/Contents/Info.plist"; then
+  echo "error: Info.plist names an asset-catalog icon, so macOS 26 would show Blender's" >&2
+  exit 1
+fi
+# The launcher must match the window it opens. The window class is the executable's (Blender),
+# a functional name like Exec=blender, so the desktop entry names that.
+# sed -E, not grep -P: macOS grep has no -P.
+wm_class=$(sed -nE 's/.*define GHOST_X11_RES_CLASS "([^"]+)".*/\1/p' "$target/intern/ghost/intern/GHOST_SystemX11.hh" | head -1)
+if ! grep -qx "StartupWMClass=$wm_class" "$target/release/freedesktop/blender.desktop"; then
+  echo "error: StartupWMClass does not match the window class $wm_class" >&2
+  exit 1
+fi
+echo "application icons, splash and window icon are ours; launcher matches window class $wm_class"
 
 # --- 5. Blender's attribution and licences are intact ----------------------------
 # The branding above is deliberately narrow. Blender is GPL and its trademark policy asks that a
@@ -161,15 +191,17 @@ version_header="$target/source/blender/blenkernel/BKE_blender_version.h"
 declared=$(python3 -c "
 import json
 print(json.load(open('upstream.json'))['version'])
-")
-major=$(grep -oP '(?<=#define BLENDER_VERSION )\d+' "$version_header")
-cycle=$(grep -oP '(?<=#define BLENDER_VERSION_CYCLE )\w+' "$version_header")
+" | tr -d '\r')
+# sed -E, not grep -P: macOS grep has no -P.
+header_value() { sed -nE "s/^#define $1 ([A-Za-z0-9_]+).*/\1/p" "$version_header" | head -1; }
+major=$(header_value BLENDER_VERSION)
+cycle=$(header_value BLENDER_VERSION_CYCLE)
 built="$((major / 100)).$((major % 100)).0-$cycle"
 if [ "$declared" != "$built" ]; then
   echo "error: upstream.json says $declared but the checkout says $built" >&2
   exit 1
 fi
-echo "upstream version matches the pin: $built (blend subversion $(grep -oP '(?<=#define BLENDER_FILE_SUBVERSION )\d+' "$version_header"))"
+echo "upstream version matches the pin: $built (blend subversion $(header_value BLENDER_FILE_SUBVERSION))"
 
 # --- 7. no patch REMOVES Blender's own tests, editors or operators ----------------
 # UPSTREAM.md: never resolve a sync by silently dropping upstream operators, keymaps, editors,
@@ -206,5 +238,24 @@ echo "CI present, and it runs the add-on tests"
 
 # --- no user-visible string names Blender -------------------------------------------
 python3 scripts/sweep-strings.py build/blender --check
+
+# The theme menu shows preset FILE names, so a sweep of strings cannot reach it.
+for f in Blender_Dark Blender_Light; do
+  if [ -e "$target/scripts/presets/interface_theme/$f.xml" ]; then
+    echo "error: theme preset $f.xml still ships -- the theme menu would read it as \"${f/_/ }\"" >&2
+    exit 1
+  fi
+done
+# macOS shows the bundle's folder name in Finder, the Dock and Applications.
+if ! grep -q 'OUTPUT_NAME "Redrob Shape"' "$target/source/creator/CMakeLists.txt"; then
+  echo "error: the macOS bundle is not named Redrob Shape.app" >&2
+  exit 1
+fi
+# A renamed string must keep its translation. Korean is the language this product ships for.
+if ! grep -A1 -x 'msgid "Quit Redrob Shape"' "$target/locale/po/ko.po" | grep -q '레드롭 셰이프'; then
+  echo "error: ko.po lost the Korean for a renamed string (Quit Redrob Shape)" >&2
+  exit 1
+fi
+echo "theme presets, macOS bundle and Korean translations carry our name"
 
 echo "=== customization verified ==="

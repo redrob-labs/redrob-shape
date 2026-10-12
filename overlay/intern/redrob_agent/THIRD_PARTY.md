@@ -30,11 +30,15 @@ hyper-rustls 0.27.9, rustls 0.23.44
 
 ### `Apache-2.0 OR MIT`
 
-atomic-waker 1.1.2, idna_adapter 1.2.2, pin-project-lite 0.2.17, rustc-hash 2.1.3, utf8_iter 1.0.4, zeroize 1.9.0
+atomic-waker 1.1.2, idna_adapter 1.2.2, pin-project-lite 0.2.17, rustc-hash 2.1.3, utf8_iter 1.0.4, zeroize 1.9.0, zeroize_derive 1.5.0
 
 ### `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT`
 
 wasi 0.11.1+wasi-snapshot-preview1
+
+### `Apache-2.0/MIT`
+
+dbus 0.9.12, libdbus-sys 0.2.7
 
 ### `BSD-3-Clause`
 
@@ -54,7 +58,7 @@ bytes 1.12.1, cfg_aliases 0.2.2, http-body 1.1.0, http-body-util 0.1.5, hyper 1.
 
 ### `MIT OR Apache-2.0`
 
-base64 0.22.1, bitflags 2.13.1, bumpalo 3.20.3, cc 1.4.5, cfg-if 1.0.4, chacha20 0.10.2, cpufeatures 0.3.1, displaydoc 0.2.7, find-msvc-tools 0.1.12, form_urlencoded 1.2.2, futures-channel 0.3.34, futures-core 0.3.34, futures-macro 0.3.34, futures-sink 0.3.34, futures-task 0.3.34, futures-util 0.3.34, getrandom 0.2.17, getrandom 0.4.3, http 1.5.0, httparse 1.10.1, idna 1.1.0, ipnet 2.12.2, itoa 1.0.18, js-sys 0.3.105, libc 0.2.189, log 0.4.34, once_cell 1.21.4, percent-encoding 2.3.2, proc-macro2 1.0.107, quinn 0.11.11, quinn-proto 0.11.17, quinn-udp 0.5.15, quote 1.0.47, rand 0.10.2, rand_core 0.10.1, rand_pcg 0.10.2, reqwest 0.12.28, rustls-pki-types 1.15.1, rustversion 1.0.23, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_json 1.0.151, shlex 2.0.1, smallvec 1.16.0, socket2 0.6.5, stable_deref_trait 1.2.1, syn 2.0.119, syn 3.0.5, thiserror 2.0.20, thiserror-impl 2.0.20, tokio-rustls 0.26.5, url 2.5.8, wasm-bindgen 0.2.128, wasm-bindgen-futures 0.4.78, wasm-bindgen-macro 0.2.128, wasm-bindgen-macro-support 0.2.128, wasm-bindgen-shared 0.2.128, web-sys 0.3.105, web-time 1.1.0, windows-link 0.2.1, windows-sys 0.52.0, windows-sys 0.61.2, windows-targets 0.52.6, windows_aarch64_gnullvm 0.52.6, windows_aarch64_msvc 0.52.6, windows_i686_gnu 0.52.6, windows_i686_gnullvm 0.52.6, windows_i686_msvc 0.52.6, windows_x86_64_gnu 0.52.6, windows_x86_64_gnullvm 0.52.6, windows_x86_64_msvc 0.52.6
+base64 0.22.1, bitflags 2.13.1, bumpalo 3.20.3, cc 1.4.5, cfg-if 1.0.4, chacha20 0.10.2, core-foundation 0.10.1, core-foundation 0.9.4, core-foundation-sys 0.8.7, cpufeatures 0.3.1, dbus-secret-service 4.1.0, displaydoc 0.2.7, find-msvc-tools 0.1.12, form_urlencoded 1.2.2, futures-channel 0.3.34, futures-core 0.3.34, futures-macro 0.3.34, futures-sink 0.3.34, futures-task 0.3.34, futures-util 0.3.34, getrandom 0.2.17, getrandom 0.4.3, http 1.5.0, httparse 1.10.1, idna 1.1.0, ipnet 2.12.2, itoa 1.0.18, js-sys 0.3.105, keyring 3.6.3, libc 0.2.189, log 0.4.34, once_cell 1.21.4, percent-encoding 2.3.2, pkg-config 0.3.34, proc-macro2 1.0.107, quinn 0.11.11, quinn-proto 0.11.17, quinn-udp 0.5.15, quote 1.0.47, rand 0.10.2, rand_core 0.10.1, rand_pcg 0.10.2, reqwest 0.12.28, rustls-pki-types 1.15.1, rustversion 1.0.23, security-framework 2.11.1, security-framework 3.7.0, security-framework-sys 2.17.0, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_json 1.0.151, shlex 2.0.1, smallvec 1.16.0, socket2 0.6.5, stable_deref_trait 1.2.1, syn 2.0.119, syn 3.0.5, thiserror 2.0.20, thiserror-impl 2.0.20, tokio-rustls 0.26.5, url 2.5.8, wasm-bindgen 0.2.128, wasm-bindgen-futures 0.4.78, wasm-bindgen-macro 0.2.128, wasm-bindgen-macro-support 0.2.128, wasm-bindgen-shared 0.2.128, web-sys 0.3.105, web-time 1.1.0, windows-link 0.2.1, windows-sys 0.52.0, windows-sys 0.60.2, windows-sys 0.61.2, windows-targets 0.52.6, windows-targets 0.53.5, windows_aarch64_gnullvm 0.52.6, windows_aarch64_gnullvm 0.53.1, windows_aarch64_msvc 0.52.6, windows_aarch64_msvc 0.53.1, windows_i686_gnu 0.52.6, windows_i686_gnu 0.53.1, windows_i686_gnullvm 0.52.6, windows_i686_gnullvm 0.53.1, windows_i686_msvc 0.52.6, windows_i686_msvc 0.53.1, windows_x86_64_gnu 0.52.6, windows_x86_64_gnu 0.53.1, windows_x86_64_gnullvm 0.52.6, windows_x86_64_gnullvm 0.53.1, windows_x86_64_msvc 0.52.6, windows_x86_64_msvc 0.53.1
 
 ### `MIT OR Apache-2.0 OR LGPL-2.1-or-later`
 
@@ -74,7 +78,7 @@ icu_collections 2.3.0, icu_locale_core 2.3.0, icu_normalizer 2.3.0, icu_normaliz
 
 ### `Unlicense OR MIT`
 
-memchr 2.8.3
+byteorder 1.5.0, memchr 2.8.3
 
 ### `Zlib OR Apache-2.0 OR MIT`
 

@@ -84,7 +84,7 @@ def _generate_inventory(packages: list[dict]) -> str:
 
 def _generate_license_bundle(packages: list[dict]) -> str:
     sections = [
-        "REDROB REBLEND AGENT — THIRD-PARTY LICENSE TEXTS",
+        "REDROB SHAPE AGENT — THIRD-PARTY LICENSE TEXTS",
         "",
         "Generated deterministically from Cargo.lock by",
         "intern/redrob_agent/tools/generate_third_party_licenses.py.",

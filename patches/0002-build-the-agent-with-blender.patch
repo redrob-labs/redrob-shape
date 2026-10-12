@@ -1,12 +1,12 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 12ac26f42366c6b5997caea57eb37465ccefc7eb..40571640988c25ceb8c0c581f19fedab8949e068 100644
+index 12ac26f42366c6b5997caea57eb37465ccefc7eb..09eccbced9a2aeaff02a5b6c56fa0bccbfaa4a4c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -184,6 +184,9 @@ set(CMAKE_OPTIMIZE_DEPENDENCIES ON CACHE INTERNAL "")
  option(WITH_BLENDER "Build Blender (disable to build only Cycles stand-alone)." ON)
  mark_as_advanced(WITH_BLENDER)
  
-+option(WITH_REDROB_AGENT "Build the isolated Redrob Reblend agent sidecar." OFF)
++option(WITH_REDROB_AGENT "Build the isolated Redrob Shape agent sidecar." OFF)
 +mark_as_advanced(WITH_REDROB_AGENT)
 +
  if(WIN32)

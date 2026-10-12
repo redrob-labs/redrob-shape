@@ -1,0 +1,12 @@
+diff --git a/scripts/modules/addon_utils.py b/scripts/modules/addon_utils.py
+index ec613d8253805397b9caaa9ae871c564097ca253..cb04720fdfbcbc020b6a3c102fad1a288931be10 100644
+--- a/scripts/modules/addon_utils.py
++++ b/scripts/modules/addon_utils.py
+@@ -49,6 +49,7 @@ _addons_hidden_core = {
+     "io_curve_svg",
+     "io_mesh_uv_layout",
+     "io_scene_fbx",
++    "redrob_shape",
+ }
+ 
+ 

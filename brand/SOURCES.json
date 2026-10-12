@@ -1,0 +1,43 @@
+{
+  "//": "Written by scripts/build-brand-assets.py; checked by scripts/check-brand.py. Do not edit.",
+  "design_system": "redrob-design-system (the published distribution)",
+  "sources": {
+    "assets/Favicons/favicon-16x16.png": "da56595c43ae2a707c9c910aaf7c62624a9f2a6593c5386c098a923c5c574926",
+    "assets/Favicons/favicon-32x32.png": "e15e5d44332ebd83806de82691926ce69e829779957f70dfb1f3a102eea20e86",
+    "assets/Favicons/favicon-48x48.png": "cea52085a4011e2ad18a8b3ec2f41b9e4dbb3fdafd3d3223bd66721e4423351f",
+    "assets/Favicons/favicon-64x64.png": "113869795269f386b7f601dd83febd99d196fcb9414593d97745c2d8be0f9bd0",
+    "assets/Favicons/icon-512.png": "9c168d6215a4e1957456d9aff3041eb8e33c4c8c9189663bc77ff505c2401e17",
+    "assets/Favicons/favicon.svg": "fd971f9e388afffa3c0f21153be36e23abb242f335c91ee7d8d1522acf88e09b",
+    "assets/Logos/redrob-logo-primary-white.png": "aefab23bcb9f9184e08775ebad80768039d9187e370e67b73b1b124a7613c7a8",
+    "fonts/Pretendard-SemiBold.woff2": "837b16488ab5264761a8e8bf871ec1be16a2997d157ace3cc7355d0a809d8639",
+    "tokens.css": "846a49dab8397554f1fb2505252de675ab2964cbfd44e6f3a6e03b17bd961ba9"
+  },
+  "symbol_path_sha256": "bff33e6b4993876bde64dbd20861f620332b0294607569299450cfce9d05e08d",
+  "tokens": {
+    "redrob-black": "#0a0b0c",
+    "redrob-white": "#ffffff",
+    "surface-sunken": "#000000",
+    "gray-1": "#f8f9fb",
+    "gray-5": "#aab0bb",
+    "gray-6": "#7c8390",
+    "gray-8": "#292e37",
+    "gray-9": "#141719",
+    "blue-5": "#507fff",
+    "blue-6": "#2b52ff"
+  },
+  "copied_unchanged": {
+    "512x512/apps/blender.png": "assets/Favicons/icon-512.png",
+    "release/freedesktop/icons/scalable/apps/blender.svg": "assets/Favicons/favicon.svg"
+  },
+  "outputs": {
+    "512x512/apps/blender.png": "9c168d6215a4e1957456d9aff3041eb8e33c4c8c9189663bc77ff505c2401e17",
+    "intern/ghost/intern/GHOST_IconX11.hh": "c1affae483afddb7ea1b34b20c3cfeb94b10c333aaf5791a9ba520879ddbe907",
+    "release/darwin/Blender.app/Contents/Resources/blender_icon_legacy.icns": "1a473f9ca8adf70921c281c6434e965cb2e6dcc5c487b652ee7803582f5e5a66",
+    "release/datafiles/icons_svg/blender.svg": "3188cf58b42939b2df918f41f3dd9de10995afd00c18143acfd2011b7ba100da",
+    "release/datafiles/icons_svg/blender_logo_large.svg": "3188cf58b42939b2df918f41f3dd9de10995afd00c18143acfd2011b7ba100da",
+    "release/datafiles/splash.png": "48415dcdc00b6e1641d8ee639462781ff24d30037bd0999d0988d18259d16d38",
+    "release/freedesktop/icons/scalable/apps/blender.svg": "fd971f9e388afffa3c0f21153be36e23abb242f335c91ee7d8d1522acf88e09b",
+    "release/freedesktop/icons/symbolic/apps/blender-symbolic.svg": "72c2282c95e931ea55f97aaeeb70c4681d95a9ee72fea18b82c1623069fb4759",
+    "release/windows/icons/winblender.ico": "71168a33f1553b5029adb0474f6963e53003577afa9cb0c42b35b8dfd03bdb9d"
+  }
+}

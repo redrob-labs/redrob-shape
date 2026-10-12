@@ -1,0 +1,230 @@
+{
+  "//": [
+    "The one contract for what a plan may contain. The agent compiles it in (validation.rs, which also",
+    "builds the planning prompt from it) and the add-on loads it (tools.py), so the model is told, the",
+    "agent checks and Blender checks exactly the same thing. tests/tool_conformance.json holds cases",
+    "both validators must judge alike; regenerate it with tests/conformance.py --write after editing.",
+    "",
+    "Field types: object (an existing object's name), name (a new object name), material_name (a new",
+    "material name), modifier_name (a modifier's name), enum, number, integer, boolean, vector3,",
+    "vector4. min/max are inclusive. default is what the add-on fills in before preview."
+  ],
+  "version": 1,
+  "limits": {
+    "max_actions": 128,
+    "max_name_bytes": 63,
+    "max_summary_bytes": 8192
+  },
+  "face_selector_degrees": 30,
+  "tools": {
+    "create_primitive": {
+      "description": "Add a primitive mesh object.",
+      "fields": {
+        "primitive": {
+          "type": "enum",
+          "values": ["cube", "sphere", "cylinder", "cone", "plane", "torus"],
+          "required": true
+        },
+        "name": { "type": "name" },
+        "location": { "type": "vector3", "min": -1000000, "max": 1000000, "default": [0, 0, 0] },
+        "scale": { "type": "vector3", "min": 0.000001, "max": 10000, "default": [1, 1, 1] }
+      }
+    },
+    "transform_object": {
+      "description": "Set an object's location, rotation (radians) or scale.",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "location": { "type": "vector3", "min": -1000000, "max": 1000000 },
+        "rotation": { "type": "vector3", "min": -1000000, "max": 1000000 },
+        "scale": { "type": "vector3", "min": 0.000001, "max": 10000 }
+      },
+      "at_least_one_of": ["location", "rotation", "scale"]
+    },
+    "add_modifier": {
+      "description": "Add a non-destructive modifier, named \"Redrob Shape <Modifier>\" (for example \"Redrob Shape Bevel\").",
+      "fields": {
+        "object": { "type": "object", "required": true }
+      },
+      "variant_field": "modifier",
+      "variants": {
+        "bevel": {
+          "description": "Round the edges.",
+          "fields": {
+            "width": { "type": "number", "min": 0, "max": 1000000, "required": true },
+            "segments": { "type": "integer", "min": 1, "max": 64, "required": true }
+          }
+        },
+        "subdivision": {
+          "description": "Smooth subdivision surface.",
+          "fields": {
+            "levels": { "type": "integer", "min": 0, "max": 6, "required": true },
+            "render_levels": { "type": "integer", "min": 0, "max": 6 }
+          }
+        },
+        "solidify": {
+          "description": "Give a surface thickness.",
+          "fields": {
+            "thickness": { "type": "number", "min": -1000000, "max": 1000000, "required": true }
+          }
+        },
+        "mirror": {
+          "description": "Mirror across a local axis.",
+          "fields": {
+            "axis": { "type": "enum", "values": ["x", "y", "z"], "required": true }
+          }
+        },
+        "array": {
+          "description": "Repeat the object in a row.",
+          "fields": {
+            "count": { "type": "integer", "min": 2, "max": 64, "required": true },
+            "offset": {
+              "type": "vector3",
+              "min": -10,
+              "max": 10,
+              "default": [1, 0, 0],
+              "description": "step between copies, in multiples of the object's size"
+            }
+          }
+        },
+        "twist": {
+          "description": "Twist around a local axis.",
+          "fields": {
+            "angle": { "type": "number", "min": -720, "max": 720, "required": true, "description": "degrees" },
+            "axis": { "type": "enum", "values": ["x", "y", "z"], "default": "z" }
+          }
+        },
+        "bend": {
+          "description": "Bend around a local axis.",
+          "fields": {
+            "angle": { "type": "number", "min": -720, "max": 720, "required": true, "description": "degrees" },
+            "axis": { "type": "enum", "values": ["x", "y", "z"], "default": "z" }
+          }
+        },
+        "taper": {
+          "description": "Taper along a local axis.",
+          "fields": {
+            "factor": { "type": "number", "min": -10, "max": 10, "required": true },
+            "axis": { "type": "enum", "values": ["x", "y", "z"], "default": "z" }
+          }
+        },
+        "stretch": {
+          "description": "Stretch along a local axis.",
+          "fields": {
+            "factor": { "type": "number", "min": -10, "max": 10, "required": true },
+            "axis": { "type": "enum", "values": ["x", "y", "z"], "default": "z" }
+          }
+        },
+        "displace": {
+          "description": "Push the surface in and out with noise. Subdivide first for a smooth result.",
+          "fields": {
+            "strength": { "type": "number", "min": -10, "max": 10, "required": true },
+            "noise_scale": { "type": "number", "min": 0.01, "max": 100, "default": 1 }
+          }
+        },
+        "smooth": {
+          "description": "Relax the shape by averaging neighbouring vertices.",
+          "fields": {
+            "factor": { "type": "number", "min": -2, "max": 2, "required": true },
+            "iterations": { "type": "integer", "min": 1, "max": 100, "required": true }
+          }
+        }
+      }
+    },
+    "boolean": {
+      "description": "Join with, cut away, or keep the overlap with another mesh object, as a modifier named \"Redrob Shape Boolean\".",
+      "mesh_only": true,
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "with": { "type": "object", "required": true, "description": "the other mesh object" },
+        "operation": { "type": "enum", "values": ["union", "difference", "intersect"], "required": true },
+        "hide_cutter": {
+          "type": "boolean",
+          "default": true,
+          "description": "show the other object as wireframe and leave it out of renders"
+        }
+      }
+    },
+    "extrude_faces": {
+      "description": "Extrude the faces that point along a world axis (within 30 degrees) and move them by distance.",
+      "mesh_only": true,
+      "note": "Edits the mesh itself",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "faces": { "type": "enum", "values": ["+x", "-x", "+y", "-y", "+z", "-z"], "required": true },
+        "distance": { "type": "number", "min": -1000, "max": 1000, "required": true }
+      }
+    },
+    "inset_faces": {
+      "description": "Inset the faces that point along a world axis (within 30 degrees) as one region, or every face on its own with \"all\".",
+      "mesh_only": true,
+      "note": "Edits the mesh itself",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "faces": { "type": "enum", "values": ["+x", "-x", "+y", "-y", "+z", "-z", "all"], "required": true },
+        "thickness": { "type": "number", "min": 0, "max": 1000, "required": true },
+        "depth": { "type": "number", "min": -1000, "max": 1000, "default": 0 }
+      }
+    },
+    "subdivide_mesh": {
+      "description": "Cut every edge into more pieces, adding detail for later shaping.",
+      "mesh_only": true,
+      "note": "Edits the mesh itself",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "cuts": { "type": "integer", "min": 1, "max": 6, "required": true },
+        "smoothness": { "type": "number", "min": 0, "max": 1, "default": 0 }
+      }
+    },
+    "shade_smooth": {
+      "description": "Shade smooth or flat. With angle, edges sharper than that angle stay sharp.",
+      "mesh_only": true,
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "smooth": { "type": "boolean", "required": true },
+        "angle": { "type": "number", "min": 0, "max": 180, "description": "degrees" }
+      }
+    },
+    "apply_modifier": {
+      "description": "Make a modifier permanent. modifier is its name: from the scene context, or one added earlier in this plan.",
+      "mesh_only": true,
+      "note": "Bakes the modifier into the mesh",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "modifier": { "type": "modifier_name", "required": true }
+      }
+    },
+    "duplicate_object": {
+      "description": "Copy an object, with a mesh of its own, moved by offset.",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "name": { "type": "name" },
+        "offset": { "type": "vector3", "min": -1000000, "max": 1000000, "default": [0, 0, 0] }
+      }
+    },
+    "delete_object": {
+      "description": "Remove an object from the scene.",
+      "note": "Removes the object. Undo brings it back",
+      "fields": {
+        "object": { "type": "object", "required": true }
+      }
+    },
+    "rename_object": {
+      "description": "Rename an object. Later actions in the plan use the new name.",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "name": { "type": "name", "required": true }
+      }
+    },
+    "set_material": {
+      "description": "Give the object a new material.",
+      "note": "Creates a new single-user material",
+      "fields": {
+        "object": { "type": "object", "required": true },
+        "name": { "type": "material_name", "required": true },
+        "base_color": { "type": "vector4", "min": 0, "max": 1, "required": true },
+        "metallic": { "type": "number", "min": 0, "max": 1, "default": 0 },
+        "roughness": { "type": "number", "min": 0, "max": 1, "default": 0.5 }
+      }
+    }
+  }
+}

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [package]
-name = "redrob-reblend-agent"
+name = "redrob-shape-agent"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.88"
@@ -13,12 +13,19 @@ publish = false
 
 [dependencies]
 futures-util = "0.3"
+# The OS keychain: Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux.
+# Same version and backends as redrob-recall. The Linux backend links libdbus-1 at build time.
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.43", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
+
+[dev-dependencies]
+# Paused time, so the device-flow polling tests run its intervals instantly.
+tokio = { version = "1.43", features = ["macros", "rt", "test-util"] }
 
 [profile.release]
 codegen-units = 1
