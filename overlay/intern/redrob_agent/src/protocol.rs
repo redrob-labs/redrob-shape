@@ -761,7 +761,7 @@ mod tests {
         Agent::new(
             RedrobClient::new(config.clone()).expect("client"),
             DeviceClient::new(config.device_base).expect("device client"),
-            Credentials::new(None, Box::new(MemoryStore::default())),
+            Credentials::with_shared(None, Box::new(MemoryStore::default()), None),
         )
     }
 
@@ -922,12 +922,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_launchers_shared_sign_in_is_reported_as_the_launcher_and_disconnect_leaves_it() {
+        const LAUNCHER_KEY: &str = "rdb_launcher_0123456789wxyz";
+        let dir = std::env::temp_dir().join(format!(
+            "redrob-shape-agent-protocol-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("account.json");
+        std::fs::write(
+            &file,
+            json!({ "apiKey": LAUNCHER_KEY, "accountName": "Acme" }).to_string(),
+        )
+        .unwrap();
+        let config = Config::new(DEFAULT_BASE_URL, DEFAULT_DEVICE_BASE_URL, "auto".into()).unwrap();
+        let agent = Agent::new(
+            RedrobClient::new(config.clone()).unwrap(),
+            DeviceClient::new(config.device_base).unwrap(),
+            Credentials::with_shared(None, Box::new(MemoryStore::default()), Some(file.clone())),
+        );
+        let events = exchange_with(
+            "{\"version\":1,\"id\":1,\"method\":\"connection_status\",\"params\":{}}\n\
+             {\"version\":1,\"id\":2,\"method\":\"health\",\"params\":{}}\n\
+             {\"version\":1,\"id\":3,\"method\":\"disconnect\",\"params\":{}}\n",
+            agent,
+        )
+        .await;
+        let survived = file.is_file();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["result"]["connected"], true);
+        assert_eq!(events[0]["result"]["source"], "launcher");
+        assert_eq!(events[0]["result"]["account_name"], "Acme");
+        assert_eq!(events[0]["result"]["key_hint"], "wxyz");
+        assert_eq!(events[1]["result"]["configured"], true);
+        assert_eq!(events[1]["result"]["connection"]["source"], "launcher");
+        // Disconnect removes only this app's key; the launcher's sign-in stays and is still used.
+        assert_eq!(events[2]["result"]["source"], "launcher");
+        assert!(survived, "disconnect must never touch the launcher's file");
+        for event in &events {
+            assert!(!event.to_string().contains(LAUNCHER_KEY), "{event}");
+        }
+    }
+
+    #[tokio::test]
     async fn without_a_keychain_a_pasted_key_lasts_the_session_and_says_so() {
         let config = Config::new(DEFAULT_BASE_URL, DEFAULT_DEVICE_BASE_URL, "auto".into()).unwrap();
         let agent = Agent::new(
             RedrobClient::new(config.clone()).unwrap(),
             DeviceClient::new(config.device_base).unwrap(),
-            Credentials::new(None, Box::new(MemoryStore::unavailable())),
+            Credentials::with_shared(None, Box::new(MemoryStore::unavailable()), None),
         );
         let input = format!(
             "{{\"version\":1,\"id\":1,\"method\":\"store_key\",\"params\":{{\"key\":\"{KEY}\"}}}}\n"
