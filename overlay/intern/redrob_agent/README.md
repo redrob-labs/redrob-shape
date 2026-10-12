@@ -17,6 +17,12 @@ load Blender, mutate scenes, execute model-generated code, or read API keys from
 - The key for `plan` comes from the OS keychain (`ai.redrob.shape` / `redrob`), put there by
   `connect_wait` or `store_key`. `REDROB_API_KEY` in the environment overrides it for development
   and CI. It is sent only as a bearer token and is never logged or returned.
+- When this app has no key of its own, Redrob Launcher's shared sign-in is the fallback: the
+  `account.json` the launcher writes under `$XDG_CONFIG_HOME/redrob-shared` (Linux),
+  `~/Library/Application Support/ai.redrob.shared` (macOS) or `%APPDATA%\Redrob\Shared` (Windows);
+  `REDROB_SHARED_DIR` replaces the directory. It is read at the moment a key is needed, never
+  written or deleted, and `connection_status` reports it as `source: launcher` with the
+  workspace's `account_name`. `disconnect` removes only this app's own key.
 - `REDROB_BASE_URL` optionally replaces the complete chat-completions endpoint. It defaults to
   `https://console.redrob.ai/api/backend/v1/chat/completions`. Only HTTPS URLs without embedded
   credentials or fragments are accepted; redirects are disabled.
@@ -31,10 +37,10 @@ display a useful status without making a network request. It carries the connect
 
 | Method | Answer |
 |---|---|
-| `connection_status` | `{connected, source: environment\|keychain\|session, key_hint, keychain_available}` |
+| `connection_status` | `{connected, source: environment\|keychain\|session\|launcher, key_hint, keychain_available, account_name}` |
 | `connect_start` | `{user_code, verification_uri, verification_uri_complete, expires_in, interval}`. The device code stays in the agent. |
 | `connect_wait` | Polls until approval, then stores the key and answers with the status plus `key_name` and `account_name`. Cancellable with `cancel`; errors `access_denied`, `expired_token`, `invalid_grant`, `no_pending_connection`. |
-| `disconnect` | Removes the stored key and answers with the status. A key from the environment remains. |
+| `disconnect` | Removes the stored key and answers with the status. A key from the environment, and Redrob Launcher's shared sign-in, remain. |
 | `store_key` | `{"key": "..."}`: stores a pasted key the same way. The key is never echoed. |
 
 ## Protocol

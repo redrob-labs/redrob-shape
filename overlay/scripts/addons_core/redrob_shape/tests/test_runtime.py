@@ -311,6 +311,7 @@ def _connection_state(**overrides):
         connection_source="",
         connection_hint="",
         connection_keychain=True,
+        connection_account="",
         user_code="",
         verification_uri="",
         verification_uri_complete="",
@@ -507,6 +508,70 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(state.connection, 'ERROR')
         self.assertEqual(state.user_code, "")
         self.assertIn("exited", state.connection_message)
+
+    _LAUNCHER = {
+        "connected": True,
+        "source": "launcher",
+        "key_hint": "wxyz",
+        "keychain_available": True,
+        "account_name": "Acme",
+    }
+
+    def test_the_launchers_shared_sign_in_is_applied_with_its_workspace(self):
+        state = _connection_state()
+        self._deliver(state, "s", "connection_status", {"event": "success", "result": dict(self._LAUNCHER)})
+        self.assertEqual(state.connection, 'CONNECTED')
+        self.assertEqual(state.connection_source, "launcher")
+        self.assertEqual(state.connection_account, "Acme")
+        self.assertTrue(state.sidecar_available)
+        # The launcher signs out: the next status answer clears it all again.
+        self._deliver(
+            state,
+            "s2",
+            "connection_status",
+            {"event": "success", "result": {"connected": False, "source": None, "key_hint": None, "keychain_available": True}},
+        )
+        self.assertEqual(state.connection, 'DISCONNECTED')
+        self.assertEqual(state.connection_source, "")
+        self.assertEqual(state.connection_account, "")
+
+    def test_disconnect_that_leaves_the_launchers_sign_in_says_so(self):
+        state = _connection_state(connection='CONNECTED', connection_source="keychain", key_name="Redrob Shape")
+        self._deliver(state, "d", "disconnect", {"event": "success", "result": dict(self._LAUNCHER)})
+        self.assertEqual(state.connection, 'CONNECTED')
+        self.assertEqual(state.connection_source, "launcher")
+        self.assertEqual(state.key_name, "")
+        self.assertIn("Redrob Launcher", state.connection_message)
+        self.assertNotIn("Revoke", state.connection_message)
+
+    def test_the_status_is_refreshed_only_while_the_launcher_may_change_it(self):
+        follows = type(self.agent).follows_the_launcher
+        self.assertTrue(follows(_connection_state(connection='DISCONNECTED')))
+        self.assertTrue(follows(_connection_state(connection='CONNECTED', connection_source="launcher")))
+        for own in ("keychain", "session", "environment"):
+            self.assertFalse(follows(_connection_state(connection='CONNECTED', connection_source=own)), own)
+        for busy in ('UNKNOWN', 'STARTING', 'WAITING', 'ERROR'):
+            self.assertFalse(follows(_connection_state(connection=busy)), busy)
+
+        class Running:
+            stdin = stdout = stderr = None
+
+            def poll(self):
+                return None
+
+        self.agent.process = Running()
+        sent = []
+        self.agent.connection_status = lambda: sent.append("connection_status")
+        state = _connection_state(connection='DISCONNECTED')
+        context = SimpleNamespace(window_manager=SimpleNamespace(redrob_shape=state))
+        self.agent.drain(context)
+        self.agent.drain(context)
+        self.assertEqual(sent, ["connection_status"], "once per interval, not per tick")
+        self.agent.last_shared_refresh = 0.0
+        state.connection_source = "keychain"
+        state.connection = 'CONNECTED'
+        self.agent.drain(context)
+        self.assertEqual(sent, ["connection_status"], "a key of our own is not re-asked about")
 
 
 if __name__ == "__main__":

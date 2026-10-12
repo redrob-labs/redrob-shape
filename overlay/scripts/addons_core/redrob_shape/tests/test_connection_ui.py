@@ -174,6 +174,15 @@ class ConnectOperatorTests(unittest.TestCase):
         current.connection = 'DISCONNECTED'
         self.assertEqual(connection_ui._redrob_key_state(current), "not connected")
 
+    def test_the_launchers_sign_in_has_its_own_line_and_no_disconnect_button(self):
+        self.assertEqual(connection_ui._SOURCE_NOTES["launcher"][0], "Signed in with Redrob Launcher")
+        # Disconnect removes this app's own key only: hidden for the launcher's shared sign-in,
+        # disabled for a key the environment supplies, offered for a key of our own.
+        self.assertEqual(connection_ui._disconnect_control("launcher"), 'HIDDEN')
+        self.assertEqual(connection_ui._disconnect_control("environment"), 'DISABLED')
+        for own in ("keychain", "session", ""):
+            self.assertEqual(connection_ui._disconnect_control(own), 'ENABLED', own)
+
 
 if __name__ == "__main__":
     unittest.main()
