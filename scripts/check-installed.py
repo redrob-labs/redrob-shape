@@ -4,7 +4,7 @@
     python3 scripts/check-installed.py <install dir> [--window]
 
 <install dir> is what `cmake --build <out> --target install` wrote: on macOS the directory holding
-`Blender.app`, on Windows and Linux the directory holding `blender(.exe)`.
+`Redrob Shape.app`, on Windows and Linux the directory holding `blender(.exe)`.
 
 Four checks, each against the built artifact rather than against a file we copied in:
 
@@ -49,8 +49,8 @@ def check(ok, message):
 def layout(install):
     """(blender executable, agent executable, platform name)."""
     if sys.platform == "darwin":
-        app = install / "Blender.app"
-        return app / "Contents" / "MacOS" / "Blender", app / "Contents" / "MacOS" / "redrob-shape-agent", "macos"
+        app = install / "Redrob Shape.app"
+        return app / "Contents" / "MacOS" / "Redrob Shape", app / "Contents" / "MacOS" / "redrob-shape-agent", "macos"
     if sys.platform == "win32":
         return install / "blender.exe", install / "redrob-shape-agent.exe", "windows"
     return install / "blender", install / "redrob-shape-agent", "linux"
