@@ -22,6 +22,12 @@ rm -rf build/blender
 
 target="build/blender"
 
+# User-visible strings, RNA tooltips, Python UI labels and the translations that follow them are
+# rewritten here rather than carried as a patch: the .po half alone touches thousands of entries
+# across every language, and a rename that skips the .po files leaves Korean (and every other
+# language) showing English for each renamed string.
+python3 scripts/sweep-strings.py "$target"
+
 # --- 1. LFS pointers stayed pointers ---------------------------------------------
 # Blender tracks bundled assets in LFS and the GitHub mirror cannot serve those objects, so
 # fetch-upstream.sh skips the smudge filter. This asserts the outcome rather than trusting the
@@ -232,5 +238,24 @@ echo "CI present, and it runs the add-on tests"
 
 # --- no user-visible string names Blender -------------------------------------------
 python3 scripts/sweep-strings.py build/blender --check
+
+# The theme menu shows preset FILE names, so a sweep of strings cannot reach it.
+for f in Blender_Dark Blender_Light; do
+  if [ -e "$target/scripts/presets/interface_theme/$f.xml" ]; then
+    echo "error: theme preset $f.xml still ships -- the theme menu would read it as \"${f/_/ }\"" >&2
+    exit 1
+  fi
+done
+# macOS shows the bundle's folder name in Finder, the Dock and Applications.
+if ! grep -q 'OUTPUT_NAME "Redrob Shape"' "$target/source/creator/CMakeLists.txt"; then
+  echo "error: the macOS bundle is not named Redrob Shape.app" >&2
+  exit 1
+fi
+# A renamed string must keep its translation. Korean is the language this product ships for.
+if ! grep -A1 -x 'msgid "Quit Redrob Shape"' "$target/locale/po/ko.po" | grep -q '레드롭 셰이프'; then
+  echo "error: ko.po lost the Korean for a renamed string (Quit Redrob Shape)" >&2
+  exit 1
+fi
+echo "theme presets, macOS bundle and Korean translations carry our name"
 
 echo "=== customization verified ==="

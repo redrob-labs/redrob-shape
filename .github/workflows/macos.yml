@@ -1,7 +1,7 @@
 # Does Redrob Shape compile, start and carry our add-on, agent and brand on macOS? This answers that,
 # on a GitHub-hosted Apple Silicon runner.
 #
-# It is NOT a release. The output is an UNSIGNED Blender.app in a zip, kept as a workflow artifact.
+# It is NOT a release. The output is an UNSIGNED Redrob Shape.app in a zip, kept as a workflow artifact.
 # Signing, notarizing and publishing belong to sign-and-publish.yml, which takes this artifact, the
 # same split redrob-browser uses.
 #
@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           # ditto keeps the bundle's symlinks and extended attributes; plain zip does not.
-          ditto -c -k --keepParent build/install/Blender.app dist/redrob-shape-macos-arm64-unsigned.zip
+          ditto -c -k --keepParent "build/install/Redrob Shape.app" dist/redrob-shape-macos-arm64-unsigned.zip
           ls -la dist
 
       - name: Upload the app

@@ -1,0 +1,185 @@
+diff --git a/build_files/cmake/platform/platform_apple.cmake b/build_files/cmake/platform/platform_apple.cmake
+index aa584e10ba96a8434770e8adef369c2fe9cf917c..253e067c34d1bdfc8969299f6209e236de22aa11 100644
+--- a/build_files/cmake/platform/platform_apple.cmake
++++ b/build_files/cmake/platform/platform_apple.cmake
+@@ -492,7 +492,7 @@ if(PLATFORM_BUNDLED_LIBRARIES)
+   list(JOIN PLATFORM_BUNDLED_LIBRARY_DIRS ":" _library_paths)
+   # Intentionally double "$$" which expands into "$" when instantiated.
+   set(PLATFORM_ENV_BUILD "DYLD_LIBRARY_PATH=\"${_library_paths}:$$DYLD_LIBRARY_PATH\"")
+-  set(PLATFORM_ENV_INSTALL "DYLD_LIBRARY_PATH=${CMAKE_INSTALL_PREFIX_WITH_CONFIG}/Blender.app/Contents/Resources/lib/:$$DYLD_LIBRARY_PATH")
++  set(PLATFORM_ENV_INSTALL "DYLD_LIBRARY_PATH=\"${CMAKE_INSTALL_PREFIX_WITH_CONFIG}/Redrob Shape.app/Contents/Resources/lib/:$$DYLD_LIBRARY_PATH\"")
+   unset(_library_paths)
+ endif()
+ 
+diff --git a/build_files/cmake/testing.cmake b/build_files/cmake/testing.cmake
+index dcae93200829ab9b4daf0a6ca82e9093b82e87d5..1ff95f2692e1ae3d7e3cf1f8fd925591a371fbbe 100644
+--- a/build_files/cmake/testing.cmake
++++ b/build_files/cmake/testing.cmake
+@@ -139,7 +139,7 @@ function(blender_add_ctests)
+   # Figure out the release dir, as some tests need files from there.
+   get_blender_test_install_dir(TEST_INSTALL_DIR)
+   if(APPLE)
+-    set(_test_release_dir ${TEST_INSTALL_DIR}/Blender.app/Contents/Resources/${BLENDER_VERSION})
++    set(_test_release_dir "${TEST_INSTALL_DIR}/Redrob Shape.app/Contents/Resources/${BLENDER_VERSION}")
+   else()
+     if(WITH_INSTALL_PORTABLE)
+       set(_test_release_dir ${TEST_INSTALL_DIR}/${BLENDER_VERSION})
+diff --git a/intern/cycles/app/CMakeLists.txt b/intern/cycles/app/CMakeLists.txt
+index 4c6d733e1be26e39dac7727bb77eb334f5ca46bc..507fe6d71b5c5a99813009aae68ef7b6ce459a2e 100644
+--- a/intern/cycles/app/CMakeLists.txt
++++ b/intern/cycles/app/CMakeLists.txt
+@@ -60,8 +60,8 @@ include_directories(${INC})
+ include_directories(SYSTEM ${INC_SYS})
+ 
+ if(APPLE AND NOT CYCLES_STANDALONE_REPOSITORY)
+-  set(app_output_dir Blender.app/Contents/MacOS)
+-  set(app_install_dir Blender.app/Contents/MacOS)
++  set(app_output_dir "Redrob Shape.app/Contents/MacOS")
++  set(app_install_dir "Redrob Shape.app/Contents/MacOS")
+ else()
+   set(app_install_dir ${CMAKE_INSTALL_PREFIX})
+ endif()
+diff --git a/release/darwin/Blender.app/Contents/Info.plist b/release/darwin/Blender.app/Contents/Info.plist
+index cf955606f6c733a948b5f2f5b51c034b688a1727..38ef1679764b57cc036e32d88046798b301c5e59 100644
+--- a/release/darwin/Blender.app/Contents/Info.plist
++++ b/release/darwin/Blender.app/Contents/Info.plist
+@@ -32,7 +32,7 @@
+ 		</dict>
+ 	</array>
+ 	<key>CFBundleExecutable</key>
+-	<string>Blender</string>
++	<string>Redrob Shape</string>
+ 	<key>CFBundleGetInfoString</key>
+ 	<string>${MACOSX_BUNDLE_LONG_VERSION_STRING}, Redrob Labs (based on Blender)</string>
+ 	<!-- Legacy, non-Liquid Glass icon, used on pre-Tahoe / 26 macOS versions. -->
+diff --git a/scripts/presets/interface_theme/Blender_Dark.xml b/scripts/presets/interface_theme/Redrob_Shape_Dark.xml
+similarity index 100%
+rename from scripts/presets/interface_theme/Blender_Dark.xml
+rename to scripts/presets/interface_theme/Redrob_Shape_Dark.xml
+diff --git a/scripts/presets/interface_theme/Blender_Light.xml b/scripts/presets/interface_theme/Redrob_Shape_Light.xml
+similarity index 100%
+rename from scripts/presets/interface_theme/Blender_Light.xml
+rename to scripts/presets/interface_theme/Redrob_Shape_Light.xml
+diff --git a/scripts/startup/bl_operators/wm.py b/scripts/startup/bl_operators/wm.py
+index 769dc81fb385f2bb72b2b16e32975bfb2a471463..bec916dbec0f437ce771b7bea8650fb56b13f814 100644
+--- a/scripts/startup/bl_operators/wm.py
++++ b/scripts/startup/bl_operators/wm.py
+@@ -3479,7 +3479,6 @@ class WM_MT_splash(Menu):
+             col2.operator("wm.url_open", text="Support", icon='URL').url = "https://www.blender.org/support/"
+             col2.operator("wm.url_open", text="User Communities", icon='URL').url = "https://www.blender.org/community/"
+             col2.operator("wm.url_open", text="Get Involved", icon='URL').url = "https://www.blender.org/get-involved/"
+-            col2.operator("wm.url_open_preset", text="Blender Website", icon='URL').type = 'BLENDER'
+ 
+         col_sep = layout.column()
+         col_sep.separator()
+@@ -3497,7 +3496,6 @@ class WM_MT_splash(Menu):
+         col2 = split.column()
+ 
+         col2.operator("wm.url_open_preset", text="What's New", icon='URL').type = 'RELEASE_NOTES'
+-        col2.operator("wm.url_open_preset", text="Donate to Blender", icon='FUND').type = 'FUND'
+ 
+         layout.separator()
+ 
+@@ -3548,8 +3546,6 @@ class WM_MT_splash_about(Menu):
+         col.separator(factor=2.0)
+         col.operator("wm.url_open_preset", text="Credits", icon='URL').type = 'CREDITS'
+         col.operator("wm.url_open", text="License", icon='URL').url = "https://www.blender.org/about/license/"
+-        col.operator("wm.url_open", text="Blender Store", icon='URL').url = "https://store.blender.org"
+-        col.operator("wm.url_open_preset", text="Blender Website", icon='URL').type = 'BLENDER'
+ 
+ 
+ class WM_MT_region_toggle_pie(Menu):
+diff --git a/source/creator/CMakeLists.txt b/source/creator/CMakeLists.txt
+index 81d78ff19de9fcd5a1ca91137d6fc8f784c6e6aa..9182ff6ec22b4c50370e45c962cb80af5360d317 100644
+--- a/source/creator/CMakeLists.txt
++++ b/source/creator/CMakeLists.txt
+@@ -434,9 +434,9 @@ elseif(APPLE)
+       set(TARGETDIR_LIB ${PYTHON_SITE_PACKAGES}/bpy/lib)
+     endif()
+   else()
+-    set(TARGETDIR_VER "Blender.app/Contents/Resources/${BLENDER_VERSION}")
+-    set(TARGETDIR_LIB "Blender.app/Contents/Resources/lib")
+-    set(TARGETDIR_TEXT "Blender.app/Contents/Resources/text")
++    set(TARGETDIR_VER "Redrob Shape.app/Contents/Resources/${BLENDER_VERSION}")
++    set(TARGETDIR_LIB "Redrob Shape.app/Contents/Resources/lib")
++    set(TARGETDIR_TEXT "Redrob Shape.app/Contents/Resources/text")
+   endif()
+   set(TARGETDIR_SITE_PACKAGES "${TARGETDIR_VER}/python/lib/python${PYTHON_VERSION}/site-packages")
+   # Skip re-linking on CPACK / install.
+@@ -456,7 +456,7 @@ endif()
+ # without platform-specific configuration.
+ if(WITH_REDROB_AGENT AND NOT WITH_PYTHON_MODULE)
+   if(APPLE)
+-    set(REDROB_AGENT_INSTALL_DESTINATION "Blender.app/Contents/MacOS")
++    set(REDROB_AGENT_INSTALL_DESTINATION "Redrob Shape.app/Contents/MacOS")
+   elseif(UNIX AND NOT WITH_INSTALL_PORTABLE)
+     set(REDROB_AGENT_INSTALL_DESTINATION "bin")
+   else()
+@@ -1745,7 +1745,7 @@ elseif(WIN32)
+ elseif(APPLE)
+   if(NOT WITH_PYTHON_MODULE)
+     # Uppercase name for app bundle.
+-    set_target_properties(blender PROPERTIES OUTPUT_NAME Blender)
++    set_target_properties(blender PROPERTIES OUTPUT_NAME "Redrob Shape")
+   endif()
+ 
+   set(OSX_APP_SOURCEDIR ${CMAKE_SOURCE_DIR}/release/darwin/Blender.app)
+@@ -1789,11 +1789,11 @@ elseif(APPLE)
+   # Give the bundle actual creation/modification date.
+   #
+   # Note that the directory might not yet exist, which happens when CMAKE is first run.
+-  if(NOT EXISTS ${EXECUTABLE_OUTPUT_PATH}/Blender.app)
+-    file(MAKE_DIRECTORY ${EXECUTABLE_OUTPUT_PATH}/Blender.app)
++  if(NOT EXISTS "${EXECUTABLE_OUTPUT_PATH}/Redrob Shape.app")
++    file(MAKE_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}/Redrob Shape.app")
+   endif()
+   execute_process(
+-    COMMAND SetFile -d ${SETFILE_DATE} -m ${SETFILE_DATE} ${EXECUTABLE_OUTPUT_PATH}/Blender.app
++    COMMAND SetFile -d ${SETFILE_DATE} -m ${SETFILE_DATE} "${EXECUTABLE_OUTPUT_PATH}/Redrob Shape.app"
+   )
+ 
+   set(BLENDER_BIN "bin/blender")
+@@ -1804,18 +1804,18 @@ elseif(APPLE)
+ 
+   install(
+     FILES ${OSX_APP_SOURCEDIR}/Contents/PkgInfo
+-    DESTINATION "Blender.app/Contents"
++    DESTINATION "Redrob Shape.app/Contents"
+   )
+ 
+   install_dir(
+     ${OSX_APP_SOURCEDIR}/Contents/Resources
+-    "Blender.app/Contents"
++    "Redrob Shape.app/Contents"
+   )
+ 
+   if(WITH_BLENDER_THUMBNAILER)
+     install(
+       TARGETS blender-thumbnailer
+-      DESTINATION "./Blender.app/Contents/PlugIns"
++      DESTINATION "./Redrob Shape.app/Contents/PlugIns"
+     )
+   endif()
+ 
+@@ -1874,7 +1874,7 @@ elseif(APPLE)
+     unset(PYTHON_EXECUTABLE_NAME_ONLY)
+     install(
+       PROGRAMS ${CMAKE_BINARY_DIR}/release/darwin/scripts/blender-system-info.sh
+-      DESTINATION "Blender.app/Contents/Resources"
++      DESTINATION "Redrob Shape.app/Contents/Resources"
+     )
+   endif()
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 1700af789e338cae5f715ea4da45504e2fcab0e4..1c23e5dbfa4638d5ec28a2adf160ae55f6106e3a 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -13,7 +13,7 @@ set(TEST_INSTALL_DIR ${CMAKE_INSTALL_PREFIX_WITH_CONFIG})
+ if(MSVC)
+   set(TEST_BLENDER_EXE ${TEST_INSTALL_DIR}/blender.exe)
+ elseif(APPLE)
+-  set(TEST_BLENDER_EXE ${TEST_INSTALL_DIR}/Blender.app/Contents/MacOS/Blender)
++  set(TEST_BLENDER_EXE "${TEST_INSTALL_DIR}/Redrob Shape.app/Contents/MacOS/Redrob Shape")
+ else()
+   if(WITH_INSTALL_PORTABLE)
+     set(TEST_BLENDER_EXE ${TEST_INSTALL_DIR}/blender)
