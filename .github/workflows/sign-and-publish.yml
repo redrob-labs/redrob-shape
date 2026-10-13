@@ -2,14 +2,28 @@
 # sign-and-publish.yml, and for the same reasons.
 #
 # The unsigned artefacts arrive on a DRAFT GitHub Release:
-#   redrob-shape-macos-arm64-unsigned.zip    from macos.yml (ditto, Redrob Shape.app at the top)
-#   redrob-shape-windows-x64-unsigned.zip    from windows.yml (the installed tree at the top)
-#   redrob-shape-linux-x64-<version>.tar.xz  from a Linux build host (nothing to sign)
+#   redrob-shape-macos-arm64-unsigned.zip            from macos.yml (ditto, Redrob Shape.app at the top)
+#   redrob-shape-windows-x64-unsigned.zip            from windows.yml (the installed tree at the top)
+#   redrob-shape-<version>-linux-x86_64.tar.gz       from a Linux build host (scripts/package-linux.sh;
+#                                                    nothing to sign)
 # Nobody sees them there. This workflow signs each one, verifies every signature, replaces the
 # assets with the signed ones, publishes to cdn.redrob.ai/shape/, and only then undrafts.
 #
-#   local:  gh release create v0.1.0 --draft <the three artefacts>
-#   here:   workflow_dispatch with tag=v0.1.0
+# What it publishes is named the way Redrob Launcher reads a release
+# (redrob-shape-<version>-<os>-<arch>[-portable].<ext>; scripts/check-asset-names.py is the gate):
+#   redrob-shape-<version>-macos-aarch64.dmg          signed, notarized, stapled app in a disk image
+#   redrob-shape-<version>-windows-x64-portable.zip   the installed tree, executables Authenticode-signed
+#   redrob-shape-<version>-linux-x86_64.tar.gz        as built
+#   SHA256SUMS.txt and one .sha256 per file
+#
+# The whole release, in order (AGENTS.md has the branch model):
+#   1. release/<version> from develop: REDROB_VERSION = <version>; pull request into main; merge.
+#   2. workflow_dispatch macos.yml and windows.yml on main; download the two unsigned zips.
+#   3. On a Linux build host: the gate's tree, build, then scripts/package-linux.sh <install-dir>.
+#   4. git tag -a v<version> <main sha>; push only that tag.
+#   5. gh release create v<version> --draft --title "Redrob Shape <version>" <the three artefacts>
+#   6. workflow_dispatch here with tag=v<version>; it undrafts when every signature verifies.
+#   7. Back-merge main into develop by pull request (sync/<version>).
 #
 # WHAT A SIGNATURE HERE MEANS. It attests that the holder of the certificate approved these bytes.
 # It does NOT attest that the bytes came from this tree: the build ran on another machine.
@@ -206,8 +220,39 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           spctl --assess --type execute --verbose=2 "$APP_PATH"
-          mkdir -p staging
-          ditto -c -k --keepParent "$APP_PATH" "staging/redrob-shape-macos-arm64-$VERSION.zip"
+
+      - name: disk image
+        # Redrob Launcher installs a macOS app from a .dmg only (it attaches the image and copies
+        # "Redrob Shape.app" from its root), and a person drags it to the Applications link beside
+        # it. The image is signed and notarized in its own right, then stapled, so Gatekeeper
+        # passes it offline as well.
+        run: |
+          set -euo pipefail
+          mkdir -p dmgroot staging
+          ditto "$APP_PATH" "dmgroot/$(basename "$APP_PATH")"
+          ln -s /Applications dmgroot/Applications
+          dmg="staging/redrob-shape-$VERSION-macos-aarch64.dmg"
+          hdiutil create -volname "Redrob Shape $VERSION" -srcfolder dmgroot -fs HFS+ -format UDZO -ov "$dmg"
+          codesign --sign "$SIGNING_IDENTITY" --force --timestamp --keychain "$SIGNING_KEYCHAIN" "$dmg"
+          set +e
+          xcrun notarytool submit "$dmg" \
+            --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            --wait --timeout 90m --output-format json > notarize-dmg.json
+          rc=$?
+          set -e
+          cat notarize-dmg.json
+          id="$(python3 -c 'import json; print(json.load(open("notarize-dmg.json")).get("id",""))')"
+          status="$(python3 -c 'import json; print(json.load(open("notarize-dmg.json")).get("status",""))')"
+          if [ "$rc" -ne 0 ] || [ "$status" != "Accepted" ]; then
+            echo "::error::disk image notarization ended with status '$status' (rc=$rc)"
+            [ -n "$id" ] && xcrun notarytool log "$id" \
+              --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" || true
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          python3 scripts/check-asset-names.py --version "$VERSION" "$dmg"
 
       - name: clean up the keychain
         if: always()
@@ -220,7 +265,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: signed-macos
-          path: staging/*.zip
+          path: staging/*.dmg
           if-no-files-found: error
 
   sign-windows:
@@ -234,6 +279,8 @@ jobs:
       VERSION: ${{ needs.probe.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.1
+
       - name: require the Windows signing certificate
         shell: bash
         run: |
@@ -300,7 +347,10 @@ jobs:
             Write-Host "$($exe.Name): $($s.SignerCertificate.Subject) status=$($s.Status)"
           }
           New-Item -ItemType Directory -Force -Path staging | Out-Null
-          Compress-Archive -Path "app\Redrob Shape" -DestinationPath "staging\redrob-shape-windows-x64-$env:VERSION.zip"
+          # "-portable.zip": the one zip name Redrob Launcher reads as an installable Windows build.
+          Compress-Archive -Path "app\Redrob Shape" -DestinationPath "staging\redrob-shape-$env:VERSION-windows-x64-portable.zip"
+          python scripts/check-asset-names.py --version $env:VERSION (Get-ChildItem staging\*.zip).FullName
+          if ($LASTEXITCODE -ne 0) { throw "the zip is not named the way the launcher reads it" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -332,7 +382,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p staging
-          gh release download "${{ inputs.tag }}" -p "*linux-x64-$VERSION.tar.xz" -D staging || \
+          gh release download "${{ inputs.tag }}" -p "redrob-shape-$VERSION-linux-x86_64.tar.gz" -D staging || \
             echo "::notice::no Linux build on this release"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -347,13 +397,15 @@ jobs:
           name: signed-windows
           path: staging
 
-      - name: what is about to be published
+      - name: what is about to be published, named the way the launcher reads it
+        # The gate for the names: a release whose assets Redrob Launcher skips is not published.
         run: |
           set -euo pipefail
           test -n "$(ls -A staging 2>/dev/null)" || { echo "::error::nothing to publish"; exit 1; }
           for f in staging/*; do
             printf '%s  %s bytes  sha256 %s\n' "$(basename "$f")" "$(stat -c%s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
           done
+          python3 scripts/check-asset-names.py --version "$VERSION" staging/*
 
       - name: put the signed assets on the release, one by one
         # One upload per file with retries: a single 5xx must not cost a notarized build. The unsigned
@@ -367,7 +419,10 @@ jobs:
             done
             return 1
           }
-          ( cd staging && for f in *; do sha256sum "$f" > "$f.sha256"; done )
+          # SHA256SUMS.txt is what Redrob Launcher reads when it must not spend API quota on the
+          # release; the per-file sidecars are what the CDN page links.
+          ( cd staging && sha256sum -- * > SHA256SUMS.txt && for f in *; do
+              [ "$f" = SHA256SUMS.txt ] || sha256sum "$f" > "$f.sha256"; done )
           for f in staging/*; do up "$f"; done
           for pattern in macos-arm64-unsigned.zip windows-x64-unsigned.zip; do
             name="$(gh release view "${{ inputs.tag }}" --json assets -q ".assets[].name | select(endswith(\"$pattern\"))")"
@@ -381,7 +436,7 @@ jobs:
           APP_VERSION: ${{ needs.probe.outputs.version }}
         run: |
           set -euo pipefail
-          rm -f staging/*.sha256
+          rm -f staging/*.sha256 staging/SHA256SUMS.txt
           bash .github/scripts/cdn-publish.sh staging
 
       - name: undraft the release

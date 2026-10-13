@@ -101,6 +101,8 @@ class REDROB_PG_session(PropertyGroup):
     connection_source: StringProperty(default="", options={'SKIP_SAVE'})
     connection_hint: StringProperty(default="", options={'SKIP_SAVE'})
     connection_keychain: BoolProperty(default=True, options={'SKIP_SAVE'})
+    # The workspace Redrob Launcher is signed in to, when its shared sign-in is the key in use.
+    connection_account: StringProperty(default="", options={'SKIP_SAVE'})
     user_code: StringProperty(default="", options={'SKIP_SAVE'})
     verification_uri: StringProperty(default="", options={'SKIP_SAVE'})
     verification_uri_complete: StringProperty(default="", options={'SKIP_SAVE'})

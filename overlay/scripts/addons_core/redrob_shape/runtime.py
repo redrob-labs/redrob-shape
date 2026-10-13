@@ -22,6 +22,9 @@ from .i18n import iface_
 _POLL_INTERVAL = 0.2
 _MAX_EVENTS_PER_TICK = 32
 _MAX_STDERR_LINE_BYTES = 4096
+#: How often to ask the agent again whether Redrob Launcher's shared sign-in changed. Only while
+#: that sign-in (or nothing) is the key in use: a key of this app's own changes only from here.
+_SHARED_REFRESH_INTERVAL = 5.0
 
 #: Requests about the Redrob Console connection. Their answers change the connection state, never the
 #: plan status, and none of them carries the key back.
@@ -80,6 +83,7 @@ class AgentRuntime:
         self.start_error = ""
         self.generation = 0
         self.last_countdown_redraw = 0.0
+        self.last_shared_refresh = 0.0
 
     @property
     def running(self):
@@ -308,6 +312,30 @@ class AgentRuntime:
         ticking = current.connection == 'WAITING' or current.status == 'WORKING'
         if handled or (ticking and self._countdown_due()):
             _redraw()
+        if self._shared_refresh_due(current):
+            try:
+                self.connection_status()
+            except RuntimeError:
+                pass  # the agent is gone; the exit path above already reported it
+
+    @staticmethod
+    def follows_the_launcher(current):
+        """Whether the panel's connection state can change without this add-on doing anything:
+        Redrob Launcher's shared sign-in is in use, or there is no key and the launcher may yet
+        sign in. A key of this app's own (keychain, session, environment) only changes from here."""
+        return (
+            current.connection in {'CONNECTED', 'DISCONNECTED'}
+            and current.connection_source in {"", "launcher"}
+        )
+
+    def _shared_refresh_due(self, current):
+        if not self.running or not self.follows_the_launcher(current):
+            return False
+        now = time.monotonic()
+        if now - self.last_shared_refresh < _SHARED_REFRESH_INTERVAL:
+            return False
+        self.last_shared_refresh = now
+        return True
 
     def _countdown_due(self):
         now = time.monotonic()
@@ -435,6 +463,7 @@ class AgentRuntime:
         current.connection_source = str(status.get("source") or "")
         current.connection_hint = str(status.get("key_hint") or "")
         current.connection_keychain = bool(status.get("keychain_available", True))
+        current.connection_account = str(status.get("account_name") or "")
         current.sidecar_available = connected
         if current.status == 'IDLE':
             current.status_message = _idle_message(connected)
@@ -492,11 +521,17 @@ class AgentRuntime:
         elif method == "disconnect":
             current.key_name = ""
             current.account_name = ""
-            current.connection_message = (
-                iface_("Still connected through REDROB_API_KEY in the environment")
-                if current.connection == 'CONNECTED'
-                else iface_("Disconnected. Revoke the key in Redrob Console if you no longer need it")
-            )
+            if current.connection != 'CONNECTED':
+                current.connection_message = iface_(
+                    "Disconnected. Revoke the key in Redrob Console if you no longer need it"
+                )
+            elif current.connection_source == "launcher":
+                # Only this app's own key was removed; the launcher's sign-in is not ours to remove.
+                current.connection_message = iface_("Still signed in with Redrob Launcher")
+            else:
+                current.connection_message = iface_(
+                    "Still connected through REDROB_API_KEY in the environment"
+                )
         elif method == "store_key":
             current.connection_message = iface_("Key stored")
 

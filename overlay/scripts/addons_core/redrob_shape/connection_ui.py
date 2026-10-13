@@ -226,7 +226,20 @@ _SOURCE_NOTES = {
     "keychain": ("Saved in your system keychain", "LOCKED"),
     "session": ("No system keychain here: connected until Blender closes", "INFO"),
     "environment": ("Using REDROB_API_KEY from the environment", "INFO"),
+    "launcher": ("Signed in with Redrob Launcher", "LINKED"),
 }
+
+
+def _disconnect_control(source):
+    """How the Disconnect button appears for a key from `source`. Disconnect removes this app's
+    own key, so a key the environment supplies cannot be removed from here (shown, disabled), and
+    Redrob Launcher's shared sign-in is not this app's to remove at all (not shown: sign out in
+    the launcher)."""
+    if source == "launcher":
+        return 'HIDDEN'
+    if source == "environment":
+        return 'DISABLED'
+    return 'ENABLED'
 
 
 def online_access_locked(context=None):
@@ -286,12 +299,15 @@ def draw_console_connection(layout, current):
         note = _SOURCE_NOTES.get(current.connection_source)
         if note:
             layout_text.wrapped_labels(box, iface_(note[0]), icon=note[1])
+        if current.connection_source == "launcher" and current.connection_account:
+            box.label(text=iface_("Workspace {}").format(current.connection_account), translate=False)
         if current.key_name:
             box.label(text=iface_("Listed in Console as {}").format(current.key_name), translate=False)
-        row = box.row()
-        # A key the environment supplies cannot be removed from here.
-        row.enabled = current.connection_source != "environment"
-        row.operator("redrob_shape.disconnect", icon='UNLINKED')
+        control = _disconnect_control(current.connection_source)
+        if control != 'HIDDEN':
+            row = box.row()
+            row.enabled = control == 'ENABLED'
+            row.operator("redrob_shape.disconnect", icon='UNLINKED')
         return
 
     if state == 'WAITING':

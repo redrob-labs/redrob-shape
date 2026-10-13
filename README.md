@@ -126,3 +126,26 @@ This repository had no GitHub CI: the add-on's 18 tests existed with no workflow
 and Blender's own pipeline is Gitea-based and belongs to upstream. Now `verify-patches.yml` runs
 the gate, and a second job runs the add-on tests that need no Blender runtime, straight out of
 `overlay/`, without fetching upstream at all.
+
+## Releasing
+
+A release is the three builds signed and published by `.github/workflows/sign-and-publish.yml`;
+its header lists the seven steps in order. The short form: `release/<version>` from `develop` sets
+`REDROB_VERSION`, merges into `main` by pull request; `macos.yml` and `windows.yml` are dispatched on
+`main`; the Linux build host runs the gate, builds, and `scripts/package-linux.sh <install-dir>`;
+the tag `v<version>` is pushed alone; `gh release create v<version> --draft` with the three
+artefacts; `sign-and-publish.yml` is dispatched with that tag; `main` is merged back into `develop`.
+
+The published assets are named the way Redrob Launcher reads a release, and nothing else:
+
+```
+redrob-shape-<version>-macos-aarch64.dmg
+redrob-shape-<version>-windows-x64-portable.zip
+redrob-shape-<version>-linux-x86_64.tar.gz
+SHA256SUMS.txt
+```
+
+`scripts/check-asset-names.py` is the gate for those names. It runs over the staging directory
+right before the upload, so a release the launcher would skip is not published, and its own
+tests run in CI (`--self-test`). The first release was named `redrob-shape-linux-x64-0.1.0.tar.xz`,
+which the launcher skipped for three reasons at once; that is the regression this prevents.
