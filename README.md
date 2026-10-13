@@ -142,10 +142,15 @@ The published assets are named the way Redrob Launcher reads a release, and noth
 redrob-shape-<version>-macos-aarch64.dmg
 redrob-shape-<version>-windows-x64-portable.zip
 redrob-shape-<version>-linux-x86_64.tar.gz
+redrob-launcher.json
 SHA256SUMS.txt
 ```
 
+`redrob-launcher.json` is the launcher's release manifest (`{ "schema": 1, "sharedAccount": true }`):
+it tells Redrob Launcher that this release reads the launcher's shared account file, so signing in
+to the launcher is all a person needs. The publish job writes it and lists it in `SHA256SUMS.txt`.
+
 `scripts/check-asset-names.py` is the gate for those names. It runs over the staging directory
-right before the upload, so a release the launcher would skip is not published, and its own
-tests run in CI (`--self-test`). The first release was named `redrob-shape-linux-x64-0.1.0.tar.xz`,
+right before the upload (`--release-dir`), so a release the launcher would skip, or one without
+`redrob-launcher.json`, is not published, and its own tests run in CI (`--self-test`). The first release was named `redrob-shape-linux-x64-0.1.0.tar.xz`,
 which the launcher skipped for three reasons at once; that is the regression this prevents.
