@@ -23,3 +23,7 @@ scripts/          받기, 적용, 게이트
 아이콘과 스플래시는 `scripts/build-brand-assets.py`가 디자인 시스템이 배포한 파일로 만듭니다. 여기서 그리지 않습니다. Redrob Shape는 일곱 제품군에 속하지 않으므로 그룹 아이콘(Redrob Blue 타일 위 흰 심볼)을 씁니다.
 
 자세한 내용은 [README.md](README.md)에 있습니다.
+
+## 릴리스
+
+릴리스는 `.github/workflows/sign-and-publish.yml`이 세 빌드에 서명해 공개하는 것입니다. 순서는 그 파일 머리말에 있습니다. 공개되는 자산 이름은 Redrob Launcher가 읽는 형식 `redrob-shape-<버전>-<os>-<arch>[-portable].<확장자>` 하나뿐이며, `scripts/check-asset-names.py`가 업로드 직전에 그 이름을 검사합니다. Linux 빌드는 `scripts/package-linux.sh <설치 디렉터리>`로 묶습니다.

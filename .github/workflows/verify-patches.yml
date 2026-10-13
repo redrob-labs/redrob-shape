@@ -44,3 +44,8 @@ jobs:
           set -euo pipefail
           cd overlay/scripts/addons_core/redrob_shape
           python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Release asset names are the ones Redrob Launcher reads
+        # The checker sign-and-publish.yml runs over the staging directory, tested here so the
+        # pattern cannot drift without a red build.
+        run: python3 scripts/check-asset-names.py --self-test
