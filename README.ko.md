@@ -26,4 +26,4 @@ scripts/          받기, 적용, 게이트
 
 ## 릴리스
 
-릴리스는 `.github/workflows/sign-and-publish.yml`이 세 빌드에 서명해 공개하는 것입니다. 순서는 그 파일 머리말에 있습니다. 공개되는 자산 이름은 Redrob Launcher가 읽는 형식 `redrob-shape-<버전>-<os>-<arch>[-portable].<확장자>` 하나뿐이며, `scripts/check-asset-names.py`가 업로드 직전에 그 이름을 검사합니다. Linux 빌드는 `scripts/package-linux.sh <설치 디렉터리>`로 묶습니다.
+릴리스는 `.github/workflows/sign-and-publish.yml`이 세 빌드에 서명해 공개하는 것입니다. 순서는 그 파일 머리말에 있습니다. 공개되는 자산 이름은 Redrob Launcher가 읽는 형식 `redrob-shape-<버전>-<os>-<arch>[-portable].<확장자>` 하나뿐이며, `scripts/check-asset-names.py`가 업로드 직전에 그 이름을 검사합니다. 릴리스에는 런처용 매니페스트 `redrob-launcher.json`(`{ "schema": 1, "sharedAccount": true }`)도 함께 올라가며, 같은 검사가 그 파일이 없는 릴리스를 막습니다. 이 파일은 이 릴리스가 런처의 공유 계정 파일을 읽는다는 뜻이라, 런처에 로그인하는 것만으로 충분합니다. Linux 빌드는 `scripts/package-linux.sh <설치 디렉터리>`로 묶습니다.

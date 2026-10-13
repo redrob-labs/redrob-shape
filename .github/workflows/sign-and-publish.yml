@@ -14,6 +14,8 @@
 #   redrob-shape-<version>-macos-aarch64.dmg          signed, notarized, stapled app in a disk image
 #   redrob-shape-<version>-windows-x64-portable.zip   the installed tree, executables Authenticode-signed
 #   redrob-shape-<version>-linux-x86_64.tar.gz        as built
+#   redrob-launcher.json                              the launcher's release manifest: this release
+#                                                     reads the launcher's shared account
 #   SHA256SUMS.txt and one .sha256 per file
 #
 # The whole release, in order (AGENTS.md has the branch model):
@@ -397,15 +399,26 @@ jobs:
           name: signed-windows
           path: staging
 
-      - name: what is about to be published, named the way the launcher reads it
-        # The gate for the names: a release whose assets Redrob Launcher skips is not published.
+      - name: the release manifest Redrob Launcher reads
+        # One small asset beside the installers (redrob-launcher, docs/release-manifest.md). From
+        # it the launcher learns, without a launcher release, that this build reads its shared
+        # account file: signing in to the launcher is all a person needs. Written here, in the one
+        # job that assembles the whole release, so it goes into SHA256SUMS.txt with the rest.
         run: |
           set -euo pipefail
           test -n "$(ls -A staging 2>/dev/null)" || { echo "::error::nothing to publish"; exit 1; }
+          printf '{ "schema": 1, "sharedAccount": true }\n' > staging/redrob-launcher.json
+          cat staging/redrob-launcher.json
+
+      - name: what is about to be published, named the way the launcher reads it
+        # The gate for the names and for the manifest: a release whose assets Redrob Launcher
+        # skips, or that lacks redrob-launcher.json, is not published.
+        run: |
+          set -euo pipefail
           for f in staging/*; do
             printf '%s  %s bytes  sha256 %s\n' "$(basename "$f")" "$(stat -c%s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
           done
-          python3 scripts/check-asset-names.py --version "$VERSION" staging/*
+          python3 scripts/check-asset-names.py --version "$VERSION" --release-dir staging
 
       - name: put the signed assets on the release, one by one
         # One upload per file with retries: a single 5xx must not cost a notarized build. The unsigned
@@ -420,7 +433,8 @@ jobs:
             return 1
           }
           # SHA256SUMS.txt is what Redrob Launcher reads when it must not spend API quota on the
-          # release; the per-file sidecars are what the CDN page links.
+          # release (it lists redrob-launcher.json too, so that path sees the manifest); the
+          # per-file sidecars are what the CDN page links.
           ( cd staging && sha256sum -- * > SHA256SUMS.txt && for f in *; do
               [ "$f" = SHA256SUMS.txt ] || sha256sum "$f" > "$f.sha256"; done )
           for f in staging/*; do up "$f"; done
@@ -431,12 +445,14 @@ jobs:
           gh release view "${{ inputs.tag }}" --json assets -q '.assets[].name'
 
       - name: publish to cdn.redrob.ai/shape
-        # Versioned path first, read back and compared, and only then the latest/ alias.
+        # Versioned path first, read back and compared, and only then the latest/ alias. The
+        # manifest stays off the CDN: the launcher reads it from the GitHub Release only, and
+        # cdn-publish.sh refuses a name without a -<version> segment.
         env:
           APP_VERSION: ${{ needs.probe.outputs.version }}
         run: |
           set -euo pipefail
-          rm -f staging/*.sha256 staging/SHA256SUMS.txt
+          rm -f staging/*.sha256 staging/SHA256SUMS.txt staging/redrob-launcher.json
           bash .github/scripts/cdn-publish.sh staging
 
       - name: undraft the release
