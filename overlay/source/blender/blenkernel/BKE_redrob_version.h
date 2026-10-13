@@ -15,4 +15,4 @@
  * add-on compatibility and exporter metadata depend on it.
  */
 
-#define REDROB_VERSION_STRING "0.1.0"
+#define REDROB_VERSION_STRING "0.1.1"
