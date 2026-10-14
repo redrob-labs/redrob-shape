@@ -166,6 +166,25 @@ pub(crate) fn world_polygons(scene: &Scene) -> Vec<(String, Vec<Vec3>, Vec<Vec<u
     out
 }
 
+/// UV sets matching [`world_polygons`] order: `Some` only for objects whose base mesh has UVs and
+/// no modifiers (modifiers rebuild topology, so stored UVs no longer apply).
+pub(crate) fn world_uvs(scene: &Scene) -> Vec<Option<Vec<Vec<shape_math::Vec2>>>> {
+    let mut out = Vec::new();
+    for (id, o) in scene.objects() {
+        if !o.visible {
+            continue;
+        }
+        if shape_ops::evaluated_mesh(scene, id).is_some() {
+            let uvs = match (&o.data, scene.modifiers(id).is_empty()) {
+                (shape_scene::ObjectData::Mesh { mesh, .. }, true) => scene.mesh(*mesh).and_then(|d| d.uvs.clone()),
+                _ => None,
+            };
+            out.push(uvs);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 pub(crate) mod testutil {
     use super::*;

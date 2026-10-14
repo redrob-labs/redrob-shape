@@ -11,7 +11,7 @@ pub mod camera;
 mod geometry;
 
 pub use camera::OrbitCamera;
-pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, pick, pick_detail};
+pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, pick, pick_detail, scene_lights};
 
 use bytemuck::{Pod, Zeroable};
 use shape_math::Vec3;
@@ -27,14 +27,24 @@ pub struct Vertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub color: [f32; 4],
+    /// x metallic, y roughness.
+    pub material: [f32; 4],
+    pub emissive: [f32; 4],
 }
 
 impl Vertex {
     pub fn new(position: Vec3, normal: Vec3, color: [f32; 4]) -> Self {
-        Self { position: position.to_array(), normal: normal.to_array(), color }
+        Self { position: position.to_array(), normal: normal.to_array(), color, material: [0.0, 0.5, 0.0, 0.0], emissive: [0.0; 4] }
     }
 
-    const ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4];
+    pub fn with_material(mut self, metallic: f32, roughness: f32, emissive: [f32; 3]) -> Self {
+        self.material = [metallic, roughness, 0.0, 0.0];
+        self.emissive = [emissive[0], emissive[1], emissive[2], 0.0];
+        self
+    }
+
+    const ATTRIBUTES: [wgpu::VertexAttribute; 5] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4];
 
     fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -81,6 +91,22 @@ pub fn expand_lines(lines: &[Vertex]) -> Vec<LineVertex> {
     lines.as_chunks::<2>().0.iter().flat_map(|[a, b]| LineVertex::quad(a, b)).collect()
 }
 
+/// One scene light as the shader sees it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct GpuLight {
+    /// xyz position (point/spot) or direction towards the light (sun); w kind: 0 point, 1 sun, 2 spot.
+    pub position: [f32; 4],
+    /// rgb colour * power.
+    pub radiance: [f32; 4],
+    /// xyz direction a spot shines along.
+    pub direction: [f32; 4],
+    /// x cos(inner), y cos(outer).
+    pub cone: [f32; 4],
+}
+
+pub const MAX_LIGHTS: usize = 4;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Globals {
@@ -89,8 +115,9 @@ struct Globals {
     ambient: [f32; 4],
     /// xyz camera position, w grid fade distance.
     camera: [f32; 4],
-    /// xy size in pixels, z line width in pixels.
+    /// xy size in pixels, z line width in pixels, w light count.
     viewport: [f32; 4],
+    lights: [GpuLight; MAX_LIGHTS],
 }
 
 /// What to draw and how.
@@ -124,6 +151,8 @@ impl Default for ViewOptions {
 pub struct FrameGeometry {
     pub triangles: Vec<Vertex>,
     pub lines: Vec<Vertex>,
+    /// Scene lights, at most [`MAX_LIGHTS`] are uploaded.
+    pub lights: Vec<GpuLight>,
 }
 
 pub struct Viewport {
@@ -307,7 +336,14 @@ impl Viewport {
             light_dir: camera_relative_light(camera, options.light_dir).extend(0.0).to_array(),
             ambient: [0.35, 0.37, 0.42, 1.0],
             camera: camera.position().extend((camera.distance * 4.0).max(20.0)).to_array(),
-            viewport: [self.size.0 as f32, self.size.1 as f32, options.line_width_px, 0.0],
+            viewport: [self.size.0 as f32, self.size.1 as f32, options.line_width_px, geometry.lights.len().min(MAX_LIGHTS) as f32],
+            lights: {
+                let mut arr = [GpuLight::default(); MAX_LIGHTS];
+                for (slot, l) in arr.iter_mut().zip(&geometry.lights) {
+                    *slot = *l;
+                }
+                arr
+            },
         };
         self.queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
         let mut tri = self.tri_buffer.take();

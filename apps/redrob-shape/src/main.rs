@@ -55,6 +55,23 @@ fn demo_scene(app: &mut ShapeApp) {
             app.add_modifier(shape_scene::Modifier::Subdivision { levels: 2, smooth: true });
         }
     }
+    // A red metal sphere, a sun and a lamp show materials and scene lighting.
+    let red = app.scene.add_material(shape_scene::Material {
+        name: "Red".into(),
+        base_color: [0.8, 0.08, 0.06, 1.0],
+        metallic: 0.3,
+        roughness: 0.35,
+        ..Default::default()
+    });
+    let sphere = app.scene.objects().find(|(_, o)| o.name.starts_with("UV Sphere")).map(|(id, _)| id);
+    if let Some(id) = sphere
+        && let Some(shape_scene::ObjectData::Mesh { material, .. }) = app.scene.object_mut(id).map(|o| &mut o.data)
+    {
+        *material = Some(red);
+    }
+    app.add_object("Sun", shape_scene::ObjectData::Light(shape_scene::Light::sun(3.0)), Vec3::new(4.0, 8.0, 3.0));
+    app.add_object("Lamp", shape_scene::ObjectData::Light(shape_scene::Light::point(600.0)), Vec3::new(-3.0, 3.5, 2.5));
+    app.add_object("Camera", shape_scene::ObjectData::Camera(Default::default()), Vec3::new(7.0, 5.0, 8.0));
     app.scene.selection.clear();
     app.viewport.frame_scene(&app.scene);
 }

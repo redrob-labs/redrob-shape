@@ -8,9 +8,11 @@
 
 pub mod modifiers;
 pub mod subdivide;
+pub mod uv;
 
 pub use modifiers::{evaluate, evaluated_mesh, scene_mesh};
 pub use subdivide::{catmull_clark, subdivide_linear};
+pub use uv::{uv_box, uv_planar, uv_sphere};
 
 use shape_geom::{EdgeId, FaceId, Mesh, MeshError, VertexId};
 use shape_math::Vec3;

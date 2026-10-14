@@ -198,7 +198,7 @@ impl Modal {
                 if let Ok(m) = result
                     && let Some(data) = scene.mesh_mut(*mesh_id)
                 {
-                    data.mesh = m;
+                    data.set_mesh(m);
                 }
             }
         }

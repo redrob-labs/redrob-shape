@@ -1,10 +1,10 @@
 //! CPU side of a frame: turn the scene into vertex lists, and pick objects with the BVH.
 
-use crate::{FrameGeometry, OrbitCamera, Vertex, ViewOptions};
+use crate::{FrameGeometry, GpuLight, OrbitCamera, Vertex, ViewOptions};
 use shape_geom::FaceId;
 use shape_geom::bvh::Bvh;
 use shape_math::{Vec2, Vec3};
-use shape_scene::{ObjectData, ObjectId, Scene};
+use shape_scene::{LightKind, ObjectData, ObjectId, Scene};
 use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -26,6 +26,11 @@ const SELECTED_WIRE: [f32; 4] = [1.0, 0.60, 0.15, 1.0];
 const ACTIVE_WIRE: [f32; 4] = [1.0, 0.80, 0.35, 1.0];
 const DEFAULT_SURFACE: [f32; 4] = [0.62, 0.63, 0.66, 1.0];
 const SELECTED_FACE: [f32; 4] = [0.95, 0.55, 0.20, 1.0];
+const GIZMO: [f32; 4] = [0.95, 0.85, 0.40, 1.0];
+const CAMERA_GIZMO: [f32; 4] = [0.70, 0.75, 0.85, 1.0];
+/// Power at which a point light's uploaded radiance is 1 at one metre.
+const POINT_POWER_SCALE: f32 = 1.0 / 80.0;
+const SUN_SCALE: f32 = 0.35;
 const EDIT_WIRE: [f32; 4] = [0.10, 0.10, 0.12, 1.0];
 
 /// The mesh an object is drawn with: the base mesh while it is being edited, otherwise the
@@ -44,9 +49,30 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
     if options.show_grid {
         grid(&mut out.lines);
     }
+    out.lights = scene_lights(scene);
     for (id, object) in scene.objects() {
         if !object.visible {
             continue;
+        }
+        let world = scene.world_transform(id);
+        let selected = scene.selection.contains(id);
+        match &object.data {
+            ObjectData::Light(light) => {
+                let c = if selected { SELECTED_WIRE } else { GIZMO };
+                light_gizmo(&mut out.lines, &world, light, c);
+                continue;
+            }
+            ObjectData::Camera(cam) => {
+                let c = if selected { SELECTED_WIRE } else { CAMERA_GIZMO };
+                camera_gizmo(&mut out.lines, &world, cam, c);
+                continue;
+            }
+            ObjectData::Empty => {
+                let c = if selected { SELECTED_WIRE } else { GIZMO };
+                axes_gizmo(&mut out.lines, world.translation, 0.3, c);
+                continue;
+            }
+            ObjectData::Mesh { .. } => {}
         }
         let Some(mesh) = display_mesh(scene, id) else { continue };
         let mesh = mesh.as_ref();
@@ -56,9 +82,8 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
             _ => None,
         };
         let base = material.map(|m| m.base_color).unwrap_or(DEFAULT_SURFACE);
-        let world = scene.world_transform(id);
+        let (metallic, roughness, emissive) = material.map(|m| (m.metallic, m.roughness, m.emissive)).unwrap_or((0.0, 0.5, [0.0; 3]));
         let positions: Vec<Vec3> = mesh.positions().map(|p| world.transform_point(p)).collect();
-        let selected = scene.selection.contains(id);
         let active = scene.selection.active == Some(id);
 
         if options.shading != ShadingMode::Wireframe {
@@ -68,7 +93,7 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
                 let color = if editing.is_some_and(|e| e.faces.contains(&f)) { SELECTED_FACE } else { base };
                 for i in 1..vs.len() - 1 {
                     for &k in &[vs[0], vs[i], vs[i + 1]] {
-                        out.triangles.push(Vertex::new(positions[k], n, color));
+                        out.triangles.push(Vertex::new(positions[k], n, color).with_material(metallic, roughness, emissive));
                     }
                 }
             }
@@ -93,6 +118,93 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
         }
     }
     out
+}
+
+/// Visible scene lights in world space, as the shader wants them.
+pub fn scene_lights(scene: &Scene) -> Vec<GpuLight> {
+    let mut out = Vec::new();
+    for (id, object) in scene.objects() {
+        let ObjectData::Light(light) = &object.data else { continue };
+        if !object.visible {
+            continue;
+        }
+        let world = scene.world_transform(id);
+        let shine = world.transform_vector(-Vec3::Z).normalize_or_zero();
+        let (kind, position, radiance, cone) = match light.kind {
+            LightKind::Point => (0.0, world.translation, light.power * POINT_POWER_SCALE, [0.0, 0.0]),
+            LightKind::Sun => (1.0, -shine, light.power * SUN_SCALE, [0.0, 0.0]),
+            LightKind::Spot { inner_angle, outer_angle } => {
+                (2.0, world.translation, light.power * POINT_POWER_SCALE, [inner_angle.cos(), outer_angle.max(inner_angle + 1e-3).cos()])
+            }
+        };
+        out.push(GpuLight {
+            position: position.extend(kind).to_array(),
+            radiance: [light.color[0] * radiance, light.color[1] * radiance, light.color[2] * radiance, 0.0],
+            direction: shine.extend(0.0).to_array(),
+            cone: [cone[0], cone[1], 0.0, 0.0],
+        });
+    }
+    out
+}
+
+fn seg(lines: &mut Vec<Vertex>, a: Vec3, b: Vec3, c: [f32; 4]) {
+    lines.push(Vertex::new(a, Vec3::Y, c));
+    lines.push(Vertex::new(b, Vec3::Y, c));
+}
+
+fn axes_gizmo(lines: &mut Vec<Vertex>, at: Vec3, r: f32, c: [f32; 4]) {
+    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+        seg(lines, at - axis * r, at + axis * r, c);
+    }
+}
+
+fn light_gizmo(lines: &mut Vec<Vertex>, world: &shape_math::Transform, light: &shape_scene::Light, c: [f32; 4]) {
+    let at = world.translation;
+    axes_gizmo(lines, at, 0.25, c);
+    // a small circle in the XZ plane
+    let n = 16;
+    for i in 0..n {
+        let (a0, a1) = (i as f32 / n as f32 * std::f32::consts::TAU, (i + 1) as f32 / n as f32 * std::f32::consts::TAU);
+        seg(lines, at + Vec3::new(a0.cos(), 0.0, a0.sin()) * 0.35, at + Vec3::new(a1.cos(), 0.0, a1.sin()) * 0.35, c);
+    }
+    let shine = world.transform_vector(-Vec3::Z).normalize_or_zero();
+    match light.kind {
+        LightKind::Sun => seg(lines, at, at + shine * 2.0, c),
+        LightKind::Spot { outer_angle, .. } => {
+            let len = 2.0;
+            let r = outer_angle.tan() * len;
+            let right = shine.cross(Vec3::Y).normalize_or_zero();
+            let right = if right.length_squared() < 1e-6 { Vec3::X } else { right };
+            let up = right.cross(shine);
+            let tip = at + shine * len;
+            for i in 0..4 {
+                let a = i as f32 / 4.0 * std::f32::consts::TAU;
+                seg(lines, at, tip + (right * a.cos() + up * a.sin()) * r, c);
+            }
+            for i in 0..n {
+                let (a0, a1) = (i as f32 / n as f32 * std::f32::consts::TAU, (i + 1) as f32 / n as f32 * std::f32::consts::TAU);
+                seg(lines, tip + (right * a0.cos() + up * a0.sin()) * r, tip + (right * a1.cos() + up * a1.sin()) * r, c);
+            }
+        }
+        LightKind::Point => {}
+    }
+}
+
+fn camera_gizmo(lines: &mut Vec<Vertex>, world: &shape_math::Transform, cam: &shape_scene::Camera, c: [f32; 4]) {
+    let depth = 1.0;
+    let h = (cam.fov_y * 0.5).tan() * depth;
+    let w = h * 16.0 / 9.0;
+    let p = |x: f32, y: f32, z: f32| world.transform_point(Vec3::new(x, y, z));
+    let eye = p(0.0, 0.0, 0.0);
+    let corners = [p(-w, -h, -depth), p(w, -h, -depth), p(w, h, -depth), p(-w, h, -depth)];
+    for i in 0..4 {
+        seg(lines, eye, corners[i], c);
+        seg(lines, corners[i], corners[(i + 1) % 4], c);
+    }
+    // up marker: a triangle above the frame
+    seg(lines, p(-w * 0.4, h * 1.05, -depth), p(w * 0.4, h * 1.05, -depth), c);
+    seg(lines, p(-w * 0.4, h * 1.05, -depth), p(0.0, h * 1.5, -depth), c);
+    seg(lines, p(w * 0.4, h * 1.05, -depth), p(0.0, h * 1.5, -depth), c);
 }
 
 fn grid(lines: &mut Vec<Vertex>) {
@@ -243,5 +355,34 @@ mod edit_tests {
         let orange = frame.triangles.iter().filter(|v| v.color == SELECTED_FACE).count();
         assert_eq!(orange, 6, "two triangles of the selected quad");
         assert_eq!(frame.lines.len(), 24, "edit wire on every edge");
+    }
+}
+
+#[cfg(test)]
+mod light_tests {
+    use super::*;
+    use shape_math::{Quat, Transform};
+    use shape_scene::{Light, Object};
+
+    #[test]
+    fn lights_and_gizmos_reach_the_frame() {
+        let mut scene = Scene::new("t");
+        let mut sun = Object::new("Sun", ObjectData::Light(Light::sun(2.0)));
+        sun.transform = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)); // shines down
+        scene.add_object(sun);
+        let mut point = Object::new("Lamp", ObjectData::Light(Light::point(800.0)));
+        point.transform = Transform::from_translation(Vec3::new(0.0, 3.0, 0.0));
+        scene.add_object(point);
+        scene.add_object(Object::new("Camera", ObjectData::Camera(Default::default())));
+        let lights = scene_lights(&scene);
+        assert_eq!(lights.len(), 2);
+        assert_eq!(lights[0].position[3], 1.0);
+        assert!(lights[0].position[1] > 0.99, "sun direction points up (towards the light): {:?}", lights[0].position);
+        assert_eq!(lights[1].position[3], 0.0);
+        assert!((lights[1].radiance[0] - 10.0).abs() < 1e-4);
+        let frame = build_frame(&scene, &ViewOptions { show_grid: false, ..Default::default() });
+        assert!(frame.triangles.is_empty());
+        assert!(frame.lines.len() > 40, "gizmo lines: {}", frame.lines.len());
+        assert_eq!(frame.lights.len(), 2);
     }
 }

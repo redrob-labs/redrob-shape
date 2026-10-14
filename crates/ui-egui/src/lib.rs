@@ -128,6 +128,41 @@ impl ShapeApp {
         id
     }
 
+    /// Add any object at a position, undoably, and make it active.
+    pub fn add_object(&mut self, name: &str, data: shape_scene::ObjectData, at: shape_math::Vec3) -> ObjectId {
+        let n = self.scene.object_count();
+        let mut id = ObjectId(0);
+        let label = format!("Add {name}");
+        let name = if n == 0 { name.to_owned() } else { format!("{name}.{n:03}") };
+        self.edit(&label, |scene| {
+            let mut object = shape_scene::Object::new(name, data);
+            object.transform = Transform::from_translation(at);
+            // Lights and cameras added above the origin look at it.
+            if at.length_squared() > 1e-6 && !matches!(object.data, shape_scene::ObjectData::Mesh { .. } | shape_scene::ObjectData::Empty) {
+                // Straight above the origin, Y is parallel to the view: pick another up vector.
+                let dir = at.normalize();
+                let up = if dir.y.abs() > 0.99 { shape_math::Vec3::Z } else { shape_math::Vec3::Y };
+                let look = shape_math::Mat4::look_at_rh(at, shape_math::Vec3::ZERO, up).inverse();
+                object.transform = Transform::from_matrix(look);
+            }
+            id = scene.add_object(object);
+            scene.selection.set(id);
+        });
+        id
+    }
+
+    /// Store generated UVs on the active object's mesh, undoably.
+    pub fn generate_uvs(&mut self, name: &str, generator: impl Fn(&shape_geom::Mesh) -> Vec<Vec<shape_math::Vec2>>) {
+        let Some(id) = self.scene.selection.active else { return };
+        let Some((mesh_id, mesh)) = self.scene.object_mesh(id) else { return };
+        let uvs = generator(mesh);
+        self.edit(name, |scene| {
+            if let Some(data) = scene.mesh_mut(mesh_id) {
+                data.uvs = Some(uvs);
+            }
+        });
+    }
+
     /// Replace the active object's mesh with `op(mesh)`, undoably. Modifiers stay in place.
     pub fn apply_mesh_op(&mut self, name: &str, op: impl Fn(&shape_geom::Mesh) -> shape_ops::Result<shape_geom::Mesh>) {
         let Some(id) = self.scene.selection.active else { return };
@@ -135,7 +170,7 @@ impl ShapeApp {
         match op(mesh) {
             Ok(new_mesh) => self.edit(name, |scene| {
                 if let Some(data) = scene.mesh_mut(mesh_id) {
-                    data.mesh = new_mesh;
+                    data.set_mesh(new_mesh);
                 }
             }),
             Err(e) => self.status = format!("{name} failed: {e}"),
@@ -149,7 +184,7 @@ impl ShapeApp {
         let Some((mesh_id, _)) = self.scene.object_mesh(id) else { return };
         self.edit("Apply Modifiers", |scene| {
             if let Some(data) = scene.mesh_mut(mesh_id) {
-                data.mesh = evaluated;
+                data.set_mesh(evaluated);
             }
             if let Some(stack) = scene.modifiers_mut(id) {
                 stack.clear();
@@ -269,7 +304,7 @@ impl ShapeApp {
         match shape_ops::loop_cut(mesh, edge) {
             Ok(new_mesh) => self.edit("Loop Cut", |scene| {
                 if let Some(data) = scene.mesh_mut(mesh_id) {
-                    data.mesh = new_mesh;
+                    data.set_mesh(new_mesh);
                 }
                 if let Some(e) = &mut scene.edit {
                     e.faces.clear();
@@ -612,6 +647,29 @@ mod tests {
         let miss = ViewportInput { pointer: Some(Vec2::new(5.0, 5.0)), size, primary_clicked: true, ..Default::default() };
         app.handle_viewport_input(&miss, false, false);
         assert!(app.scene.edit.as_ref().unwrap().faces.is_empty());
+    }
+
+    #[test]
+    fn lights_cameras_and_uvs_are_added_undoably() {
+        let mut app = ShapeApp::default();
+        let cube = app.add_primitive(Primitive::Cube);
+        app.generate_uvs("UV Box", shape_ops::uv_box);
+        let (mesh_id, _) = app.scene.object_mesh(cube).unwrap();
+        assert_eq!(app.scene.mesh(mesh_id).unwrap().uvs.as_ref().unwrap().len(), 6);
+        app.apply_mesh_op("Subdivide", shape_ops::catmull_clark);
+        assert!(app.scene.mesh(mesh_id).unwrap().uvs.is_none(), "rebuilt mesh drops stale UVs");
+        let sun = app.add_object("Sun", shape_scene::ObjectData::Light(shape_scene::Light::sun(3.0)), shape_math::Vec3::new(0.0, 5.0, 0.0));
+        let lights = shape_gpu::scene_lights(&app.scene);
+        assert_eq!(lights.len(), 1);
+        assert!(lights[0].position[1] > 0.99, "sun above the origin shines down: {:?}", lights[0].position);
+        app.add_object("Camera", shape_scene::ObjectData::Camera(Default::default()), shape_math::Vec3::new(6.0, 4.0, 6.0));
+        assert_eq!(app.scene.object_count(), 3);
+        app.history.undo(&mut app.scene);
+        app.history.undo(&mut app.scene);
+        assert!(app.scene.object(sun).is_none());
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Material");
     }
 
     #[test]

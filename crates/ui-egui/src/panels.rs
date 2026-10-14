@@ -4,7 +4,7 @@ use crate::{Primitive, ShapeApp, VERSION};
 use egui::RichText;
 use shape_gpu::ShadingMode;
 use shape_math::Vec3;
-use shape_scene::{Modifier, ObjectData, ObjectId, Scene};
+use shape_scene::{Camera, Light, LightKind, Material, Modifier, ObjectData, ObjectId, Scene};
 use shape_undo::Snapshot;
 use std::path::PathBuf;
 
@@ -84,6 +84,18 @@ impl ShapeApp {
                                 self.apply_mesh_op("Flip Normals", shape_ops::flip_normals);
                             }
                             ui.separator();
+                            ui.menu_button("UV", |ui| {
+                                if ui.button("Box Projection").clicked() {
+                                    self.generate_uvs("UV Box", shape_ops::uv_box);
+                                }
+                                if ui.button("Planar (top)").clicked() {
+                                    self.generate_uvs("UV Planar", |m| shape_ops::uv_planar(m, 1));
+                                }
+                                if ui.button("Sphere Projection").clicked() {
+                                    self.generate_uvs("UV Sphere", shape_ops::uv_sphere);
+                                }
+                            });
+                            ui.separator();
                             if ui.button("Apply Modifiers").clicked() {
                                 self.apply_modifiers();
                             }
@@ -95,6 +107,22 @@ impl ShapeApp {
                         if ui.button(p.name()).clicked() {
                             self.add_primitive(p);
                         }
+                    }
+                    ui.separator();
+                    if ui.button("Point Light").clicked() {
+                        self.add_object("Point", ObjectData::Light(Light::point(1000.0)), Vec3::new(2.0, 4.0, 2.0));
+                    }
+                    if ui.button("Sun").clicked() {
+                        self.add_object("Sun", ObjectData::Light(Light::sun(3.0)), Vec3::new(0.0, 5.0, 0.0));
+                    }
+                    if ui.button("Spot Light").clicked() {
+                        self.add_object("Spot", ObjectData::Light(Light::spot(1500.0)), Vec3::new(0.0, 5.0, 0.0));
+                    }
+                    if ui.button("Camera").clicked() {
+                        self.add_object("Camera", ObjectData::Camera(Camera::default()), Vec3::new(6.0, 4.0, 6.0));
+                    }
+                    if ui.button("Empty").clicked() {
+                        self.add_object("Empty", ObjectData::Empty, Vec3::ZERO);
                     }
                 });
                 ui.menu_button("View", |ui| {
@@ -205,11 +233,55 @@ impl ShapeApp {
                 ui.separator();
                 ui.label(RichText::new("Mesh").strong());
                 ui.label(format!("{} vertices, {} edges, {} faces", data.mesh.vertex_count(), data.mesh.edge_count(), data.mesh.face_count()));
+                if data.uvs.is_some() {
+                    ui.label(RichText::new("has UVs").weak());
+                }
                 if !self.scene.modifiers(id).is_empty()
                     && let Some(ev) = shape_ops::evaluated_mesh(&self.scene, id)
                 {
                     ui.label(RichText::new(format!("evaluated: {} vertices, {} faces", ev.vertex_count(), ev.face_count())).weak());
                 }
+            }
+            match &mut edited.data {
+                ObjectData::Light(light) => {
+                    ui.separator();
+                    ui.label(RichText::new("Light").strong());
+                    ui.horizontal(|ui| {
+                        for (kind, label) in [(LightKind::Point, "Point"), (LightKind::Sun, "Sun"), (Light::spot(0.0).kind, "Spot")] {
+                            let same = std::mem::discriminant(&light.kind) == std::mem::discriminant(&kind);
+                            if ui.radio(same, label).clicked() && !same {
+                                light.kind = kind;
+                            }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Color");
+                        ui.color_edit_button_rgb(&mut light.color);
+                        let label = if matches!(light.kind, LightKind::Sun) { "Strength" } else { "Power (W)" };
+                        ui.add(egui::DragValue::new(&mut light.power).speed(1.0).range(0.0..=1.0e6).prefix(format!("{label} ")));
+                    });
+                    if let LightKind::Spot { inner_angle, outer_angle } = &mut light.kind {
+                        let (mut inner, mut outer) = (inner_angle.to_degrees(), outer_angle.to_degrees());
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(&mut inner).range(1.0..=89.0).prefix("inner ° "));
+                            ui.add(egui::DragValue::new(&mut outer).range(1.0..=90.0).prefix("outer ° "));
+                        });
+                        *inner_angle = inner.to_radians();
+                        *outer_angle = outer.max(inner + 0.5).to_radians();
+                    }
+                }
+                ObjectData::Camera(cam) => {
+                    ui.separator();
+                    ui.label(RichText::new("Camera").strong());
+                    let mut fov = cam.fov_y.to_degrees();
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut fov).range(5.0..=170.0).prefix("FOV ° "));
+                        ui.add(egui::DragValue::new(&mut cam.near).speed(0.01).range(0.001..=100.0).prefix("near "));
+                        ui.add(egui::DragValue::new(&mut cam.far).speed(1.0).range(1.0..=1.0e5).prefix("far "));
+                    });
+                    cam.fov_y = fov.to_radians();
+                }
+                _ => {}
             }
             if edited != object {
                 if self.property_before.is_none() {
@@ -221,6 +293,8 @@ impl ShapeApp {
             }
             if matches!(object.data, ObjectData::Mesh { .. }) {
                 ui.separator();
+                self.material_panel(ui, id);
+                ui.separator();
                 self.modifier_panel(ui, id);
             }
             // One undo step per drag/typing session, recorded when pointer and keyboard let go.
@@ -231,6 +305,71 @@ impl ShapeApp {
                 self.history.push(Box::new(cmd), &mut self.scene);
             }
         });
+    }
+
+    /// Material slot of a mesh object: pick, create, and edit the assigned material.
+    fn material_panel(&mut self, ui: &mut egui::Ui, id: ObjectId) {
+        let Some(ObjectData::Mesh { material, .. }) = self.scene.object(id).map(|o| o.data.clone()) else { return };
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Material").strong());
+            let current = material.and_then(|m| self.scene.material(m)).map(|m| m.name.clone()).unwrap_or("None".into());
+            let mut pick: Option<Option<shape_scene::MaterialId>> = None;
+            let mut new = false;
+            egui::ComboBox::from_id_salt("material").selected_text(current).show_ui(ui, |ui| {
+                if ui.selectable_label(material.is_none(), "None").clicked() {
+                    pick = Some(None);
+                }
+                for (mid, m) in self.scene.materials() {
+                    if ui.selectable_label(material == Some(mid), &m.name).clicked() {
+                        pick = Some(Some(mid));
+                    }
+                }
+                ui.separator();
+                if ui.button("New material").clicked() {
+                    new = true;
+                }
+            });
+            if new {
+                let n = self.scene.materials().count();
+                self.edit("New Material", |scene| {
+                    let mid = scene.add_material(Material { name: format!("Material.{n:03}"), ..Default::default() });
+                    if let Some(ObjectData::Mesh { material, .. }) = scene.object_mut(id).map(|o| &mut o.data) {
+                        *material = Some(mid);
+                    }
+                });
+            } else if let Some(choice) = pick {
+                self.edit("Assign Material", |scene| {
+                    if let Some(ObjectData::Mesh { material, .. }) = scene.object_mut(id).map(|o| &mut o.data) {
+                        *material = choice;
+                    }
+                });
+            }
+        });
+        let Some(mid) = material else { return };
+        let Some(original) = self.scene.material(mid).cloned() else { return };
+        let mut m = original.clone();
+        ui.horizontal(|ui| {
+            ui.label("Name");
+            ui.text_edit_singleline(&mut m.name);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Base");
+            ui.color_edit_button_rgba_unmultiplied(&mut m.base_color);
+            ui.label("Emissive");
+            ui.color_edit_button_rgb(&mut m.emissive);
+        });
+        ui.horizontal(|ui| {
+            ui.add(egui::DragValue::new(&mut m.metallic).speed(0.01).range(0.0..=1.0).prefix("metallic "));
+            ui.add(egui::DragValue::new(&mut m.roughness).speed(0.01).range(0.0..=1.0).prefix("roughness "));
+        });
+        if m != original {
+            if self.property_before.is_none() {
+                self.property_before = Some(self.scene.clone());
+            }
+            if let Some(slot) = self.scene.material_mut(mid) {
+                *slot = m;
+            }
+        }
     }
 
     fn modifier_panel(&mut self, ui: &mut egui::Ui, id: ObjectId) {

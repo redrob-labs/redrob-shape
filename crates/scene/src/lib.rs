@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use shape_geom::{FaceId, Mesh};
-use shape_math::{Aabb, Transform, Vec3};
+use shape_math::{Aabb, Transform, Vec2, Vec3};
 use std::collections::BTreeSet;
 
 /// Crate name, used by the layering test in `apps/redrob-shape`.
@@ -68,6 +68,25 @@ pub struct Light {
 impl Default for Light {
     fn default() -> Self {
         Self { kind: LightKind::Point, color: [1.0; 3], power: 1000.0 }
+    }
+}
+
+impl Light {
+    pub fn point(power: f32) -> Self {
+        Self { kind: LightKind::Point, power, ..Default::default() }
+    }
+    pub fn sun(strength: f32) -> Self {
+        Self { kind: LightKind::Sun, power: strength, ..Default::default() }
+    }
+    pub fn spot(power: f32) -> Self {
+        Self { kind: LightKind::Spot { inner_angle: 30f32.to_radians(), outer_angle: 40f32.to_radians() }, power, ..Default::default() }
+    }
+    pub fn kind_name(&self) -> &'static str {
+        match self.kind {
+            LightKind::Point => "Point",
+            LightKind::Sun => "Sun",
+            LightKind::Spot { .. } => "Spot",
+        }
     }
 }
 
@@ -154,6 +173,22 @@ impl Object {
 pub struct MeshData {
     pub name: String,
     pub mesh: Mesh,
+    /// Texture coordinates per face corner, in `face_vertices` order, when the mesh has them.
+    /// Cleared by every operator that rebuilds the mesh.
+    #[serde(default)]
+    pub uvs: Option<Vec<Vec<Vec2>>>,
+}
+
+impl MeshData {
+    pub fn new(name: impl Into<String>, mesh: Mesh) -> Self {
+        Self { name: name.into(), mesh, uvs: None }
+    }
+
+    /// Replace the mesh and drop UVs that no longer match it.
+    pub fn set_mesh(&mut self, mesh: Mesh) {
+        self.mesh = mesh;
+        self.uvs = None;
+    }
 }
 
 /// Selected objects plus the one that is active (last clicked).
@@ -230,7 +265,7 @@ impl Scene {
     /// Convenience: a mesh object at the origin with its own mesh data.
     pub fn add_mesh_object(&mut self, name: impl Into<String>, mesh: Mesh, material: Option<MaterialId>) -> ObjectId {
         let name = name.into();
-        let mesh = self.add_mesh(MeshData { name: name.clone(), mesh });
+        let mesh = self.add_mesh(MeshData::new(name.clone(), mesh));
         self.add_object(Object::new(name, ObjectData::Mesh { mesh, material, modifiers: Vec::new() }))
     }
 
@@ -471,7 +506,7 @@ mod tests {
     fn prune_drops_unused_meshes() {
         let mut s = Scene::new("test");
         let o = s.add_mesh_object("used", cube(1.0), None);
-        s.add_mesh(MeshData { name: "orphan".into(), mesh: cube(2.0) });
+        s.add_mesh(MeshData::new("orphan", cube(2.0)));
         assert_eq!(s.prune_meshes(), 1);
         assert_eq!(s.meshes().count(), 1);
         assert!(s.object_mesh(o).is_some());

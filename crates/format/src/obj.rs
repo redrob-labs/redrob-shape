@@ -1,5 +1,5 @@
 //! Wavefront OBJ: `v`, `f` (any polygon, negative indices, `v/vt/vn` triplets) and `o`/`g` groups.
-//! Texture coordinates and normals are skipped on read; normals are not written.
+//! `vt` is written when a mesh carries UVs; on read, texture coordinates and normals are skipped.
 
 use crate::{Result, Scene, mesh_from_soup, parse_err, world_polygons};
 use shape_math::Vec3;
@@ -80,17 +80,35 @@ pub fn save(scene: &Scene, path: &Path) -> Result<()> {
 pub fn write(scene: &Scene, out: &mut impl Write) -> Result<()> {
     writeln!(out, "# Redrob Shape {}", env!("CARGO_PKG_VERSION"))?;
     let mut offset = 1u32;
-    for (name, pos, polys) in world_polygons(scene) {
+    let mut vt_offset = 1u32;
+    let uv_sets = crate::world_uvs(scene);
+    for ((name, pos, polys), uvs) in world_polygons(scene).into_iter().zip(uv_sets) {
         writeln!(out, "o {}", name.replace(char::is_whitespace, "_"))?;
         for p in &pos {
             writeln!(out, "v {} {} {}", p.x, p.y, p.z)?;
         }
+        // UVs are per corner: write them in face order and reference them in the same order.
+        let uvs = uvs.filter(|u| u.len() == polys.len() && u.iter().zip(&polys).all(|(a, b)| a.len() == b.len()));
+        if let Some(uvs) = &uvs {
+            for corner in uvs.iter().flatten() {
+                writeln!(out, "vt {} {}", corner.x, corner.y)?;
+            }
+        }
+        let mut vt = vt_offset;
         for poly in &polys {
             write!(out, "f")?;
             for &i in poly {
-                write!(out, " {}", i + offset)?;
+                if uvs.is_some() {
+                    write!(out, " {}/{}", i + offset, vt)?;
+                    vt += 1;
+                } else {
+                    write!(out, " {}", i + offset)?;
+                }
             }
             writeln!(out)?;
+        }
+        if let Some(uvs) = &uvs {
+            vt_offset += uvs.iter().map(|f| f.len() as u32).sum::<u32>();
         }
         offset += pos.len() as u32;
     }
@@ -110,6 +128,22 @@ mod tests {
         let back = load(&path).unwrap();
         assert_same_geometry(&scene, &back);
         assert_eq!(back.objects().map(|(_, o)| o.name.as_str()).collect::<Vec<_>>(), ["Cube", "Sphere"]);
+    }
+
+    #[test]
+    fn writes_vt_when_the_mesh_has_uvs() {
+        let mut scene = Scene::new("uv");
+        let id = scene.add_mesh_object("Plane", shape_geom::primitives::plane(2.0, 1, 1), None);
+        let (mesh_id, mesh) = scene.object_mesh(id).unwrap();
+        let uvs = shape_ops::uv_planar(mesh, 1);
+        scene.mesh_mut(mesh_id).unwrap().uvs = Some(uvs);
+        let mut out = Vec::new();
+        write(&scene, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().filter(|l| l.starts_with("vt ")).count(), 4);
+        assert!(text.lines().any(|l| l.starts_with("f 1/1 ")), "{text}");
+        let back = parse(&text, "t").unwrap();
+        assert_eq!(back.object_count(), 1);
     }
 
     #[test]

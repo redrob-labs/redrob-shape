@@ -58,7 +58,7 @@ pub fn load(path: &Path) -> Result<Scene> {
             continue;
         }
         let mesh = mesh_from_soup(&positions, &polys)?;
-        let id = scene.add_mesh(MeshData { name: m.name().unwrap_or("Mesh").to_owned(), mesh });
+        let id = scene.add_mesh(MeshData::new(m.name().unwrap_or("Mesh"), mesh));
         mesh_ids.insert(m.index(), (id, material));
     }
 
