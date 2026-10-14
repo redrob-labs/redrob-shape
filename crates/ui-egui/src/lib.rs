@@ -4,11 +4,14 @@
 //! running [`Modal`]. Panels live in `panels`, modal operators in `tools`, the 3D view in
 //! `viewport`.
 
+pub mod agent;
 mod panels;
 pub mod tools;
 pub mod viewport;
 
+pub use agent::{AgentFactory, AgentPanel};
 use egui::RichText;
+pub use shape_agent::ControlServer;
 use shape_geom::primitives;
 use shape_gpu::ShadingMode;
 use shape_math::{Transform, Vec2};
@@ -37,6 +40,10 @@ pub struct ShapeApp {
     property_before: Option<Scene>,
     /// Pointer over the viewport last frame, in viewport pixels.
     last_pointer: Option<Vec2>,
+    pub agent: AgentPanel,
+    /// Tool calls from the MCP server, run on the scene each frame.
+    control: Option<ControlServer>,
+    pub show_agent: bool,
 }
 
 /// Primitives the Add menu offers.
@@ -98,6 +105,49 @@ impl ShapeApp {
             file: None,
             property_before: None,
             last_pointer: None,
+            agent: AgentPanel::new(None),
+            control: None,
+            show_agent: true,
+        }
+    }
+
+    /// Attach the agent process factory and the control channel its tools arrive on.
+    pub fn with_agent(mut self, factory: Option<AgentFactory>, control: Option<ControlServer>) -> Self {
+        self.agent = AgentPanel::new(factory);
+        self.control = control;
+        self
+    }
+
+    /// Run one tool call from the agent on the scene, as one undo step. Public so the control
+    /// loop and tests share it.
+    pub fn run_tool(&mut self, name: &str, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+        if shape_agent::tools::mutates(name) {
+            let before = self.scene.clone();
+            match shape_agent::tools::execute(&mut self.scene, name, params) {
+                Ok(v) => {
+                    self.record_from(&format!("Agent: {name}"), before);
+                    self.status = format!("Agent ran {name}");
+                    Ok(v)
+                }
+                Err(e) => {
+                    self.scene = before;
+                    Err(e)
+                }
+            }
+        } else {
+            shape_agent::tools::execute(&mut self.scene, name, params)
+        }
+    }
+
+    fn drain_control(&mut self) {
+        let Some(control) = &self.control else { return };
+        let pending: Vec<shape_agent::ControlRequest> = control.requests.try_iter().collect();
+        for req in pending {
+            let (method, params) = (req.method.clone(), req.params.clone());
+            match self.run_tool(&method, &params) {
+                Ok(v) => req.ok(v),
+                Err(e) => req.err(e),
+            }
         }
     }
 
@@ -420,12 +470,16 @@ impl ShapeApp {
 
     /// Draw one frame. Split out of `eframe::App::ui` so `egui_kittest` can drive it.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.drain_control();
         let (enter, escape) = self.modal_keys(ui);
         self.hotkeys(ui);
         self.menu_bar(ui);
         self.status_bar(ui);
         self.outliner(ui);
         self.properties(ui);
+        if self.show_agent {
+            egui::Panel::bottom("agent").default_size(200.0).resizable(true).show(ui, |ui| self.agent.ui(ui));
+        }
         self.viewport.camera_enabled = self.modal.is_none();
         let overlay = self.modal.as_ref().map(|m| m.status()).unwrap_or_default();
         let input = egui::CentralPanel::default()
@@ -670,6 +724,24 @@ mod tests {
         let mut harness = Harness::new_ui(|ui| app.ui(ui));
         harness.run();
         harness.get_by_label("Material");
+    }
+
+    #[test]
+    fn agent_tools_run_as_undo_steps() {
+        let mut app = ShapeApp::default();
+        let r = app.run_tool("add_primitive", &serde_json::json!({"kind": "torus", "name": "Ring"})).unwrap();
+        assert_eq!(r["name"], "Ring");
+        assert_eq!(app.history.undo_name(), Some("Agent: add_primitive"));
+        assert!(app.run_tool("mesh_op", &serde_json::json!({"object": "Nope", "op": "subdivide"})).is_err());
+        assert_eq!(app.history.len(), 1, "a failed tool records nothing");
+        let s = app.run_tool("scene_summary", &serde_json::json!({})).unwrap();
+        assert_eq!(s["objects"][0]["name"], "Ring");
+        assert_eq!(app.history.len(), 1, "a read-only tool records nothing");
+        app.history.undo(&mut app.scene);
+        assert_eq!(app.scene.object_count(), 0);
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Agent");
     }
 
     #[test]

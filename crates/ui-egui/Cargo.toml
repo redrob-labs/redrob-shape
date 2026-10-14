@@ -15,6 +15,8 @@ shape-ops.workspace = true
 shape-undo.workspace = true
 shape-format.workspace = true
 shape-gpu.workspace = true
+shape-agent.workspace = true
+serde_json.workspace = true
 egui.workspace = true
 eframe = { workspace = true, features = ["wgpu"] }
 egui-wgpu.workspace = true

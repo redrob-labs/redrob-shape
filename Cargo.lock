@@ -2357,6 +2357,8 @@ dependencies = [
  "egui_kittest",
  "env_logger",
  "log",
+ "serde_json",
+ "shape-agent",
  "shape-math",
  "shape-scene",
  "shape-ui-egui",
@@ -2565,6 +2567,15 @@ dependencies = [
 [[package]]
 name = "shape-agent"
 version = "0.0.1"
+dependencies = [
+ "log",
+ "serde_json",
+ "shape-format",
+ "shape-geom",
+ "shape-math",
+ "shape-ops",
+ "shape-scene",
+]
 
 [[package]]
 name = "shape-blend"
@@ -2661,6 +2672,8 @@ dependencies = [
  "egui_kittest",
  "log",
  "rfd",
+ "serde_json",
+ "shape-agent",
  "shape-format",
  "shape-geom",
  "shape-gpu",

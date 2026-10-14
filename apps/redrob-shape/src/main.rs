@@ -2,12 +2,27 @@
 //!
 //! `redrob-shape [--demo] [--no-grid] [FILE]` opens the editor; `FILE` is any format `shape-format`
 //! reads, `--demo` fills the scene with the primitives and `--no-grid` hides the floor grid.
+//! `redrob-shape mcp --connect ADDR` runs the MCP server the agent uses to reach a window.
+
+mod acp;
 
 use shape_ui_egui::{Primitive, ShapeApp};
 
 fn main() -> eframe::Result {
     env_logger::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("mcp") {
+        let addr = args.iter().position(|a| a == "--connect").and_then(|i| args.get(i + 1)).cloned();
+        let Some(addr) = addr else {
+            eprintln!("usage: redrob-shape mcp --connect 127.0.0.1:PORT");
+            std::process::exit(2);
+        };
+        if let Err(e) = shape_agent::serve_stdio(&addr) {
+            eprintln!("redrob-shape mcp: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     let demo = args.iter().any(|a| a == "--demo");
     let no_grid = args.iter().any(|a| a == "--no-grid");
     let file = args.iter().find(|a| !a.starts_with("--")).map(std::path::PathBuf::from);
@@ -25,7 +40,8 @@ fn main() -> eframe::Result {
         ShapeApp::WINDOW_TITLE,
         options,
         Box::new(move |cc| {
-            let mut app = ShapeApp::new(cc);
+            let (factory, control) = agent_services(cc.egui_ctx.clone());
+            let mut app = ShapeApp::new(cc).with_agent(factory, control);
             if let Some(path) = file {
                 app.open(path);
             }
@@ -36,6 +52,27 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+/// The control channel for this window and the factory that starts `redrob acp --attach` against
+/// it. Without a control port the agent panel reports why.
+fn agent_services(ctx: egui::Context) -> (Option<shape_ui_egui::AgentFactory>, Option<shape_ui_egui::ControlServer>) {
+    let wake_ctx = ctx.clone();
+    let control = match shape_ui_egui::ControlServer::start(move || wake_ctx.request_repaint()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("redrob-shape: control server failed to bind: {e}");
+            return (None, None);
+        }
+    };
+    let link = acp::McpLink { addr: control.addr(), token: Some(control.token.clone()) };
+    let factory: shape_ui_egui::AgentFactory = Box::new(move || {
+        let bin = acp::find_binary().ok_or_else(|| acp::INSTALL_HINT.to_string())?;
+        let cwd = std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|_| ".".into());
+        let host = acp::AcpHost::start(&bin, &cwd, link.clone(), &[], ctx.clone())?;
+        Ok(Box::new(host) as Box<dyn shape_ui_egui::agent::AgentHost>)
+    });
+    (Some(factory), Some(control))
 }
 
 fn demo_scene(app: &mut ShapeApp) {

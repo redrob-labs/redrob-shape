@@ -18,6 +18,8 @@ eframe = { workspace = true, features = ["wgpu", "default_fonts", "x11", "waylan
 egui.workspace = true
 shape-math.workspace = true
 shape-scene.workspace = true
+shape-agent.workspace = true
+serde_json.workspace = true
 env_logger.workspace = true
 log.workspace = true
 

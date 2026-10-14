@@ -135,6 +135,7 @@ impl ShapeApp {
                     }
                     ui.separator();
                     ui.checkbox(&mut self.viewport.options.show_grid, "Grid");
+                    ui.checkbox(&mut self.show_agent, "Agent panel");
                     if ui.button("Frame All").clicked() {
                         self.viewport.frame_scene(&self.scene);
                     }
