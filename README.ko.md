@@ -33,3 +33,5 @@ Redrob Code가 설치되어 있지 않으면 사이드바가 그 사실을 알�
 ## 릴리스
 
 릴리스는 `.github/workflows/sign-and-publish.yml`이 세 빌드에 서명해 공개하는 것입니다. 순서는 그 파일 머리말에 있습니다. 공개되는 자산 이름은 Redrob Launcher가 읽는 형식 `redrob-shape-<버전>-<os>-<arch>[-portable].<확장자>` 하나뿐이며, `scripts/check-asset-names.py`가 업로드 직전에 그 이름을 검사합니다. 릴리스에는 런처용 매니페스트 `redrob-launcher.json`(`{ "schema": 1, "sharedAccount": true }`)도 함께 올라가며, 같은 검사가 그 파일이 없는 릴리스를 막습니다. 이 파일은 런처에 로그인하는 것만으로 이 릴리스에 충분하다는 뜻입니다. 런처의 로그인은 Redrob Code를 거쳐 Redrob Shape에 닿습니다(엔진이 자기 키가 없을 때 공유 계정 파일을 읽습니다). Linux 빌드는 `scripts/package-linux.sh <설치 디렉터리>`로 묶습니다.
+
+Windows 실행 파일은 Azure Artifact Signing으로 서명하며, 인증은 잡의 OpenID Connect 토큰으로 합니다(`azure/login`, 잡의 `environment: release`, `permissions: id-token: write`). 읽는 조직 시크릿은 모두 평범한 ID입니다: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `ARTIFACT_SIGNING_ENDPOINT`, `ARTIFACT_SIGNING_ACCOUNT`, `ARTIFACT_SIGNING_CERT_PROFILE`. 인증서 파일이나 클라이언트 시크릿은 어디에도 없고, 저장소 시크릿으로 다시 만들면 안 됩니다. 로그인은 모든 다운로드 뒤, 서명 직전에 합니다(OIDC 토큰은 몇 분만 유효합니다). 모든 서명은 `signtool verify /pa`를 통과하고 조직의 Public Trust 인증서(`CN=McKinley Rice, Inc.`)로 `Valid`여야 하며, 그보다 못한 것은 공개되지 않습니다.

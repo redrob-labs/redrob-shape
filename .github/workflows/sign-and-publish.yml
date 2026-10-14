@@ -275,28 +275,50 @@ jobs:
     needs: probe
     if: needs.probe.outputs.win == 'true'
     runs-on: windows-2025
+    # `release` is the environment the organization's federated credential names
+    # (repo:redrob-labs@<org id>/<repo>@<id>:environment:release); any other name is refused.
+    environment: release
+    permissions:
+      contents: read
+      # The OIDC token `azure/login` exchanges for the Artifact Signing credential.
+      id-token: write
     env:
-      WINDOWS_CERTIFICATE: ${{ secrets.WIN_CSC_LINK }}
-      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      # Plain IDs (not credentials). AZURE_CLIENT_ID is in the job env so the login step can be
+      # skipped when signing is not set up; the require step below turns that into a failure here,
+      # because a Windows build that cannot be signed must never reach the CDN.
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      # sign-and-publish signs through Azure Artifact Signing (sign step below). These name the
+      # signing account; the credential comes from the OIDC login, so nothing here is secret
+      # material and no certificate file or client secret exists anywhere.
+      ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.ARTIFACT_SIGNING_ENDPOINT }}
+      ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.ARTIFACT_SIGNING_ACCOUNT }}
+      ARTIFACT_SIGNING_CERT_PROFILE: ${{ secrets.ARTIFACT_SIGNING_CERT_PROFILE }}
       VERSION: ${{ needs.probe.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.1
 
-      - name: require the Windows signing certificate
+      - name: require the Artifact Signing configuration
+        # Six redrob-labs organization secrets, all plain IDs. Do not recreate them as repository
+        # secrets: a same-named repository secret overrides the organization one.
         shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -euo pipefail
           missing=()
-          for name in WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+            ARTIFACT_SIGNING_ENDPOINT ARTIFACT_SIGNING_ACCOUNT ARTIFACT_SIGNING_CERT_PROFILE; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing Windows signing secrets: %s\n' "${missing[*]}" >&2
+            printf 'Missing Windows signing configuration: %s\n' "${missing[*]}" >&2
             exit 1
           fi
 
       - name: download and unpack
+        # Before the Azure login: the build is large and GitHub's OIDC token lives minutes.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path incoming | Out-Null
@@ -306,47 +328,91 @@ jobs:
           Expand-Archive -Path $zip.FullName -DestinationPath "app\Redrob Shape"
           Get-ChildItem "app\Redrob Shape" -Filter *.exe | ForEach-Object { Write-Host $_.Name }
 
-      - name: import the signing certificate
-        id: certificate
-        shell: pwsh
-        run: |
-          $pfx = Join-Path $env:RUNNER_TEMP "redrob-code-signing.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          $imported = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
-          Remove-Item $pfx -Force
-          if (-not $imported.Thumbprint) { throw "The certificate imported without a thumbprint" }
-          Write-Host "Imported $($imported.Subject)"
-          "thumbprint=$($imported.Thumbprint)" >> $env:GITHUB_OUTPUT
-
-      - name: sign the executables
-        # The programs a user or Windows itself launches: blender.exe, the console launcher and the
-        # agent. RFC 3161 timestamps, so the signature outlives the certificate.
+      - name: the Artifact Signing client and signtool
+        # Also before the login, for the same reason. The signtool dlib comes from the
+        # Microsoft.ArtifactSigning.Client NuGet package; it authenticates with DefaultAzureCredential,
+        # so the `az login` below is what it uses.
+        id: tools
         shell: pwsh
         run: |
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
-            Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw "signtool.exe was not found in the Windows SDK" }
+          $client = Join-Path $env:RUNNER_TEMP "artifact-signing-client"
+          New-Item -ItemType Directory -Force -Path $client | Out-Null
+          $pkg = Join-Path $client "artifact-signing-client.zip"
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client" -OutFile $pkg
+          Expand-Archive -Path $pkg -DestinationPath (Join-Path $client "client") -Force
+          $dlib = Get-ChildItem -Path (Join-Path $client "client") -Recurse -Filter Azure.CodeSigning.Dlib.dll |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found in Microsoft.ArtifactSigning.Client" }
+          $metadata = Join-Path $client "metadata.json"
+          @{
+            Endpoint               = $env:ARTIFACT_SIGNING_ENDPOINT.TrimEnd('/')
+            CodeSigningAccountName = $env:ARTIFACT_SIGNING_ACCOUNT
+            CertificateProfileName = $env:ARTIFACT_SIGNING_CERT_PROFILE
+            # Only the credentials a CI runner or a developer shell can satisfy. Without this list a
+            # missing login falls through to InteractiveBrowserCredential, which opens a browser nobody
+            # sees and waits forever (one release elsewhere hung 30 minutes on it). Now it fails in seconds.
+            ExcludeCredentials     = @(
+              'InteractiveBrowserCredential', 'ManagedIdentityCredential', 'SharedTokenCacheCredential',
+              'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzurePowerShellCredential',
+              'AzureDeveloperCliCredential', 'WorkloadIdentityCredential'
+            )
+          } | ConvertTo-Json | Set-Content -Path $metadata -Encoding utf8
+          "signtool=$($signtool.FullName)" >> $env:GITHUB_OUTPUT
+          "dlib=$($dlib.FullName)" >> $env:GITHUB_OUTPUT
+          "metadata=$metadata" >> $env:GITHUB_OUTPUT
+
+      # Azure Artifact Signing, authenticated with OpenID Connect: the job's GitHub token is exchanged
+      # for an Azure token against the organization's app registration, whose federated credential
+      # accepts `repo:redrob-labs@<org id>/*:environment:release`. No client secret exists anywhere.
+      # Immediately before signing and after every download, because the OIDC token lives minutes.
+      - name: Log in to Azure (OIDC)
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: sign the executables
+        # The programs a user or Windows itself launches: blender.exe, the console launcher and the
+        # agent. RFC 3161 timestamps from the Artifact Signing service, so the signature outlives the
+        # certificate.
+        shell: pwsh
+        run: |
           $exes = Get-ChildItem "app\Redrob Shape" -Filter *.exe
           if ($exes.Count -lt 2) { throw "expected blender.exe and the agent, found $($exes.Count) executables" }
+          Write-Host "Signing with Azure Artifact Signing ($env:ARTIFACT_SIGNING_ACCOUNT / $env:ARTIFACT_SIGNING_CERT_PROFILE)"
           foreach ($exe in $exes) {
-            & $signtool.FullName sign /sha1 "${{ steps.certificate.outputs.thumbprint }}" `
-              /fd sha256 /td sha256 /tr "http://timestamp.digicert.com" $exe.FullName
+            & "${{ steps.tools.outputs.signtool }}" sign /v /fd SHA256 /td SHA256 `
+              /d "Redrob Shape" /du "https://github.com/redrob-labs/redrob-shape" `
+              /tr "http://timestamp.acs.microsoft.com" `
+              /dlib "${{ steps.tools.outputs.dlib }}" /dmdf "${{ steps.tools.outputs.metadata }}" $exe.FullName
             if ($LASTEXITCODE -ne 0) { throw "signtool failed on $($exe.Name) with $LASTEXITCODE" }
           }
 
       - name: verify the Authenticode signatures
-        # This organisation's certificate is not trusted on a fresh runner, so Status reads
-        # UnknownError or NotTrusted rather than Valid. Only an unsigned file or a broken hash fails.
+        # A Public Trust certificate chains to a Microsoft root every Windows trusts, so the full
+        # Authenticode check must pass: signtool's own, then Status Valid and nothing less. The
+        # signer must be the organization's certificate, so a profile pointed at the wrong
+        # certificate never publishes.
         shell: pwsh
         run: |
-          $accepted = @("Valid", "UnknownError", "NotTrusted")
+          $expectedSigner = "CN=McKinley Rice, Inc."
           foreach ($exe in Get-ChildItem "app\Redrob Shape" -Filter *.exe) {
+            & "${{ steps.tools.outputs.signtool }}" verify /pa /v $exe.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed on $($exe.Name) with $LASTEXITCODE" }
             $s = Get-AuthenticodeSignature $exe.FullName
             if (-not $s.SignerCertificate) { throw "$($exe.Name) has no signer certificate" }
-            if ($accepted -notcontains $s.Status.ToString()) { throw "$($exe.Name): $($s.Status) $($s.StatusMessage)" }
+            if ($s.Status -ne 'Valid') { throw "$($exe.Name) signature status $($s.Status): $($s.StatusMessage)" }
             if (-not $s.TimeStamperCertificate) { throw "$($exe.Name) carries no timestamp" }
-            Write-Host "$($exe.Name): $($s.SignerCertificate.Subject) status=$($s.Status)"
+            if ($s.SignerCertificate.Subject -notlike "$expectedSigner*") {
+              throw "$($exe.Name) is signed by '$($s.SignerCertificate.Subject)', expected '$expectedSigner'"
+            }
+            Write-Host "$($exe.FullName) signed by $($s.SignerCertificate.Subject)"
           }
           New-Item -ItemType Directory -Force -Path staging | Out-Null
           # "-portable.zip": the one zip name Redrob Launcher reads as an installable Windows build.
