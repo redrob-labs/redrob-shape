@@ -4,10 +4,14 @@
 """Connection UI: which transport Redrob Shape uses, and why.
 
 The panel's job is to make the choice legible. A user who cannot tell whether their prompt went to
-loopback, to Redrob's gateway, to their own billed API key, or to their subscription cannot make an
-informed decision about any of it -- so every transport is listed with its state and its reason,
-including the ones that are unavailable, because "why is it not using my key" is the question this
-panel exists to answer.
+Redrob Code on this computer, to Redrob's gateway directly, to their own billed API key, or to their
+subscription cannot make an informed decision about any of it -- so every transport is listed with
+its state and its reason, including the ones that are unavailable, because "why is it not using my
+key" is the question this panel exists to answer.
+
+The Redrob Console key is never in this add-on, nor in the sidecar: Redrob Code, the engine every
+Redrob app on the computer shares, holds it. Connecting hands it over; the sign-in state shown here
+is the engine's answer, asked through the sidecar.
 
 Two things are deliberately absent:
 
@@ -37,9 +41,9 @@ from .i18n import iface_
 _STORE = credentials.CredentialStore()
 
 _TRANSPORT_ITEMS = (
-    ("AUTO", "Automatic", "Use the first available transport, preferring local and gateway"),
-    ("LOCAL", "redrob-code (local)", "The local engine on 127.0.0.1:4096"),
-    ("GATEWAY", "Redrob gateway", "console.redrob.ai, using a Redrob key"),
+    ("AUTO", "Automatic", "Use the first available transport, preferring Redrob Code"),
+    ("LOCAL", "Redrob Code (local engine)", "The shared Redrob Code engine on this computer, which holds your Redrob Console key"),
+    ("GATEWAY", "Redrob gateway (direct)", "console.redrob.ai with a key held by this app; not used by this version"),
     ("BYO", "Your own API key", "OpenAI or Anthropic, billed to your account"),
     ("SUBSCRIPTION", "Your Claude or ChatGPT plan", "Runs the vendor's own CLI, which authenticates itself"),
 )
@@ -50,18 +54,6 @@ _KIND_BY_ITEM = {
     "BYO": transport.Kind.BYO,
     "SUBSCRIPTION": transport.Kind.SUBSCRIPTION,
 }
-
-
-def _health_check(url: str) -> bool:
-    """Is the local engine up? Short timeout: this runs while drawing a panel."""
-    import urllib.error
-    import urllib.request
-
-    try:
-        with urllib.request.urlopen(f"{url}/global/health", timeout=0.4) as response:
-            return 200 <= response.status < 300
-    except Exception:
-        return False
 
 
 def preferences():
@@ -78,12 +70,15 @@ def resolve_now():
     if prefs.transport_choice != "AUTO":
         preferred = [_KIND_BY_ITEM[prefs.transport_choice]]
     current = _session()
+    if current is None or current.connection == 'UNKNOWN':
+        engine_connected = None
+    else:
+        engine_connected = current.connection == 'CONNECTED'
     return transport.resolve(
         _STORE,
-        _health_check,
+        engine_connected=engine_connected,
         subscription_enabled=prefs.subscription_enabled,
         preferred=preferred,
-        gateway_connected=(current is not None and current.connection == 'CONNECTED'),
         supported=transport.AGENT_KINDS,
     )
 
@@ -124,7 +119,7 @@ class REDROB_Preferences(AddonPreferences):
     # the operator clears immediately after storing.
     key_entry: StringProperty(
         name="Key",
-        description="Paste a key here to store it in your operating system keyring",
+        description="Paste a key here. A Redrob key goes to Redrob Code; other keys to your operating system keyring",
         default="",
         subtype="PASSWORD",
         options={"SKIP_SAVE"},
@@ -155,7 +150,7 @@ class REDROB_Preferences(AddonPreferences):
         for account, state in _STORE.status().items():
             row = box.row()
             if account == "redrob":
-                # The agent keeps this one; ask it, and let the panel's Disconnect remove it.
+                # Redrob Code keeps this one; the agent asks it, and the panel's Disconnect removes it.
                 current = _session()
                 state = _redrob_key_state(current) if current is not None else "unknown"
                 row.label(text=f"{account}: {state}")
@@ -183,7 +178,7 @@ class REDROB_OT_store_key(Operator):
         # where it would be written to userpref.blend on the next save.
         prefs.key_entry = ""
         if prefs.key_target == "redrob":
-            # Same home as a device-flow key: the agent's keychain entry. Never the local store.
+            # Same home as a device-flow key: Redrob Code, through the agent. Never the local store.
             agent = _agent()
             if agent is None:
                 self.report({"ERROR"}, "The local agent is not running, so the key was not stored")
@@ -193,7 +188,7 @@ class REDROB_OT_store_key(Operator):
             except RuntimeError as error:
                 self.report({"ERROR"}, credentials.redact(str(error)))
                 return {"CANCELLED"}
-            self.report({"INFO"}, "Sent the Redrob key to the system keychain")
+            self.report({"INFO"}, "Sent the Redrob key to Redrob Code")
             return {"FINISHED"}
         try:
             _STORE.set(prefs.key_target, value)
@@ -222,22 +217,23 @@ class REDROB_OT_forget_key(Operator):
         return {"FINISHED"}
 
 
+#: What to say under "Connected", by where Redrob Code says its key came from.
 _SOURCE_NOTES = {
-    "keychain": ("Saved in your system keychain", "LOCKED"),
-    "session": ("No system keychain here: connected until Blender closes", "INFO"),
-    "environment": ("Using REDROB_API_KEY from the environment", "INFO"),
+    "api": ("Held by Redrob Code, shared by every Redrob app on this computer", "LINKED"),
+    "env": ("Redrob Code is using REDROB_API_KEY from its environment", "INFO"),
+    "config": ("Set in Redrob Code's own configuration", "INFO"),
     "launcher": ("Signed in with Redrob Launcher", "LINKED"),
 }
 
 
-def _disconnect_control(source):
-    """How the Disconnect button appears for a key from `source`. Disconnect removes this app's
-    own key, so a key the environment supplies cannot be removed from here (shown, disabled), and
-    Redrob Launcher's shared sign-in is not this app's to remove at all (not shown: sign out in
-    the launcher)."""
-    if source == "launcher":
+def _disconnect_control(origin):
+    """How the Disconnect button appears for a key Redrob Code got from `origin`. Disconnect asks
+    the engine to forget a stored key, so a key its environment or configuration supplies cannot
+    be removed from here (shown, disabled), and Redrob Launcher's sign-in is the launcher's to
+    remove (not shown: sign out in the launcher)."""
+    if origin == "launcher":
         return 'HIDDEN'
-    if source == "environment":
+    if origin in {"env", "config"}:
         return 'DISABLED'
     return 'ENABLED'
 
@@ -261,7 +257,7 @@ def draw_online_access(layout, context=None):
         )
         return
     layout_text.wrapped_labels(
-        box, iface_("Redrob Shape reaches Redrob Console over the internet to make plans.")
+        box, iface_("Redrob Shape reaches Redrob Console over the internet, through Redrob Code on this computer, to make plans.")
     )
     row = box.row()
     row.scale_y = 1.4
@@ -272,7 +268,7 @@ def _redrob_key_state(current):
     if current.connection != 'CONNECTED':
         return "not connected"
     hint = f", ending {current.connection_hint}" if current.connection_hint else ""
-    return f"connected ({current.connection_source or 'agent'}{hint})"
+    return f"connected ({current.connection_source or 'engine'}{hint})"
 
 
 def _remaining(current):
@@ -296,14 +292,12 @@ def draw_console_connection(layout, current):
             icon='CHECKMARK',
             translate=False,
         )
-        note = _SOURCE_NOTES.get(current.connection_source)
+        note = _SOURCE_NOTES.get(current.connection_origin)
         if note:
             layout_text.wrapped_labels(box, iface_(note[0]), icon=note[1])
-        if current.connection_source == "launcher" and current.connection_account:
-            box.label(text=iface_("Workspace {}").format(current.connection_account), translate=False)
         if current.key_name:
             box.label(text=iface_("Listed in Console as {}").format(current.key_name), translate=False)
-        control = _disconnect_control(current.connection_source)
+        control = _disconnect_control(current.connection_origin)
         if control != 'HIDDEN':
             row = box.row()
             row.enabled = control == 'ENABLED'
@@ -331,6 +325,15 @@ def draw_console_connection(layout, current):
         box.label(text="Asking Redrob Console for a code", icon='TIME')
         return
 
+    if state == 'ERROR' and current.engine_missing:
+        # Nothing to connect to yet. Redrob Code is what plans go through, and the launcher
+        # installs it; Connect would only fail again.
+        layout_text.wrapped_labels(box, current.connection_message, limit=4, icon='ERROR')
+        install = box.row()
+        install.scale_y = 1.4
+        install.operator("redrob_shape.open_install_page", icon='URL')
+        return
+
     if state == 'UNKNOWN':
         box.label(text="Checking the connection", icon='TIME')
     elif current.connection_message:
@@ -348,8 +351,8 @@ class REDROB_OT_connect(Operator):
     bl_idname = "redrob_shape.connect"
     bl_label = "Connect Redrob Console"
     bl_description = (
-        "Approve this computer in Redrob Console, in your browser. The key it issues is kept in "
-        "your system keychain, never in Blender's files"
+        "Approve this computer in Redrob Console, in your browser. The key it issues is kept by "
+        "Redrob Code on this computer, never in Blender's files"
     )
 
     def execute(self, context):
@@ -429,6 +432,16 @@ class REDROB_OT_allow_online_access(Operator):
         return {"FINISHED"}
 
 
+class REDROB_OT_open_install_page(Operator):
+    bl_idname = "redrob_shape.open_install_page"
+    bl_label = "Install Redrob Launcher"
+    bl_description = "Open the Redrob Launcher download page. The launcher installs Redrob Code, which plans go through"
+
+    def execute(self, _context):
+        bpy.ops.wm.url_open(url=transport.ENGINE_INSTALL_URL)
+        return {"FINISHED"}
+
+
 class REDROB_OT_open_connect_page(Operator):
     bl_idname = "redrob_shape.open_connect_page"
     bl_label = "Open Approval Page"
@@ -458,8 +471,8 @@ class REDROB_OT_disconnect(Operator):
     bl_idname = "redrob_shape.disconnect"
     bl_label = "Disconnect"
     bl_description = (
-        "Remove the Redrob key from this computer's keychain. Revoke it in Redrob Console to stop "
-        "it working anywhere else"
+        "Remove the Redrob key from Redrob Code on this computer, which signs out every Redrob app "
+        "here. Revoke it in Redrob Console to stop it working anywhere else"
     )
 
     def invoke(self, context, event):
@@ -503,7 +516,7 @@ class REDROB_PT_connection(Panel):
                 )
         else:
             header.label(text="No transport available", icon="ERROR")
-            header.label(text="Connect Redrob Console, or paste a Redrob key in Preferences")
+            header.label(text="Install Redrob Code, then connect Redrob Console")
 
         # Everything considered, not just the winner: "why is it not using my key" is the question
         # this panel exists to answer.
@@ -530,6 +543,7 @@ _CLASSES = (
     REDROB_OT_connect,
     REDROB_OT_connect_cancel,
     REDROB_OT_allow_online_access,
+    REDROB_OT_open_install_page,
     REDROB_OT_open_connect_page,
     REDROB_OT_copy_connect_code,
     REDROB_OT_disconnect,

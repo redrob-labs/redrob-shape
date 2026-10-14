@@ -9,39 +9,63 @@ SPDX-License-Identifier: GPL-3.0-or-later
 `redrob-shape-agent` is a separate Rust planning process for Redrob Shape. Process
 separation limits the Blender integration surface, but it is not an operating-system sandbox. It reads
 versioned JSON Lines requests from standard input, writes JSON Lines events to standard output,
-and sends planning requests to Redrob's OpenAI-compatible chat-completions endpoint. It does not
-load Blender, mutate scenes, execute model-generated code, or read API keys from protocol input.
+and sends planning requests to the shared **Redrob Code** daemon on this computer, over its
+OpenAI-compatible `/v1/chat/completions`. It does not load Blender, mutate scenes, execute
+model-generated code, hold a Redrob Console key, or read API keys from protocol input.
+
+## Requires Redrob Code
+
+Plans go through one `redrob serve --register` per user, the engine every Redrob app attaches to
+(redrob-code `docs/LOCAL-ENGINE-API.md`, section 3). The engine holds the Redrob Console key,
+applies masking, and talks to the Console; this sidecar never does. There is deliberately no
+direct path to the Console: two paths would hide whether masking applied to a plan.
+
+- The daemon is found through its record (`~/.redrob/run/server.json`, or `REDROB_RUN_DIR`) and
+  started with `redrob service start --json` when it is not up (`REDROB_CODE_BIN`,
+  `~/.redrob/bin/redrob`, then `redrob` on `PATH`). A daemon this sidecar starts stays up for 10
+  minutes with nobody attached.
+- Every request to the daemon carries its `Authorization`, `x-redrob-app: shape`, and
+  `x-redrob-session`: the id the add-on passes in `REDROB_SHAPE_SESSION`, one per Blender session.
+- The daemon's secret rotates on every start. A 401 or a refused connection makes the sidecar read
+  the record again once and repeat the request; a second 401 is the Console refusing the key the
+  daemon holds, reported as `invalid_api_key`.
+- No engine binary: `plan`, `connection_status`, `disconnect` and `store_key` fail with
+  `engine_not_installed` ("Redrob Code is not installed. Install it with Redrob Launcher."), and
+  `health` reports it under `engine` with `install_url`. An engine that will not start fails with
+  `engine_start_failed` and the reason.
 
 ## Configuration
 
-- The key for `plan` comes from the OS keychain (`ai.redrob.shape` / `redrob`), put there by
-  `connect_wait` or `store_key`. `REDROB_API_KEY` in the environment overrides it for development
-  and CI. It is sent only as a bearer token and is never logged or returned.
-- When this app has no key of its own, Redrob Launcher's shared sign-in is the fallback: the
-  `account.json` the launcher writes under `$XDG_CONFIG_HOME/redrob-shared` (Linux),
-  `~/Library/Application Support/ai.redrob.shared` (macOS) or `%APPDATA%\Redrob\Shared` (Windows);
-  `REDROB_SHARED_DIR` replaces the directory. It is read at the moment a key is needed, never
-  written or deleted, and `connection_status` reports it as `source: launcher` with the
-  workspace's `account_name`. `disconnect` removes only this app's own key.
-- `REDROB_BASE_URL` optionally replaces the complete chat-completions endpoint. It defaults to
-  `https://console.redrob.ai/api/backend/v1/chat/completions`. Only HTTPS URLs without embedded
-  credentials or fragments are accepted; redirects are disabled.
 - `REDROB_DEVICE_BASE_URL` optionally replaces the console root that holds `device/authorize` and
-  `device/token`, default `https://console.redrob.ai/api/backend/v1`, with the same HTTPS rules.
-- `REDROB_MODEL` optionally selects the model and defaults to `auto`.
+  `device/token`, default `https://console.redrob.ai/api/backend/v1`. Only HTTPS URLs without
+  embedded credentials or fragments are accepted; redirects are disabled. The device flow is how a
+  person obtains a key; the key then goes to the engine.
+- `REDROB_MODEL` optionally selects the model, in the engine's `<provider>/<model>` form, and
+  defaults to `redrob/auto`.
+- `REDROB_SHAPE_SESSION` is the session id the add-on sets. Absent, the sidecar mints one.
+- `REDROB_RUN_DIR` and `REDROB_CODE_BIN` are the engine client's own overrides, above.
+
+There is no `REDROB_API_KEY` and no `REDROB_BASE_URL` any more: the engine holds the key
+(`redrob providers login`, or Connect from Blender), and the engine's record says where plans go.
 
 `health` remains available when configuration is absent or invalid, allowing the parent process to
-display a useful status without making a network request. It carries the connection status.
+display a useful status without making a network request to anything but the local engine. It
+carries the connection status and an `engine` block (`available`, `version`, or `code`, `message`,
+`install_url`).
 
 ## Connecting
 
 | Method | Answer |
 |---|---|
-| `connection_status` | `{connected, source: environment\|keychain\|session\|launcher, key_hint, keychain_available, account_name}` |
+| `connection_status` | `{connected, source: engine\|null, provider_source: api\|env\|launcher\|config\|null, key_hint, engine_version}`, from the engine's `GET /provider`. |
 | `connect_start` | `{user_code, verification_uri, verification_uri_complete, expires_in, interval}`. The device code stays in the agent. |
-| `connect_wait` | Polls until approval, then stores the key and answers with the status plus `key_name` and `account_name`. Cancellable with `cancel`; errors `access_denied`, `expired_token`, `invalid_grant`, `no_pending_connection`. |
-| `disconnect` | Removes the stored key and answers with the status. A key from the environment, and Redrob Launcher's shared sign-in, remain. |
-| `store_key` | `{"key": "..."}`: stores a pasted key the same way. The key is never echoed. |
+| `connect_wait` | Polls until approval, then hands the key to the engine (`PUT /auth/redrob`) and answers with the status plus `key_name` and `account_name`. Cancellable with `cancel`; errors `access_denied`, `expired_token`, `invalid_grant`, `no_pending_connection`. |
+| `disconnect` | The engine forgets the key (`DELETE /auth/redrob`), which signs out every Redrob app on the computer, and answers with the status. A key the engine's own environment or configuration supplies, and Redrob Launcher's sign-in, remain. |
+| `store_key` | `{"key": "..."}`: hands a pasted key to the engine the same way. The key is never echoed. |
+
+A key an earlier version kept in the OS keychain (`ai.redrob.shape` / `redrob`) is moved into
+the engine the first time the engine answers, and deleted from the keychain. That is the only
+thing this sidecar still does with a keychain.
 
 ## Protocol
 

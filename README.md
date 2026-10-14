@@ -51,7 +51,24 @@ upstream, so this shape discards nothing that cannot be fetched again.
   The option defaults to OFF; the `redrob_shape` cmake preset is what turns it on, which the gate
   asserts, because otherwise a build silently ships with no agent and no error.
 - `scripts/addons_core/redrob_shape/`: the Blender add-on: panels, operators, runtime,
-  protocol, tools, theme, state, context, and 18 unit tests.
+  protocol, tools, theme, state, context, and its unit tests.
+
+## Requires Redrob Code
+
+Plans go through **Redrob Code**, the engine every Redrob app on a computer shares (one
+`redrob serve --register` per user; redrob-code `docs/LOCAL-ENGINE-API.md`, section 3). The
+sidecar finds it through its record, starts it when it is not running, and sends every plan to its
+OpenAI-compatible `/v1/chat/completions` with `x-redrob-app: shape` and one `x-redrob-session` per
+Blender session. The engine holds the Redrob Console key and applies masking; neither the add-on
+nor the sidecar ever holds the key, and there is no direct path to the Console. Connecting from
+Blender runs the Console's device-code flow and hands the key it issues to the engine; signing in
+with `redrob providers login`, or in Redrob Launcher, works the same way for every app.
+
+Without Redrob Code installed, the sidebar says so and offers [Redrob
+Launcher](https://github.com/redrob-labs/redrob-launcher/releases/latest), which installs it. A key
+an earlier Redrob Shape kept in the OS keychain is moved into the engine on first start and removed
+from the keychain. The sidecar's own [README](overlay/intern/redrob_agent/README.md) has the
+protocol and the error codes.
 
 ## Branding, and the line it does not cross
 
@@ -147,8 +164,9 @@ SHA256SUMS.txt
 ```
 
 `redrob-launcher.json` is the launcher's release manifest (`{ "schema": 1, "sharedAccount": true }`):
-it tells Redrob Launcher that this release reads the launcher's shared account file, so signing in
-to the launcher is all a person needs. The publish job writes it and lists it in `SHA256SUMS.txt`.
+it tells Redrob Launcher that signing in to the launcher is all a person needs for this release. The
+launcher's sign-in reaches Redrob Shape through Redrob Code, which reads the shared account file
+when it holds no key of its own. The publish job writes it and lists it in `SHA256SUMS.txt`.
 
 `scripts/check-asset-names.py` is the gate for those names. It runs over the staging directory
 right before the upload (`--release-dir`), so a release the launcher would skip, or one without

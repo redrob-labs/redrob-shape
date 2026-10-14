@@ -4,9 +4,10 @@
 
 [package]
 name = "redrob-shape-agent"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
-rust-version = "1.88"
+# redrob-engine-client is edition 2024 and asks for 1.90.
+rust-version = "1.90"
 license = "GPL-3.0-or-later"
 description = "Isolated Redrob planning sidecar for Blender"
 publish = false
@@ -14,8 +15,14 @@ publish = false
 [dependencies]
 futures-util = "0.3"
 # The OS keychain: Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux.
-# Same version and backends as redrob-recall. The Linux backend links libdbus-1 at build time.
+# Only read and emptied here, once: a key an earlier version kept there is moved to the shared
+# Redrob Code daemon on first start (`credentials::LegacyKeychain`). The Linux backend links
+# libdbus-1 at build time.
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# The shared Redrob Code daemon: its record, its health, how to start it, and the headers every
+# chat request carries (redrob-code docs/LOCAL-ENGINE-API.md, section 3).
+# TODO(release): pin tag v0.6.3
+redrob-engine-client = { git = "https://github.com/redrob-labs/redrob-code", tag = "v0.6.3" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -24,8 +31,9 @@ tokio = { version = "1.43", features = ["io-std", "io-util", "macros", "rt-multi
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
 
 [dev-dependencies]
-# Paused time, so the device-flow polling tests run its intervals instantly.
-tokio = { version = "1.43", features = ["macros", "rt", "test-util"] }
+# Paused time, so the device-flow polling tests run its intervals instantly. `net` runs the fake
+# daemon the engine tests talk to.
+tokio = { version = "1.43", features = ["macros", "net", "rt", "test-util"] }
 
 [profile.release]
 codegen-units = 1

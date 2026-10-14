@@ -120,8 +120,22 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 The Rust sidecar is built by Blender's own CMake behind `WITH_REDROB_AGENT`, enabled by the
 `redrob_shape` cmake preset at
-`overlay/build_files/cmake/config/redrob_shape.cmake`. `Cargo.toml` pins `rust-version = "1.88"`
-and edition 2021.
+`overlay/build_files/cmake/config/redrob_shape.cmake`. `Cargo.toml` pins `rust-version = "1.90"`
+and edition 2021; it depends on `redrob-engine-client` from redrob-code as a git dependency pinned
+to a revision (`# TODO(release): pin tag v0.6.3`), so `cargo build --locked` needs network access
+to GitHub the first time. Its own gates, run from `overlay/intern/redrob_agent`:
+
+```bash
+cargo fmt --check && cargo clippy --all-targets && cargo test
+python3 tools/generate_third_party_licenses.py --check   # THIRD_PARTY.md and the license bundle
+```
+
+The sidecar's tests stand up a fake Redrob Code daemon on 127.0.0.1 and point the engine client at
+it with `REDROB_RUN_DIR` and `REDROB_CODE_BIN`; they never touch `~/.redrob` or a real engine.
+
+Plans go through the shared Redrob Code daemon and the daemon holds the Redrob Console key; the
+sidecar and the add-on hold no key and have no direct path to the Console (see "Requires Redrob
+Code" in `README.md`). Do not add one.
 
 **`__pycache__` is tracked in this repository (16 `.pyc` files).** Running the add-on tests rewrites
 them, so a clean tree becomes dirty as a side effect of testing. Restore them with `git checkout --

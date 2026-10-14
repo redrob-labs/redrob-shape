@@ -93,7 +93,11 @@ def check_agent(agent):
 
     request = protocol.encode_request("0" * 32, "health", {})
     env = dict(os.environ)
-    env.pop("REDROB_API_KEY", None)
+    # The agent asks the shared Redrob Code engine for its state on `health`, and would start one
+    # if the binary were there. This check is about the agent being present and speaking the
+    # protocol; point it at no engine so it answers `engine_not_installed` without touching one.
+    env["REDROB_CODE_BIN"] = str(Path(tempfile.gettempdir()) / "redrob-shape-check-no-engine")
+    env["REDROB_RUN_DIR"] = str(Path(tempfile.gettempdir()) / "redrob-shape-check-no-run-dir")
     try:
         completed = subprocess.run(
             [str(agent)], input=request, capture_output=True, timeout=60, env=env

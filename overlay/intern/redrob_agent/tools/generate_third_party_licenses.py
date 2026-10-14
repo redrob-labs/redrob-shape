@@ -14,6 +14,8 @@ from collections import defaultdict
 from pathlib import Path
 
 _LICENSE_PREFIXES = ("LICENSE", "COPYING", "NOTICE", "AUTHORS")
+# How far above a git-sourced crate to look for the repository's license (crates/<name> is 2).
+_GIT_ROOT_MAX_DEPTH = 3
 
 
 def _metadata(manifest: Path, cargo: str) -> dict:
@@ -42,18 +44,30 @@ def _dependency_packages(metadata: dict) -> list[dict]:
     )
 
 
-def _license_files(package: dict) -> list[Path]:
-    package_directory = Path(package["manifest_path"]).resolve().parent
-    candidates = {
+def _license_files_in(directory: Path) -> set[Path]:
+    return {
         path.resolve()
-        for path in package_directory.iterdir()
+        for path in directory.iterdir()
         if path.is_file() and path.name.upper().startswith(_LICENSE_PREFIXES)
     }
+
+
+def _license_files(package: dict) -> list[Path]:
+    package_directory = Path(package["manifest_path"]).resolve().parent
+    candidates = _license_files_in(package_directory)
     license_file = package.get("license_file")
     if license_file:
         candidate = (package_directory / license_file).resolve()
         if candidate.is_file() and candidate.is_relative_to(package_directory):
             candidates.add(candidate)
+    # A crate inside a git repository (redrob-engine-client lives at crates/engine-client of
+    # redrob-code) usually keeps its license at the repository root. Cargo checks the whole
+    # repository out, so walk up to it; stop at the first directory that has a license file.
+    if not candidates and package["source"] and package["source"].startswith("git+"):
+        for parent in list(package_directory.parents)[:_GIT_ROOT_MAX_DEPTH]:
+            candidates = _license_files_in(parent)
+            if candidates:
+                break
     return sorted(candidates, key=lambda path: path.name.casefold())
 
 

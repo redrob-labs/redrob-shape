@@ -309,9 +309,9 @@ def _connection_state(**overrides):
         connection='UNKNOWN',
         connection_message="",
         connection_source="",
+        connection_origin="",
         connection_hint="",
-        connection_keychain=True,
-        connection_account="",
+        engine_missing=False,
         user_code="",
         verification_uri="",
         verification_uri_complete="",
@@ -357,9 +357,9 @@ class ConnectionTests(unittest.TestCase):
                     "configured": True,
                     "connection": {
                         "connected": True,
-                        "source": "keychain",
+                        "source": "engine",
                         "key_hint": "cdef",
-                        "keychain_available": True,
+                        "provider_source": "api",
                     },
                 },
             },
@@ -398,9 +398,9 @@ class ConnectionTests(unittest.TestCase):
                 "event": "success",
                 "result": {
                     "connected": True,
-                    "source": "keychain",
+                    "source": "engine",
                     "key_hint": "cdef",
-                    "keychain_available": True,
+                    "provider_source": "api",
                     "key_name": "Redrob Shape (2026-10-08)",
                     "account_name": "Acme",
                 },
@@ -454,7 +454,7 @@ class ConnectionTests(unittest.TestCase):
             "disconnect",
             {
                 "event": "success",
-                "result": {"connected": False, "source": None, "key_hint": None, "keychain_available": True},
+                "result": {"connected": False, "source": None, "key_hint": None, "provider_source": None},
             },
         )
         self.assertEqual(state.connection, 'DISCONNECTED')
@@ -462,8 +462,8 @@ class ConnectionTests(unittest.TestCase):
         self.assertIn("Revoke", state.connection_message)
         self.assertFalse(state.sidecar_available)
 
-    def test_disconnect_cannot_remove_an_environment_key_and_says_so(self):
-        state = _connection_state(connection='CONNECTED', connection_source="environment")
+    def test_disconnect_cannot_remove_the_engines_own_key_and_says_so(self):
+        state = _connection_state(connection='CONNECTED', connection_source="engine", connection_origin="env")
         self._deliver(
             state,
             "d",
@@ -472,14 +472,15 @@ class ConnectionTests(unittest.TestCase):
                 "event": "success",
                 "result": {
                     "connected": True,
-                    "source": "environment",
+                    "source": "engine",
                     "key_hint": "cdef",
-                    "keychain_available": True,
+                    "provider_source": "env",
                 },
             },
         )
         self.assertEqual(state.connection, 'CONNECTED')
-        self.assertIn("REDROB_API_KEY", state.connection_message)
+        self.assertEqual(state.connection_origin, "env")
+        self.assertIn("Redrob Code", state.connection_message)
 
     def test_connection_answers_never_touch_the_plan_status(self):
         state = _connection_state(status='READY', status_message="Validated locally")
@@ -511,46 +512,112 @@ class ConnectionTests(unittest.TestCase):
 
     _LAUNCHER = {
         "connected": True,
-        "source": "launcher",
+        "source": "engine",
+        "provider_source": "launcher",
         "key_hint": "wxyz",
-        "keychain_available": True,
-        "account_name": "Acme",
+        "engine_version": "0.6.3",
     }
 
-    def test_the_launchers_shared_sign_in_is_applied_with_its_workspace(self):
+    def test_the_engines_answer_is_applied_with_where_its_key_came_from(self):
         state = _connection_state()
         self._deliver(state, "s", "connection_status", {"event": "success", "result": dict(self._LAUNCHER)})
         self.assertEqual(state.connection, 'CONNECTED')
-        self.assertEqual(state.connection_source, "launcher")
-        self.assertEqual(state.connection_account, "Acme")
+        self.assertEqual(state.connection_source, "engine")
+        self.assertEqual(state.connection_origin, "launcher")
         self.assertTrue(state.sidecar_available)
-        # The launcher signs out: the next status answer clears it all again.
+        # Another app signs the engine out: the next status answer clears it all again.
         self._deliver(
             state,
             "s2",
             "connection_status",
-            {"event": "success", "result": {"connected": False, "source": None, "key_hint": None, "keychain_available": True}},
+            {"event": "success", "result": {"connected": False, "source": None, "key_hint": None, "provider_source": None}},
         )
         self.assertEqual(state.connection, 'DISCONNECTED')
         self.assertEqual(state.connection_source, "")
-        self.assertEqual(state.connection_account, "")
+        self.assertEqual(state.connection_origin, "")
 
     def test_disconnect_that_leaves_the_launchers_sign_in_says_so(self):
-        state = _connection_state(connection='CONNECTED', connection_source="keychain", key_name="Redrob Shape")
+        state = _connection_state(connection='CONNECTED', connection_source="engine", connection_origin="api", key_name="Redrob Shape")
         self._deliver(state, "d", "disconnect", {"event": "success", "result": dict(self._LAUNCHER)})
         self.assertEqual(state.connection, 'CONNECTED')
-        self.assertEqual(state.connection_source, "launcher")
+        self.assertEqual(state.connection_origin, "launcher")
         self.assertEqual(state.key_name, "")
         self.assertIn("Redrob Launcher", state.connection_message)
         self.assertNotIn("Revoke", state.connection_message)
 
-    def test_the_status_is_refreshed_only_while_the_launcher_may_change_it(self):
-        follows = type(self.agent).follows_the_launcher
+    _NOT_INSTALLED = {
+        "code": "engine_not_installed",
+        "message": "Redrob Code is not installed. Install it with Redrob Launcher.",
+        "retryable": False,
+    }
+
+    def test_a_missing_engine_is_shown_in_the_connect_block_with_the_launcher(self):
+        # From health: the engine block says it is not there.
+        state = _connection_state(status='IDLE')
+        self._deliver(
+            state,
+            "h",
+            "health",
+            {
+                "event": "success",
+                "result": {
+                    "service": "redrob-shape-agent",
+                    "configured": False,
+                    "reason": "engine_not_installed",
+                    "connection": {"connected": False, "source": None, "key_hint": None},
+                    "engine": {"available": False, **self._NOT_INSTALLED, "install_url": "https://example.invalid/launcher"},
+                },
+            },
+        )
+        self.assertEqual(state.connection, 'ERROR')
+        self.assertTrue(state.engine_missing)
+        self.assertIn("Redrob Launcher", state.connection_message)
+        self.assertFalse(state.sidecar_available)
+        self.assertIn("Connect", state.status_message)
+
+        # From a plan: the chat gets the error, and the Connect block the same reason.
+        state = _connection_state(status='WORKING', request_id="p1", connection='DISCONNECTED', history_json="[]", messages_json="[]")
+        self._deliver(state, "p1", "plan", {"event": "error", "error": dict(self._NOT_INSTALLED)})
+        self.assertEqual(state.connection, 'ERROR')
+        self.assertTrue(state.engine_missing)
+        self.assertEqual(state.status, 'ERROR')
+
+        # From connection_status while connecting: the code is dropped, the block says why.
+        state = _connection_state(connection='WAITING', connect_request_id="w", user_code="TY78-Y8VS")
+        self._deliver(state, "w", "connect_wait", {"event": "error", "error": {**self._NOT_INSTALLED}})
+        self.assertEqual(state.connection, 'ERROR')
+        self.assertEqual(state.user_code, "")
+        self.assertTrue(state.engine_missing)
+
+        # The engine gets installed and answers: the flag clears.
+        self._deliver(state, "s", "connection_status", {"event": "success", "result": {"connected": False, "source": None}})
+        self.assertEqual(state.connection, 'DISCONNECTED')
+        self.assertFalse(state.engine_missing)
+
+    def test_an_engine_that_would_not_start_gives_its_reason_without_the_launcher(self):
+        state = _connection_state()
+        self._deliver(
+            state,
+            "s",
+            "connection_status",
+            {
+                "event": "error",
+                "error": {"code": "engine_start_failed", "message": "Redrob Code could not be started: port taken", "retryable": True},
+            },
+        )
+        self.assertEqual(state.connection, 'ERROR')
+        self.assertFalse(state.engine_missing)
+        self.assertIn("port taken", state.connection_message)
+
+    def test_the_status_is_refreshed_while_the_shared_engine_may_change_it(self):
+        follows = type(self.agent).follows_the_engine
         self.assertTrue(follows(_connection_state(connection='DISCONNECTED')))
-        self.assertTrue(follows(_connection_state(connection='CONNECTED', connection_source="launcher")))
-        for own in ("keychain", "session", "environment"):
-            self.assertFalse(follows(_connection_state(connection='CONNECTED', connection_source=own)), own)
-        for busy in ('UNKNOWN', 'STARTING', 'WAITING', 'ERROR'):
+        for origin in ("api", "env", "launcher", "config"):
+            self.assertTrue(follows(_connection_state(connection='CONNECTED', connection_source="engine", connection_origin=origin)), origin)
+        # Missing: the launcher may install it. A failed start is not re-tried on a timer.
+        self.assertTrue(follows(_connection_state(connection='ERROR', engine_missing=True)))
+        self.assertFalse(follows(_connection_state(connection='ERROR', engine_missing=False)))
+        for busy in ('UNKNOWN', 'STARTING', 'WAITING'):
             self.assertFalse(follows(_connection_state(connection=busy)), busy)
 
         class Running:
@@ -568,10 +635,18 @@ class ConnectionTests(unittest.TestCase):
         self.agent.drain(context)
         self.assertEqual(sent, ["connection_status"], "once per interval, not per tick")
         self.agent.last_shared_refresh = 0.0
-        state.connection_source = "keychain"
-        state.connection = 'CONNECTED'
+        state.connection = 'STARTING'
         self.agent.drain(context)
-        self.assertEqual(sent, ["connection_status"], "a key of our own is not re-asked about")
+        self.assertEqual(sent, ["connection_status"], "not while a connection is in flight")
+
+    def test_the_sidecar_is_told_this_blender_sessions_id(self):
+        # One id per AgentRuntime, so Reconnect keeps the same id, and it rides in the environment
+        # the sidecar reads (REDROB_SHAPE_SESSION).
+        self.assertTrue(self.agent.session_id)
+        self.assertEqual(self.agent.session_id, self.agent.session_id.strip())
+        self.assertNotEqual(self.agent.session_id, self.runtime.AgentRuntime().session_id)
+        source = Path(self.runtime.__file__).read_text(encoding="utf-8")
+        self.assertIn('env["REDROB_SHAPE_SESSION"] = self.session_id', source)
 
 
 if __name__ == "__main__":
