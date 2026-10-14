@@ -2349,6 +2349,7 @@ dependencies = [
  "env_logger",
  "log",
  "shape-math",
+ "shape-scene",
  "shape-ui-egui",
 ]
 
@@ -2543,6 +2544,7 @@ dependencies = [
  "serde_json",
  "shape-geom",
  "shape-math",
+ "shape-ops",
  "shape-scene",
  "thiserror 2.0.21",
 ]
@@ -2564,6 +2566,7 @@ dependencies = [
  "log",
  "shape-geom",
  "shape-math",
+ "shape-ops",
  "shape-scene",
  "wgpu",
 ]
@@ -2579,6 +2582,11 @@ dependencies = [
 [[package]]
 name = "shape-ops"
 version = "0.0.1"
+dependencies = [
+ "shape-geom",
+ "shape-math",
+ "shape-scene",
+]
 
 [[package]]
 name = "shape-render"
@@ -2610,6 +2618,7 @@ dependencies = [
  "shape-geom",
  "shape-gpu",
  "shape-math",
+ "shape-ops",
  "shape-scene",
  "shape-undo",
  "wgpu",

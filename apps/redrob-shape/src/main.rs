@@ -50,6 +50,10 @@ fn demo_scene(app: &mut ShapeApp) {
     for (p, at) in placements {
         let id = app.add_primitive(p);
         app.scene.object_mut(id).unwrap().transform = Transform::from_translation(at);
+        if p == Primitive::Cube {
+            // Show the modifier stack working: a rounded cube.
+            app.add_modifier(shape_scene::Modifier::Subdivision { levels: 2, smooth: true });
+        }
     }
     app.scene.selection.clear();
     app.viewport.frame_scene(&app.scene);

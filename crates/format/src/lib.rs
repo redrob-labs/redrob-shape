@@ -146,14 +146,15 @@ pub fn mesh_from_soup(positions: &[Vec3], polygons: &[Vec<u32>]) -> Result<Mesh>
     }
 }
 
-/// Positions and polygons of every visible mesh object in world space, with the object's name.
+/// Positions and polygons of every visible mesh object in world space (modifiers applied), with
+/// the object's name.
 pub(crate) fn world_polygons(scene: &Scene) -> Vec<(String, Vec<Vec3>, Vec<Vec<u32>>)> {
     let mut out = Vec::new();
     for (id, o) in scene.objects() {
         if !o.visible {
             continue;
         }
-        if let Some((_, mesh)) = scene.object_mesh(id) {
+        if let Some(mesh) = shape_ops::evaluated_mesh(scene, id) {
             let t = scene.world_transform(id);
             let (mut pos, polys) = mesh.to_polygons();
             for p in &mut pos {

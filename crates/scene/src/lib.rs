@@ -85,11 +85,50 @@ impl Default for Camera {
     }
 }
 
+/// A non-destructive edit on a mesh object, applied in stack order by `shape-ops`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Modifier {
+    /// Mirror across the plane perpendicular to `axis` (0 X, 1 Y, 2 Z) through the object origin.
+    Mirror { axis: u8, merge_distance: f32 },
+    /// `count` copies spaced `offset` apart.
+    Array { count: u32, offset: Vec3, merge_distance: f32 },
+    /// Catmull-Clark (`smooth`) or linear subdivision, `levels` times.
+    Subdivision { levels: u32, smooth: bool },
+    /// Laplacian smoothing.
+    Smooth { iterations: u32, factor: f32 },
+}
+
+impl Modifier {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Modifier::Mirror { .. } => "Mirror",
+            Modifier::Array { .. } => "Array",
+            Modifier::Subdivision { .. } => "Subdivision",
+            Modifier::Smooth { .. } => "Smooth",
+        }
+    }
+
+    /// A modifier with nothing to do is skipped by the evaluator.
+    pub fn enabled(&self) -> bool {
+        match self {
+            Modifier::Array { count, .. } => *count > 1,
+            Modifier::Subdivision { levels, .. } => *levels > 0,
+            Modifier::Smooth { iterations, .. } => *iterations > 0,
+            Modifier::Mirror { .. } => true,
+        }
+    }
+}
+
 /// What an object is.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ObjectData {
     Empty,
-    Mesh { mesh: MeshId, material: Option<MaterialId> },
+    Mesh {
+        mesh: MeshId,
+        material: Option<MaterialId>,
+        #[serde(default)]
+        modifiers: Vec<Modifier>,
+    },
     Light(Light),
     Camera(Camera),
 }
@@ -176,7 +215,7 @@ impl Scene {
     pub fn add_mesh_object(&mut self, name: impl Into<String>, mesh: Mesh, material: Option<MaterialId>) -> ObjectId {
         let name = name.into();
         let mesh = self.add_mesh(MeshData { name: name.clone(), mesh });
-        self.add_object(Object::new(name, ObjectData::Mesh { mesh, material }))
+        self.add_object(Object::new(name, ObjectData::Mesh { mesh, material, modifiers: Vec::new() }))
     }
 
     /// Remove an object and reparent its children to its parent. Its mesh data stays.
@@ -248,7 +287,22 @@ impl Scene {
         }
     }
 
-    /// Mesh of a mesh object, if it is one and its data exists.
+    /// Modifier stack of a mesh object (empty for anything else).
+    pub fn modifiers(&self, id: ObjectId) -> &[Modifier] {
+        match self.object(id).map(|o| &o.data) {
+            Some(ObjectData::Mesh { modifiers, .. }) => modifiers,
+            _ => &[],
+        }
+    }
+
+    pub fn modifiers_mut(&mut self, id: ObjectId) -> Option<&mut Vec<Modifier>> {
+        match self.object_mut(id).map(|o| &mut o.data) {
+            Some(ObjectData::Mesh { modifiers, .. }) => Some(modifiers),
+            _ => None,
+        }
+    }
+
+    /// Base mesh of a mesh object (modifiers not applied), if it is one and its data exists.
     pub fn object_mesh(&self, id: ObjectId) -> Option<(MeshId, &Mesh)> {
         match &self.object(id)?.data {
             ObjectData::Mesh { mesh, .. } => Some((*mesh, &self.mesh(*mesh)?.mesh)),

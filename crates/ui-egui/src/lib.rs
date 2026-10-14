@@ -10,7 +10,7 @@ use egui::RichText;
 use shape_geom::primitives;
 use shape_gpu::ShadingMode;
 use shape_math::{Transform, Vec3};
-use shape_scene::{ObjectData, ObjectId, Scene};
+use shape_scene::{Modifier, ObjectData, ObjectId, Scene};
 use shape_undo::{History, Snapshot};
 use std::path::PathBuf;
 pub use viewport::{GpuContext, ViewportPanel};
@@ -100,6 +100,45 @@ impl ShapeApp {
             scene.selection.set(id);
         });
         id
+    }
+
+    /// Replace the active object's mesh with `op(mesh)`, undoably. Modifiers stay in place.
+    pub fn apply_mesh_op(&mut self, name: &str, op: impl Fn(&shape_geom::Mesh) -> shape_ops::Result<shape_geom::Mesh>) {
+        let Some(id) = self.scene.selection.active else { return };
+        let Some((mesh_id, mesh)) = self.scene.object_mesh(id) else { return };
+        match op(mesh) {
+            Ok(new_mesh) => self.edit(name, |scene| {
+                if let Some(data) = scene.mesh_mut(mesh_id) {
+                    data.mesh = new_mesh;
+                }
+            }),
+            Err(e) => self.status = format!("{name} failed: {e}"),
+        }
+    }
+
+    /// Bake the active object's modifier stack into its mesh.
+    pub fn apply_modifiers(&mut self) {
+        let Some(id) = self.scene.selection.active else { return };
+        let Some(evaluated) = shape_ops::evaluated_mesh(&self.scene, id).map(|m| m.into_owned()) else { return };
+        let Some((mesh_id, _)) = self.scene.object_mesh(id) else { return };
+        self.edit("Apply Modifiers", |scene| {
+            if let Some(data) = scene.mesh_mut(mesh_id) {
+                data.mesh = evaluated;
+            }
+            if let Some(stack) = scene.modifiers_mut(id) {
+                stack.clear();
+            }
+        });
+    }
+
+    pub fn add_modifier(&mut self, modifier: Modifier) {
+        let Some(id) = self.scene.selection.active else { return };
+        let name = format!("Add {}", modifier.name());
+        self.edit(&name, |scene| {
+            if let Some(stack) = scene.modifiers_mut(id) {
+                stack.push(modifier);
+            }
+        });
     }
 
     pub fn delete_selected(&mut self) {
@@ -231,6 +270,37 @@ impl ShapeApp {
                     if ui.add_enabled(!self.scene.selection.is_empty(), egui::Button::new("Delete")).clicked() {
                         self.delete_selected();
                     }
+                    ui.separator();
+                    let has_mesh = self.scene.selection.active.is_some_and(|id| self.scene.object_mesh(id).is_some());
+                    ui.add_enabled_ui(has_mesh, |ui| {
+                        ui.menu_button("Mesh", |ui| {
+                            if ui.button("Subdivide (Catmull-Clark)").clicked() {
+                                self.apply_mesh_op("Subdivide", shape_ops::catmull_clark);
+                            }
+                            if ui.button("Subdivide (Linear)").clicked() {
+                                self.apply_mesh_op("Subdivide Linear", shape_ops::subdivide_linear);
+                            }
+                            if ui.button("Extrude All Faces 0.5").clicked() {
+                                self.apply_mesh_op("Extrude", |m| shape_ops::extrude_faces(m, &shape_ops::all_faces(m), 0.5));
+                            }
+                            if ui.button("Inset All Faces 0.2").clicked() {
+                                self.apply_mesh_op("Inset", |m| shape_ops::inset_faces(m, &shape_ops::all_faces(m), 0.2));
+                            }
+                            if ui.button("Smooth").clicked() {
+                                self.apply_mesh_op("Smooth", |m| shape_ops::smooth(m, 2, 0.5));
+                            }
+                            if ui.button("Triangulate").clicked() {
+                                self.apply_mesh_op("Triangulate", shape_ops::triangulate);
+                            }
+                            if ui.button("Flip Normals").clicked() {
+                                self.apply_mesh_op("Flip Normals", shape_ops::flip_normals);
+                            }
+                            ui.separator();
+                            if ui.button("Apply Modifiers").clicked() {
+                                self.apply_modifiers();
+                            }
+                        });
+                    });
                 });
                 ui.menu_button("Add", |ui| {
                     for p in Primitive::ALL {
@@ -341,12 +411,17 @@ impl ShapeApp {
                 edited.transform.rotation = shape_math::Quat::from_euler(shape_math::glam_euler(), rx, ry, rz);
             }
             vec3_row(ui, "Scale", &mut edited.transform.scale, 0.01);
-            if let ObjectData::Mesh { mesh, .. } = object.data
-                && let Some(data) = self.scene.mesh(mesh)
+            if let ObjectData::Mesh { mesh, .. } = &object.data
+                && let Some(data) = self.scene.mesh(*mesh)
             {
                 ui.separator();
                 ui.label(RichText::new("Mesh").strong());
                 ui.label(format!("{} vertices, {} edges, {} faces", data.mesh.vertex_count(), data.mesh.edge_count(), data.mesh.face_count()));
+                if !self.scene.modifiers(id).is_empty()
+                    && let Some(ev) = shape_ops::evaluated_mesh(&self.scene, id)
+                {
+                    ui.label(RichText::new(format!("evaluated: {} vertices, {} faces", ev.vertex_count(), ev.face_count())).weak());
+                }
             }
             if edited != object {
                 // Live edits are not undoable individually; one snapshot per drag is a later stage.
@@ -354,7 +429,88 @@ impl ShapeApp {
                     *o = edited;
                 }
             }
+            if matches!(object.data, ObjectData::Mesh { .. }) {
+                ui.separator();
+                self.modifier_panel(ui, id);
+            }
         });
+    }
+}
+
+impl ShapeApp {
+    fn modifier_panel(&mut self, ui: &mut egui::Ui, id: ObjectId) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Modifiers").strong());
+            ui.menu_button("Add", |ui| {
+                if ui.button("Mirror X").clicked() {
+                    self.add_modifier(Modifier::Mirror { axis: 0, merge_distance: 1e-4 });
+                }
+                if ui.button("Array").clicked() {
+                    self.add_modifier(Modifier::Array { count: 2, offset: Vec3::new(2.5, 0.0, 0.0), merge_distance: 0.0 });
+                }
+                if ui.button("Subdivision").clicked() {
+                    self.add_modifier(Modifier::Subdivision { levels: 1, smooth: true });
+                }
+                if ui.button("Smooth").clicked() {
+                    self.add_modifier(Modifier::Smooth { iterations: 1, factor: 0.5 });
+                }
+            });
+        });
+        let mut stack = self.scene.modifiers(id).to_vec();
+        let before = stack.clone();
+        let mut remove: Option<usize> = None;
+        for (i, m) in stack.iter_mut().enumerate() {
+            ui.push_id(i, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(m.name());
+                    if ui.small_button("✕").clicked() {
+                        remove = Some(i);
+                    }
+                });
+                match m {
+                    Modifier::Mirror { axis, merge_distance } => {
+                        ui.horizontal(|ui| {
+                            for (a, label) in [(0u8, "X"), (1, "Y"), (2, "Z")] {
+                                ui.radio_value(axis, a, label);
+                            }
+                            ui.add(egui::DragValue::new(merge_distance).speed(0.0001).prefix("merge ").max_decimals(4));
+                        });
+                    }
+                    Modifier::Array { count, offset, .. } => {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(count).range(1..=64).prefix("count "));
+                        });
+                        vec3_row(ui, "Offset", offset, 0.05);
+                    }
+                    Modifier::Subdivision { levels, smooth } => {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(levels).range(0..=4).prefix("levels "));
+                            ui.checkbox(smooth, "smooth");
+                        });
+                    }
+                    Modifier::Smooth { iterations, factor } => {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(iterations).range(0..=50).prefix("iterations "));
+                            ui.add(egui::DragValue::new(factor).range(0.0..=1.0).speed(0.01).prefix("factor "));
+                        });
+                    }
+                }
+            });
+        }
+        if let Some(i) = remove {
+            stack.remove(i);
+            let name = format!("Remove {}", before[i].name());
+            self.edit(&name, |scene| {
+                if let Some(s) = scene.modifiers_mut(id) {
+                    *s = stack.clone();
+                }
+            });
+        } else if stack != before {
+            // Live parameter edits are applied directly; a per-drag snapshot comes with edit mode.
+            if let Some(s) = self.scene.modifiers_mut(id) {
+                *s = stack;
+            }
+        }
     }
 }
 
@@ -419,6 +575,25 @@ mod tests {
         assert_eq!(app.scene.object_count(), 2);
         assert_eq!(app.scene.object(a).unwrap().name, "Cube");
         assert_eq!(app.history.redo_name(), Some("Delete"));
+    }
+
+    #[test]
+    fn mesh_ops_and_modifiers_are_undoable() {
+        let mut app = ShapeApp::default();
+        let id = app.add_primitive(Primitive::Cube);
+        app.apply_mesh_op("Subdivide", shape_ops::catmull_clark);
+        assert_eq!(app.scene.object_mesh(id).unwrap().1.face_count(), 24);
+        app.history.undo(&mut app.scene);
+        assert_eq!(app.scene.object_mesh(id).unwrap().1.face_count(), 6);
+        app.add_modifier(Modifier::Subdivision { levels: 2, smooth: true });
+        assert_eq!(app.scene.modifiers(id).len(), 1);
+        assert_eq!(shape_ops::evaluated_mesh(&app.scene, id).unwrap().face_count(), 96);
+        app.apply_modifiers();
+        assert!(app.scene.modifiers(id).is_empty());
+        assert_eq!(app.scene.object_mesh(id).unwrap().1.face_count(), 96);
+        app.history.undo(&mut app.scene);
+        assert_eq!(app.scene.object_mesh(id).unwrap().1.face_count(), 6);
+        assert_eq!(app.scene.modifiers(id).len(), 1);
     }
 
     #[test]

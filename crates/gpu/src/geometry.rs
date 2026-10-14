@@ -34,7 +34,8 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
         if !object.visible {
             continue;
         }
-        let Some((_, mesh)) = scene.object_mesh(id) else { continue };
+        let Some(mesh) = shape_ops::evaluated_mesh(scene, id) else { continue };
+        let mesh = mesh.as_ref();
         let material = match &object.data {
             ObjectData::Mesh { material: Some(m), .. } => scene.material(*m),
             _ => None,
@@ -102,11 +103,11 @@ pub fn pick(scene: &Scene, camera: &OrbitCamera, pixel: Vec2, size: Vec2) -> Opt
         if !object.visible {
             continue;
         }
-        let Some((_, mesh)) = scene.object_mesh(id) else { continue };
+        let Some(mesh) = shape_ops::evaluated_mesh(scene, id) else { continue };
         // Cast in object space: transform the ray by the inverse world transform.
         let inv = scene.world_transform(id).inverse();
         let local = shape_math::Ray::new(inv.transform_point(ray.origin), inv.transform_vector(ray.direction));
-        let Some(hit) = Bvh::build(mesh).intersect(&local) else { continue };
+        let Some(hit) = Bvh::build(&mesh).intersect(&local) else { continue };
         // Distance in world units: re-project the local hit point.
         let world_hit = scene.world_transform(id).transform_point(local.at(hit.t));
         let t = (world_hit - ray.origin).dot(ray.direction);

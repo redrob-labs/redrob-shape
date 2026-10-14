@@ -75,7 +75,7 @@ pub fn load(path: &Path) -> Result<Scene> {
 
 fn add_node(scene: &mut Scene, node: &gltf::Node, parent: Option<shape_scene::ObjectId>, meshes: &HashMap<usize, (MeshId, Option<MaterialId>)>) {
     let data = match node.mesh().and_then(|m| meshes.get(&m.index())) {
-        Some(&(mesh, material)) => ObjectData::Mesh { mesh, material },
+        Some(&(mesh, material)) => ObjectData::Mesh { mesh, material, modifiers: Vec::new() },
         None => ObjectData::Empty,
     };
     let mut object = Object::new(node.name().unwrap_or("Node"), data);
@@ -121,7 +121,7 @@ pub fn to_json(scene: &Scene) -> Result<String> {
     let object_materials: Vec<Option<MaterialId>> = scene
         .objects()
         .filter(|(id, o)| o.visible && scene.object_mesh(*id).is_some())
-        .map(|(_, o)| if let ObjectData::Mesh { material, .. } = o.data { material } else { None })
+        .map(|(_, o)| if let ObjectData::Mesh { material, .. } = &o.data { *material } else { None })
         .collect();
 
     for ((name, pos, polys), material) in world_polygons(scene).into_iter().zip(object_materials) {
@@ -189,7 +189,8 @@ mod tests {
         let back = load(&path).unwrap();
         assert_same_geometry(&scene, &back);
         let cube = back.objects().find(|(_, o)| o.name == "Cube").unwrap().1;
-        let ObjectData::Mesh { material: Some(m), .. } = cube.data else { panic!("cube lost its material") };
+        let ObjectData::Mesh { material: Some(m), .. } = &cube.data else { panic!("cube lost its material") };
+        let m = *m;
         assert_eq!(back.material(m).unwrap().base_color, [0.8, 0.1, 0.1, 1.0]);
         // Faces survive as triangles; the welded cube is closed again.
         let (id, _) = back.objects().find(|(_, o)| o.name == "Cube").unwrap();
