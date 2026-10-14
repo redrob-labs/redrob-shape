@@ -13,7 +13,7 @@ into `develop` and lands only when its gate is green. Model: the ArtCraft "craft
 | 4 | `ops` | extrude, inset, loop cut, smooth, Catmull-Clark and linear subdivide; Mirror/Array/Subdivision/Smooth modifiers | topology invariants |
 | 5 | `ui-egui` | outliner, properties, tool shelf, G/R/S hotkeys, undo UI | driven-input recording |
 | 6 | `scene`, `gpu` | PBR materials, lights, basic UV unwrap | viewport snapshots |
-| 7 | `blend` | read-only `.blend` import: Mesh, Object, Material | 5 sample files load |
+| 7 | `blend` | read-only `.blend` import (2.5x-5.x, zstd/gzip): objects, meshes, materials, lights, cameras | 3 real files load |
 | 8 | `agent` | shared Redrob Code daemon, MCP tools (scene_query, apply_op, render), approval UI | one real prompt |
 | 9 | `render` | CPU path tracer (rayon), render window, PNG save | PSNR against references |
 | 10 | packaging | macOS universal, Windows x64/arm64, Linux; OIDC signing; launcher manifest | asset count = build count |

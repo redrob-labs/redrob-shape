@@ -8,6 +8,13 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
+shape-math.workspace = true
+shape-geom.workspace = true
+shape-scene.workspace = true
+thiserror.workspace = true
+log.workspace = true
+zstd = "0.13"
+flate2 = "1"
 
 [lints]
 workspace = true

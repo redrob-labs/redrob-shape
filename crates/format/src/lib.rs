@@ -1,4 +1,4 @@
-//! Native `.rshape` files plus OBJ, STL, glTF and PLY.
+//! Native `.rshape` files plus OBJ, STL, glTF and PLY, and read-only `.blend` through `shape-blend`.
 //!
 //! Every importer produces a [`Scene`]; every exporter takes one. Importers that only carry
 //! geometry (OBJ, STL, PLY) build one mesh object per group. Triangle soups (STL) are welded by
@@ -35,6 +35,10 @@ pub enum FormatError {
     Gltf(#[from] gltf::Error),
     #[error("unsupported file extension {0:?}")]
     UnknownExtension(String),
+    #[error("blend: {0}")]
+    Blend(#[from] shape_blend::BlendError),
+    #[error("{0} files can be opened but not saved")]
+    ExportUnsupported(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, FormatError>;
@@ -51,6 +55,8 @@ pub enum Format {
     Stl,
     Ply,
     Gltf,
+    /// Import only.
+    Blend,
 }
 
 impl Format {
@@ -62,11 +68,16 @@ impl Format {
             "stl" => Format::Stl,
             "ply" => Format::Ply,
             "gltf" | "glb" => Format::Gltf,
+            "blend" => Format::Blend,
             _ => return Err(FormatError::UnknownExtension(ext)),
         })
     }
 
-    pub const ALL: [Format; 5] = [Format::Rshape, Format::Obj, Format::Stl, Format::Ply, Format::Gltf];
+    pub const ALL: [Format; 6] = [Format::Rshape, Format::Obj, Format::Stl, Format::Ply, Format::Gltf, Format::Blend];
+
+    pub fn can_export(self) -> bool {
+        self != Format::Blend
+    }
 
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
@@ -75,6 +86,7 @@ impl Format {
             Format::Stl => &["stl"],
             Format::Ply => &["ply"],
             Format::Gltf => &["gltf", "glb"],
+            Format::Blend => &["blend"],
         }
     }
 }
@@ -87,6 +99,7 @@ pub fn import(path: &Path) -> Result<Scene> {
         Format::Stl => stl::load(path),
         Format::Ply => ply::load(path),
         Format::Gltf => gltf_io::load(path),
+        Format::Blend => Ok(shape_blend::import(path)?),
     }
 }
 
@@ -98,6 +111,7 @@ pub fn export(scene: &Scene, path: &Path) -> Result<()> {
         Format::Stl => stl::save(scene, path),
         Format::Ply => ply::save(scene, path),
         Format::Gltf => gltf_io::save(scene, path),
+        Format::Blend => Err(FormatError::ExportUnsupported("blend")),
     }
 }
 
@@ -238,7 +252,9 @@ mod tests {
     fn format_from_extension() {
         assert_eq!(Format::from_path(Path::new("a/b.OBJ")).unwrap(), Format::Obj);
         assert_eq!(Format::from_path(Path::new("x.glb")).unwrap(), Format::Gltf);
-        assert!(matches!(Format::from_path(Path::new("x.blend")), Err(FormatError::UnknownExtension(_))));
+        assert_eq!(Format::from_path(Path::new("x.blend")).unwrap(), Format::Blend);
+        assert!(!Format::Blend.can_export());
+        assert!(matches!(Format::from_path(Path::new("x.max")), Err(FormatError::UnknownExtension(_))));
     }
 
     #[test]

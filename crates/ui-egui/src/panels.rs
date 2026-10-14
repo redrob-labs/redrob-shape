@@ -453,7 +453,7 @@ impl ShapeApp {
 /// Native open/save dialog filtered to the formats `shape-format` handles.
 fn file_dialog(open: bool, current: &Option<PathBuf>) -> Option<PathBuf> {
     let mut dialog = rfd::FileDialog::new();
-    let all: Vec<&str> = shape_format::Format::ALL.iter().flat_map(|f| f.extensions().iter().copied()).collect();
+    let all: Vec<&str> = shape_format::Format::ALL.iter().filter(|f| open || f.can_export()).flat_map(|f| f.extensions().iter().copied()).collect();
     dialog = dialog.add_filter("3D scenes", &all).add_filter("Redrob Shape", &["rshape"]);
     if let Some(dir) = current.as_ref().and_then(|p| p.parent()) {
         dialog = dialog.set_directory(dir);
