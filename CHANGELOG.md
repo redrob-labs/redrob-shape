@@ -2,10 +2,10 @@
 
 All notable changes to Redrob Shape. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.0] - 2026-10-14
+## [0.2.0] - 2026-10-14
 
 The first release of Redrob Shape written from scratch in Rust. Nothing from the earlier
-Blender-based distribution (kept at the tag `blender-fork-final`) is carried here.
+Blender-based distribution (0.1.x, kept at the tag `blender-fork-final`) is carried here.
 
 ### Added
 - Half-edge mesh core with primitives (cube, plane, UV sphere, torus, cylinder), BVH picking.
