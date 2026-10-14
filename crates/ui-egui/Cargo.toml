@@ -20,6 +20,7 @@ eframe = { workspace = true, features = ["wgpu"] }
 egui-wgpu.workspace = true
 wgpu = { version = "30", default-features = false }
 log.workspace = true
+rfd.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true

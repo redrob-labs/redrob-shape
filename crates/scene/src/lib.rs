@@ -5,7 +5,7 @@
 //! through `parent`; an object's world transform is its parents' transforms composed with its own.
 
 use serde::{Deserialize, Serialize};
-use shape_geom::Mesh;
+use shape_geom::{FaceId, Mesh};
 use shape_math::{Aabb, Transform, Vec3};
 use std::collections::BTreeSet;
 
@@ -189,6 +189,19 @@ impl Selection {
     }
 }
 
+/// Edit mode: one mesh object whose faces are being selected and edited directly.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EditSelection {
+    pub object: ObjectId,
+    pub faces: BTreeSet<FaceId>,
+}
+
+impl EditSelection {
+    pub fn new(object: ObjectId) -> Self {
+        Self { object, faces: BTreeSet::new() }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Scene {
     pub name: String,
@@ -196,6 +209,9 @@ pub struct Scene {
     meshes: Vec<Option<MeshData>>,
     materials: Vec<Option<Material>>,
     pub selection: Selection,
+    /// `Some` while in edit mode. Not saved: a file always opens in object mode.
+    #[serde(skip)]
+    pub edit: Option<EditSelection>,
 }
 
 impl Scene {
@@ -229,6 +245,9 @@ impl Scene {
         self.selection.objects.remove(&id);
         if self.selection.active == Some(id) {
             self.selection.active = None;
+        }
+        if self.edit.as_ref().is_some_and(|e| e.object == id) {
+            self.edit = None;
         }
         Some(removed)
     }

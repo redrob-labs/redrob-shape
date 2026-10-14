@@ -11,7 +11,7 @@ pub mod camera;
 mod geometry;
 
 pub use camera::OrbitCamera;
-pub use geometry::{ShadingMode, build_frame, pick};
+pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, pick, pick_detail};
 
 use bytemuck::{Pod, Zeroable};
 use shape_math::Vec3;

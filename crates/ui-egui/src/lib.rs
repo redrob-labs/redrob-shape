@@ -1,19 +1,22 @@
 //! Editor panels, hotkeys and the egui shell.
 //!
-//! [`ShapeApp`] owns the [`Scene`], its undo [`History`] and the viewport. Stage 3 draws the scene
-//! in a wgpu viewport with orbit/pan/zoom, click picking, an Add menu of primitives, an outliner
-//! that selects, and a properties panel for the active object.
+//! [`ShapeApp`] owns the [`Scene`], its undo [`History`], the viewport, the active [`Tool`] and any
+//! running [`Modal`]. Panels live in `panels`, modal operators in `tools`, the 3D view in
+//! `viewport`.
 
+mod panels;
+pub mod tools;
 pub mod viewport;
 
 use egui::RichText;
 use shape_geom::primitives;
 use shape_gpu::ShadingMode;
-use shape_math::{Transform, Vec3};
-use shape_scene::{Modifier, ObjectData, ObjectId, Scene};
+use shape_math::{Transform, Vec2};
+use shape_scene::{EditSelection, Modifier, ObjectId, Scene};
 use shape_undo::{History, Snapshot};
 use std::path::PathBuf;
-pub use viewport::{GpuContext, ViewportPanel};
+pub use tools::{Modal, ModalEnd, ModalKind, Tool};
+pub use viewport::{GpuContext, ViewportInput, ViewportPanel};
 
 /// Crate name, used by the layering test in `apps/redrob-shape`.
 pub const CRATE: &str = "shape-ui-egui";
@@ -26,8 +29,14 @@ pub struct ShapeApp {
     pub scene: Scene,
     pub history: History<Scene>,
     pub viewport: ViewportPanel,
+    pub tool: Tool,
+    pub modal: Option<Modal>,
     status: String,
     file: Option<PathBuf>,
+    /// Scene before the property drag in progress, turned into one undo step on release.
+    property_before: Option<Scene>,
+    /// Pointer over the viewport last frame, in viewport pixels.
+    last_pointer: Option<Vec2>,
 }
 
 /// Primitives the Add menu offers.
@@ -79,7 +88,17 @@ impl ShapeApp {
     }
 
     pub fn with_gpu(gpu: Option<GpuContext>) -> Self {
-        Self { scene: Scene::new("Scene"), history: History::default(), viewport: ViewportPanel::new(gpu), status: String::new(), file: None }
+        Self {
+            scene: Scene::new("Scene"),
+            history: History::default(),
+            viewport: ViewportPanel::new(gpu),
+            tool: Tool::Select,
+            modal: None,
+            status: String::new(),
+            file: None,
+            property_before: None,
+            last_pointer: None,
+        }
     }
 
     /// Apply an undoable edit to the scene.
@@ -87,6 +106,13 @@ impl ShapeApp {
         let cmd = Snapshot::new(name, &self.scene, edit);
         self.history.push(Box::new(cmd), &mut self.scene);
         self.status = name.to_owned();
+    }
+
+    /// Record the current scene as the result of `name`, with `before` as the undo state.
+    fn record_from(&mut self, name: &str, before: Scene) {
+        let after = std::mem::replace(&mut self.scene, before);
+        let cmd = Snapshot::new(name, &self.scene, move |s| *s = after);
+        self.history.push(Box::new(cmd), &mut self.scene);
     }
 
     pub fn add_primitive(&mut self, p: Primitive) -> ObjectId {
@@ -159,6 +185,7 @@ impl ShapeApp {
             Ok(scene) => {
                 self.scene = scene;
                 self.history.clear();
+                self.modal = None;
                 self.viewport.frame_scene(&self.scene);
                 self.status = format!("Opened {}", path.display());
                 self.file = Some(path);
@@ -191,7 +218,141 @@ impl ShapeApp {
         }
     }
 
+    /// Enter edit mode on the active mesh object, or leave it.
+    pub fn toggle_edit_mode(&mut self) {
+        if self.scene.edit.is_some() {
+            self.scene.edit = None;
+            self.status = "Object Mode".into();
+            return;
+        }
+        if let Some(id) = self.scene.selection.active
+            && self.scene.object_mesh(id).is_some()
+        {
+            self.scene.edit = Some(EditSelection::new(id));
+            self.status = "Edit Mode".into();
+        }
+    }
+
+    /// Select every face (edit mode) or every object (object mode); again to deselect all.
+    pub fn select_all(&mut self) {
+        if let Some(object) = self.scene.edit.as_ref().map(|e| e.object) {
+            let Some((_, mesh)) = self.scene.object_mesh(object) else { return };
+            let all: std::collections::BTreeSet<_> = mesh.face_ids().collect();
+            let Some(edit) = &mut self.scene.edit else { return };
+            if edit.faces == all {
+                edit.faces.clear();
+            } else {
+                edit.faces = all;
+            }
+        } else {
+            let all: Vec<ObjectId> = self.scene.objects().map(|(id, _)| id).collect();
+            if self.scene.selection.objects.len() == all.len() {
+                self.scene.selection.clear();
+            } else {
+                for id in all {
+                    self.scene.selection.objects.insert(id);
+                }
+                if self.scene.selection.active.is_none() {
+                    self.scene.selection.active = self.scene.selection.objects.iter().next_back().copied();
+                }
+            }
+        }
+    }
+
+    /// Loop cut through the edge nearest the pointer on the hovered face (edit mode).
+    pub fn loop_cut_at_pointer(&mut self) {
+        let Some(p) = self.last_pointer else { return };
+        let size = self.viewport.size_px();
+        let Some(hit) = shape_gpu::pick_detail(&self.scene, &self.viewport.camera, p, size) else { return };
+        let Some((mesh_id, mesh)) = self.scene.object_mesh(hit.object) else { return };
+        let Some(edge) = shape_gpu::nearest_edge(mesh, hit.face, hit.local_point) else { return };
+        match shape_ops::loop_cut(mesh, edge) {
+            Ok(new_mesh) => self.edit("Loop Cut", |scene| {
+                if let Some(data) = scene.mesh_mut(mesh_id) {
+                    data.mesh = new_mesh;
+                }
+                if let Some(e) = &mut scene.edit {
+                    e.faces.clear();
+                }
+            }),
+            Err(e) => self.status = format!("Loop cut failed: {e}"),
+        }
+    }
+
+    /// Keys that start or steer modals; read before the viewport so a modal sees them this frame.
+    /// Returns `(enter, escape)` for the running modal.
+    fn modal_keys(&mut self, ui: &egui::Ui) -> (bool, bool) {
+        if ui.ctx().egui_wants_keyboard_input() {
+            return (false, false);
+        }
+        let modal_running = self.modal.is_some();
+        let (enter, escape, g, r, sc, e, i, loop_cut, tab, a, x, y, z) = ui.input_mut(|inp| {
+            (
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::G),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::R),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::S),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::E),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::I),
+                inp.consume_key(egui::Modifiers::COMMAND, egui::Key::R),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
+                inp.consume_key(egui::Modifiers::NONE, egui::Key::A),
+                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::X),
+                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::Y),
+                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::Z),
+            )
+        });
+        if let Some(m) = &mut self.modal {
+            if x {
+                m.set_axis(0);
+            }
+            if y {
+                m.set_axis(1);
+            }
+            if z {
+                m.set_axis(2);
+            }
+            return (enter, escape);
+        }
+        let pointer = self.last_pointer.unwrap_or(self.viewport.size_px() * 0.5);
+        if tab {
+            self.toggle_edit_mode();
+        }
+        if a {
+            self.select_all();
+        }
+        if self.scene.edit.is_some() {
+            if e {
+                self.modal = Modal::faces(ModalKind::Extrude, &self.scene, pointer);
+            }
+            if i {
+                self.modal = Modal::faces(ModalKind::Inset, &self.scene, pointer);
+            }
+            if loop_cut {
+                self.loop_cut_at_pointer();
+            }
+        } else {
+            let kind = if g {
+                Some(ModalKind::Move)
+            } else if r {
+                Some(ModalKind::Rotate)
+            } else if sc {
+                Some(ModalKind::Scale)
+            } else {
+                None
+            };
+            if let Some(kind) = kind {
+                self.modal = Modal::transform(kind, &self.scene, pointer, false);
+            }
+        }
+        (enter, escape)
+    }
+
     fn hotkeys(&mut self, ui: &egui::Ui) {
+        if ui.ctx().egui_wants_keyboard_input() || self.modal.is_some() {
+            return;
+        }
         let (undo, redo, del, frame, wire, solid) = ui.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
@@ -203,9 +364,6 @@ impl ShapeApp {
                 i.consume_key(egui::Modifiers::NONE, egui::Key::Num2),
             )
         });
-        if ui.ctx().egui_wants_keyboard_input() {
-            return;
-        }
         if redo {
             self.redo();
         } else if undo {
@@ -227,303 +385,111 @@ impl ShapeApp {
 
     /// Draw one frame. Split out of `eframe::App::ui` so `egui_kittest` can drive it.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        let (enter, escape) = self.modal_keys(ui);
         self.hotkeys(ui);
         self.menu_bar(ui);
         self.status_bar(ui);
         self.outliner(ui);
         self.properties(ui);
-        let events = egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.viewport.ui(ui, &self.scene)).inner;
-        if let Some(hit) = events.clicked {
-            match hit {
-                Some(id) if events.shift => self.scene.selection.toggle(id),
-                Some(id) => self.scene.selection.set(id),
-                None => self.scene.selection.clear(),
-            }
+        self.viewport.camera_enabled = self.modal.is_none();
+        let overlay = self.modal.as_ref().map(|m| m.status()).unwrap_or_default();
+        let input = egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                self.tool_bar(ui);
+                self.viewport.ui(ui, &self.scene, &overlay)
+            })
+            .inner;
+        self.last_pointer = input.pointer.or(self.last_pointer);
+        self.handle_viewport_input(&input, enter, escape);
+        if self.modal.is_some() {
+            ui.ctx().request_repaint();
         }
     }
 
-    fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("menu").show(ui, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
-                        self.scene = Scene::new("Scene");
-                        self.history.clear();
-                        self.file = None;
-                        self.status = "New scene".into();
-                    }
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
-                ui.menu_button("Edit", |ui| {
-                    let undo_label = self.history.undo_name().map(|n| format!("Undo {n}")).unwrap_or("Undo".into());
-                    if ui.add_enabled(self.history.can_undo(), egui::Button::new(undo_label)).clicked() {
-                        self.undo();
-                    }
-                    let redo_label = self.history.redo_name().map(|n| format!("Redo {n}")).unwrap_or("Redo".into());
-                    if ui.add_enabled(self.history.can_redo(), egui::Button::new(redo_label)).clicked() {
-                        self.redo();
-                    }
-                    ui.separator();
-                    if ui.add_enabled(!self.scene.selection.is_empty(), egui::Button::new("Delete")).clicked() {
-                        self.delete_selected();
-                    }
-                    ui.separator();
-                    let has_mesh = self.scene.selection.active.is_some_and(|id| self.scene.object_mesh(id).is_some());
-                    ui.add_enabled_ui(has_mesh, |ui| {
-                        ui.menu_button("Mesh", |ui| {
-                            if ui.button("Subdivide (Catmull-Clark)").clicked() {
-                                self.apply_mesh_op("Subdivide", shape_ops::catmull_clark);
-                            }
-                            if ui.button("Subdivide (Linear)").clicked() {
-                                self.apply_mesh_op("Subdivide Linear", shape_ops::subdivide_linear);
-                            }
-                            if ui.button("Extrude All Faces 0.5").clicked() {
-                                self.apply_mesh_op("Extrude", |m| shape_ops::extrude_faces(m, &shape_ops::all_faces(m), 0.5));
-                            }
-                            if ui.button("Inset All Faces 0.2").clicked() {
-                                self.apply_mesh_op("Inset", |m| shape_ops::inset_faces(m, &shape_ops::all_faces(m), 0.2));
-                            }
-                            if ui.button("Smooth").clicked() {
-                                self.apply_mesh_op("Smooth", |m| shape_ops::smooth(m, 2, 0.5));
-                            }
-                            if ui.button("Triangulate").clicked() {
-                                self.apply_mesh_op("Triangulate", shape_ops::triangulate);
-                            }
-                            if ui.button("Flip Normals").clicked() {
-                                self.apply_mesh_op("Flip Normals", shape_ops::flip_normals);
-                            }
-                            ui.separator();
-                            if ui.button("Apply Modifiers").clicked() {
-                                self.apply_modifiers();
-                            }
-                        });
-                    });
-                });
-                ui.menu_button("Add", |ui| {
-                    for p in Primitive::ALL {
-                        if ui.button(p.name()).clicked() {
-                            self.add_primitive(p);
-                        }
-                    }
-                });
-                ui.menu_button("View", |ui| {
-                    for (mode, label) in
-                        [(ShadingMode::Wireframe, "Wireframe"), (ShadingMode::Solid, "Solid"), (ShadingMode::SolidWire, "Solid + Wire")]
-                    {
-                        if ui.radio(self.viewport.options.shading == mode, label).clicked() {
-                            self.viewport.options.shading = mode;
-                        }
-                    }
-                    ui.separator();
-                    ui.checkbox(&mut self.viewport.options.show_grid, "Grid");
-                    if ui.button("Frame All").clicked() {
-                        self.viewport.frame_scene(&self.scene);
-                    }
-                });
-                ui.menu_button("Render", |_ui| {});
-                ui.menu_button("Help", |ui| {
-                    ui.label(format!("Redrob Shape {VERSION}"));
-                });
-            });
-        });
-    }
-
-    fn status_bar(&self, ui: &mut egui::Ui) {
-        egui::Panel::bottom("status").show(ui, |ui| {
+    fn tool_bar(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::top("tools").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(if self.status.is_empty() { "Ready" } else { &self.status });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(format!("Redrob Shape {VERSION}")).weak());
-                });
+                for t in Tool::ALL {
+                    if ui.selectable_label(self.tool == t, t.name()).clicked() {
+                        self.tool = t;
+                    }
+                }
+                ui.separator();
+                let editing = self.scene.edit.is_some();
+                if ui.selectable_label(editing, "Edit Mode (Tab)").clicked() {
+                    self.toggle_edit_mode();
+                }
+                let hint = if editing {
+                    "click face · shift add · E extrude · I inset · Ctrl+R loop cut · A all"
+                } else {
+                    "G move · R rotate · S scale · X delete · Home frame"
+                };
+                ui.label(RichText::new(hint).weak());
             });
         });
     }
 
-    fn outliner(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::left("outliner").default_size(220.0).show(ui, |ui| {
-            ui.heading("Outliner");
-            ui.separator();
-            if self.scene.object_count() == 0 {
-                ui.label(RichText::new("Scene is empty").weak());
+    /// Run the modal, or pick, from this frame's viewport input.
+    pub fn handle_viewport_input(&mut self, input: &ViewportInput, enter: bool, escape: bool) {
+        let size = input.size.max(Vec2::ONE);
+        if let Some(modal) = &mut self.modal {
+            if let Some(p) = input.pointer {
+                modal.update(&mut self.scene, &self.viewport.camera, p, size);
+            }
+            if let Some(end) = modal.end_for(input, enter, escape) {
+                let modal = self.modal.take().expect("modal present");
+                match end {
+                    ModalEnd::Confirmed => {
+                        self.record_from(modal.kind.name(), modal.before);
+                        self.status = format!("{} confirmed", modal.kind.name());
+                    }
+                    ModalEnd::Cancelled => {
+                        self.scene = modal.before;
+                        self.status = format!("{} cancelled", modal.kind.name());
+                    }
+                }
+            }
+            return;
+        }
+        // A tool drag on a selected object starts a modal that confirms on release.
+        if input.primary_pressed
+            && let Some(kind) = self.tool.modal()
+            && self.scene.edit.is_none()
+            && let Some(p) = input.pointer
+        {
+            let over_selected = shape_gpu::pick(&self.scene, &self.viewport.camera, p, size).is_some_and(|(id, _)| self.scene.selection.contains(id));
+            if over_selected {
+                self.modal = Modal::transform(kind, &self.scene, p, true);
                 return;
             }
-            let shift = ui.input(|i| i.modifiers.shift);
-            let roots: Vec<ObjectId> = self.scene.roots().collect();
-            for id in roots {
-                self.outliner_row(ui, id, shift);
-            }
-        });
-    }
-
-    fn outliner_row(&mut self, ui: &mut egui::Ui, id: ObjectId, shift: bool) {
-        let Some(object) = self.scene.object(id) else { return };
-        let selected = self.scene.selection.contains(id);
-        let icon = match object.data {
-            ObjectData::Mesh { .. } => "▲",
-            ObjectData::Light(_) => "☀",
-            ObjectData::Camera(_) => "🎥",
-            ObjectData::Empty => "○",
-        };
-        let text = format!("{icon} {}", object.name);
-        let text = if self.scene.selection.active == Some(id) { RichText::new(text).strong() } else { RichText::new(text) };
-        if ui.selectable_label(selected, text).clicked() {
-            if shift {
-                self.scene.selection.toggle(id);
+        }
+        if input.primary_clicked
+            && let Some(p) = input.pointer
+        {
+            let hit = shape_gpu::pick_detail(&self.scene, &self.viewport.camera, p, size);
+            if let Some(edit) = &mut self.scene.edit {
+                match hit {
+                    Some(h) if input.shift => {
+                        if !edit.faces.remove(&h.face) {
+                            edit.faces.insert(h.face);
+                        }
+                    }
+                    Some(h) => {
+                        edit.faces.clear();
+                        edit.faces.insert(h.face);
+                    }
+                    None => edit.faces.clear(),
+                }
             } else {
-                self.scene.selection.set(id);
-            }
-        }
-        let children: Vec<ObjectId> = self.scene.children(Some(id)).collect();
-        if !children.is_empty() {
-            ui.indent(id.0, |ui| {
-                for c in children {
-                    self.outliner_row(ui, c, shift);
+                match hit {
+                    Some(h) if input.shift => self.scene.selection.toggle(h.object),
+                    Some(h) => self.scene.selection.set(h.object),
+                    None => self.scene.selection.clear(),
                 }
-            });
-        }
-    }
-
-    fn properties(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::right("properties").default_size(260.0).show(ui, |ui| {
-            ui.heading("Properties");
-            ui.separator();
-            let Some(id) = self.scene.selection.active else {
-                ui.label(RichText::new("Nothing selected").weak());
-                return;
-            };
-            let Some(object) = self.scene.object(id).cloned() else { return };
-            let mut edited = object.clone();
-            ui.horizontal(|ui| {
-                ui.label("Name");
-                ui.text_edit_singleline(&mut edited.name);
-            });
-            ui.checkbox(&mut edited.visible, "Visible");
-            ui.separator();
-            ui.label(RichText::new("Transform").strong());
-            vec3_row(ui, "Location", &mut edited.transform.translation, 0.01);
-            let (mut rx, mut ry, mut rz) = edited.transform.rotation.to_euler(shape_math::glam_euler());
-            let mut deg = Vec3::new(rx.to_degrees(), ry.to_degrees(), rz.to_degrees());
-            if vec3_row(ui, "Rotation", &mut deg, 0.5) {
-                (rx, ry, rz) = (deg.x.to_radians(), deg.y.to_radians(), deg.z.to_radians());
-                edited.transform.rotation = shape_math::Quat::from_euler(shape_math::glam_euler(), rx, ry, rz);
-            }
-            vec3_row(ui, "Scale", &mut edited.transform.scale, 0.01);
-            if let ObjectData::Mesh { mesh, .. } = &object.data
-                && let Some(data) = self.scene.mesh(*mesh)
-            {
-                ui.separator();
-                ui.label(RichText::new("Mesh").strong());
-                ui.label(format!("{} vertices, {} edges, {} faces", data.mesh.vertex_count(), data.mesh.edge_count(), data.mesh.face_count()));
-                if !self.scene.modifiers(id).is_empty()
-                    && let Some(ev) = shape_ops::evaluated_mesh(&self.scene, id)
-                {
-                    ui.label(RichText::new(format!("evaluated: {} vertices, {} faces", ev.vertex_count(), ev.face_count())).weak());
-                }
-            }
-            if edited != object {
-                // Live edits are not undoable individually; one snapshot per drag is a later stage.
-                if let Some(o) = self.scene.object_mut(id) {
-                    *o = edited;
-                }
-            }
-            if matches!(object.data, ObjectData::Mesh { .. }) {
-                ui.separator();
-                self.modifier_panel(ui, id);
-            }
-        });
-    }
-}
-
-impl ShapeApp {
-    fn modifier_panel(&mut self, ui: &mut egui::Ui, id: ObjectId) {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Modifiers").strong());
-            ui.menu_button("Add", |ui| {
-                if ui.button("Mirror X").clicked() {
-                    self.add_modifier(Modifier::Mirror { axis: 0, merge_distance: 1e-4 });
-                }
-                if ui.button("Array").clicked() {
-                    self.add_modifier(Modifier::Array { count: 2, offset: Vec3::new(2.5, 0.0, 0.0), merge_distance: 0.0 });
-                }
-                if ui.button("Subdivision").clicked() {
-                    self.add_modifier(Modifier::Subdivision { levels: 1, smooth: true });
-                }
-                if ui.button("Smooth").clicked() {
-                    self.add_modifier(Modifier::Smooth { iterations: 1, factor: 0.5 });
-                }
-            });
-        });
-        let mut stack = self.scene.modifiers(id).to_vec();
-        let before = stack.clone();
-        let mut remove: Option<usize> = None;
-        for (i, m) in stack.iter_mut().enumerate() {
-            ui.push_id(i, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(m.name());
-                    if ui.small_button("✕").clicked() {
-                        remove = Some(i);
-                    }
-                });
-                match m {
-                    Modifier::Mirror { axis, merge_distance } => {
-                        ui.horizontal(|ui| {
-                            for (a, label) in [(0u8, "X"), (1, "Y"), (2, "Z")] {
-                                ui.radio_value(axis, a, label);
-                            }
-                            ui.add(egui::DragValue::new(merge_distance).speed(0.0001).prefix("merge ").max_decimals(4));
-                        });
-                    }
-                    Modifier::Array { count, offset, .. } => {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::DragValue::new(count).range(1..=64).prefix("count "));
-                        });
-                        vec3_row(ui, "Offset", offset, 0.05);
-                    }
-                    Modifier::Subdivision { levels, smooth } => {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::DragValue::new(levels).range(0..=4).prefix("levels "));
-                            ui.checkbox(smooth, "smooth");
-                        });
-                    }
-                    Modifier::Smooth { iterations, factor } => {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::DragValue::new(iterations).range(0..=50).prefix("iterations "));
-                            ui.add(egui::DragValue::new(factor).range(0.0..=1.0).speed(0.01).prefix("factor "));
-                        });
-                    }
-                }
-            });
-        }
-        if let Some(i) = remove {
-            stack.remove(i);
-            let name = format!("Remove {}", before[i].name());
-            self.edit(&name, |scene| {
-                if let Some(s) = scene.modifiers_mut(id) {
-                    *s = stack.clone();
-                }
-            });
-        } else if stack != before {
-            // Live parameter edits are applied directly; a per-drag snapshot comes with edit mode.
-            if let Some(s) = self.scene.modifiers_mut(id) {
-                *s = stack;
             }
         }
     }
-}
-
-/// Three drag values on one row. Returns true when any changed.
-fn vec3_row(ui: &mut egui::Ui, label: &str, v: &mut Vec3, speed: f32) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(label);
-        for (i, axis) in ["X", "Y", "Z"].iter().enumerate() {
-            changed |= ui.add(egui::DragValue::new(&mut v[i]).speed(speed).prefix(format!("{axis} ")).max_decimals(3)).changed();
-        }
-    });
-    changed
 }
 
 impl eframe::App for ShapeApp {
@@ -543,6 +509,7 @@ mod tests {
     use super::*;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
+    use shape_math::Vec3;
 
     #[test]
     fn crate_name() {
@@ -554,7 +521,7 @@ mod tests {
         let mut app = ShapeApp::default();
         let mut harness = Harness::new_ui(|ui| app.ui(ui));
         harness.run();
-        for label in ["Outliner", "Properties", "Ready", "File", "Add", "View"] {
+        for label in ["Outliner", "Properties", "Ready", "File", "Add", "View", "Select", "Move", "Edit Mode (Tab)"] {
             harness.get_by_label(label);
         }
     }
@@ -594,6 +561,57 @@ mod tests {
         app.history.undo(&mut app.scene);
         assert_eq!(app.scene.object_mesh(id).unwrap().1.face_count(), 6);
         assert_eq!(app.scene.modifiers(id).len(), 1);
+    }
+
+    #[test]
+    fn edit_mode_select_all_and_modal_confirm_records_one_undo() {
+        let mut app = ShapeApp::default();
+        let id = app.add_primitive(Primitive::Cube);
+        let undo_before = app.history.len();
+        app.toggle_edit_mode();
+        assert!(app.scene.edit.is_some());
+        app.select_all();
+        assert_eq!(app.scene.edit.as_ref().unwrap().faces.len(), 6);
+        app.toggle_edit_mode();
+        assert!(app.scene.edit.is_none());
+
+        let size = Vec2::new(800.0, 600.0);
+        app.modal = Modal::transform(ModalKind::Move, &app.scene, size * 0.5, false);
+        let input = ViewportInput { pointer: Some(size * 0.5 + Vec2::new(120.0, 0.0)), size, ..Default::default() };
+        app.handle_viewport_input(&input, false, false);
+        assert!(app.scene.object(id).unwrap().transform.translation.length() > 0.1);
+        app.handle_viewport_input(&input, true, false);
+        assert!(app.modal.is_none());
+        assert_eq!(app.history.len(), undo_before + 1);
+        assert_eq!(app.history.undo_name(), Some("Move"));
+        app.history.undo(&mut app.scene);
+        assert!(app.scene.object(id).unwrap().transform.translation.length() < 1e-6);
+
+        app.modal = Modal::transform(ModalKind::Scale, &app.scene, size * 0.5 + Vec2::new(50.0, 0.0), false);
+        let input = ViewportInput { pointer: Some(size * 0.5 + Vec2::new(200.0, 0.0)), size, ..Default::default() };
+        app.handle_viewport_input(&input, false, false);
+        app.handle_viewport_input(&input, false, true);
+        assert_eq!(app.scene.object(id).unwrap().transform.scale, Vec3::ONE, "cancel restores");
+        assert_eq!(app.history.len(), undo_before, "cancel records nothing (Move sits in redo)");
+        assert_eq!(app.history.redo_name(), Some("Move"));
+    }
+
+    #[test]
+    fn click_picks_in_object_and_edit_mode() {
+        let mut app = ShapeApp::default();
+        let id = app.add_primitive(Primitive::Cube);
+        app.scene.selection.clear();
+        app.viewport.camera = shape_gpu::OrbitCamera { yaw: 0.0, pitch: 0.0, distance: 8.0, ..Default::default() };
+        let size = Vec2::new(800.0, 600.0);
+        let click = ViewportInput { pointer: Some(size * 0.5), size, primary_clicked: true, ..Default::default() };
+        app.handle_viewport_input(&click, false, false);
+        assert_eq!(app.scene.selection.active, Some(id));
+        app.toggle_edit_mode();
+        app.handle_viewport_input(&click, false, false);
+        assert_eq!(app.scene.edit.as_ref().unwrap().faces.len(), 1);
+        let miss = ViewportInput { pointer: Some(Vec2::new(5.0, 5.0)), size, primary_clicked: true, ..Default::default() };
+        app.handle_viewport_input(&miss, false, false);
+        assert!(app.scene.edit.as_ref().unwrap().faces.is_empty());
     }
 
     #[test]
