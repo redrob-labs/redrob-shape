@@ -8,6 +8,14 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
+shape-math.workspace = true
+shape-geom.workspace = true
+shape-scene.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names"] }
+base64 = "0.22"
 
 [lints]
 workspace = true
