@@ -1,0 +1,14 @@
+{
+  "//": "Published Redrob design-system files, copied unchanged. Checked by CI in a later stage.",
+  "design_system": "redrob-design-system (the published distribution)",
+  "files": {
+    "icon-512.png": {
+      "source": "assets/Favicons/icon-512.png",
+      "sha256": "9c168d6215a4e1957456d9aff3041eb8e33c4c8c9189663bc77ff505c2401e17"
+    },
+    "favicon.svg": {
+      "source": "assets/Favicons/favicon.svg",
+      "sha256": "fd971f9e388afffa3c0f21153be36e23abb242f335c91ee7d8d1522acf88e09b"
+    }
+  }
+}
