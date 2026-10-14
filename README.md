@@ -151,7 +151,15 @@ its header lists the seven steps in order. The short form: `release/<version>` f
 `REDROB_VERSION`, merges into `main` by pull request; `macos.yml` and `windows.yml` are dispatched on
 `main`; the Linux build host runs the gate, builds, and `scripts/package-linux.sh <install-dir>`;
 the tag `v<version>` is pushed alone; `gh release create v<version> --draft` with the three
-artefacts; `sign-and-publish.yml` is dispatched with that tag; `main` is merged back into `develop`.
+artefacts; `sign-and-publish.yml` is dispatched with that tag; `gitflow.yml` then opens the
+back-merge of `main` into `develop` itself.
+
+Signing and publishing are the redrob-labs organization's shared copies, called from
+[redrob-labs/.github](https://github.com/redrob-labs/.github): `actions/sign-windows` signs and
+verifies the Windows executables, and the reusable `release-publish.yml` job replaces the draft's
+assets with the signed set, writes `SHA256SUMS.txt` and `redrob-launcher.json`, and publishes the
+release as latest. Branch-name and back-merge rules come from the same place
+(`.github/workflows/gitflow.yml` here only calls the shared workflow).
 
 Windows executables are signed with Azure Artifact Signing, authenticated with the job's OpenID
 Connect token (`azure/login`, job `environment: release`, `permissions: id-token: write`). The
@@ -176,9 +184,10 @@ SHA256SUMS.txt
 `redrob-launcher.json` is the launcher's release manifest (`{ "schema": 1, "sharedAccount": true }`):
 it tells Redrob Launcher that signing in to the launcher is all a person needs for this release. The
 launcher's sign-in reaches Redrob Shape through Redrob Code, which reads the shared account file
-when it holds no key of its own. The publish job writes it and lists it in `SHA256SUMS.txt`.
+when it holds no key of its own. The shared publish job writes it and lists it in `SHA256SUMS.txt`.
 
-`scripts/check-asset-names.py` is the gate for those names. It runs over the staging directory
-right before the upload (`--release-dir`), so a release the launcher would skip, or one without
-`redrob-launcher.json`, is not published, and its own tests run in CI (`--self-test`). The first release was named `redrob-shape-linux-x64-0.1.0.tar.xz`,
+`scripts/check-asset-names.py` is the gate for those names. `sign-and-publish.yml` runs it over every
+artefact before the CDN upload and the release, so a release the launcher would skip is not published;
+`--release-dir` additionally checks a finished release directory for `redrob-launcher.json`, and its
+own tests run in CI (`--self-test`). The first release was named `redrob-shape-linux-x64-0.1.0.tar.xz`,
 which the launcher skipped for three reasons at once; that is the regression this prevents.

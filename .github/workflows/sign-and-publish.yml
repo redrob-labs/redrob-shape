@@ -6,8 +6,13 @@
 #   redrob-shape-windows-x64-unsigned.zip            from windows.yml (the installed tree at the top)
 #   redrob-shape-<version>-linux-x86_64.tar.gz       from a Linux build host (scripts/package-linux.sh;
 #                                                    nothing to sign)
-# Nobody sees them there. This workflow signs each one, verifies every signature, replaces the
-# assets with the signed ones, publishes to cdn.redrob.ai/shape/, and only then undrafts.
+# Nobody sees them there. This workflow signs each one, verifies every signature, publishes to
+# cdn.redrob.ai/shape/, and only then hands the signed set to the organization's shared publish job
+# (redrob-labs/.github, release-publish.yml), which replaces the draft's assets with the signed
+# ones, writes SHA256SUMS.txt and redrob-launcher.json, and publishes the release.
+#
+# Windows signing is the organization's one copy too: redrob-labs/.github/actions/sign-windows,
+# called right after the OIDC `azure/login`. No signing recipe lives in this repository.
 #
 # What it publishes is named the way Redrob Launcher reads a release
 # (redrob-shape-<version>-<os>-<arch>[-portable].<ext>; scripts/check-asset-names.py is the gate):
@@ -16,7 +21,7 @@
 #   redrob-shape-<version>-linux-x86_64.tar.gz        as built
 #   redrob-launcher.json                              the launcher's release manifest: this release
 #                                                     reads the launcher's shared account
-#   SHA256SUMS.txt and one .sha256 per file
+#   SHA256SUMS.txt                                    over all of the above
 #
 # The whole release, in order (AGENTS.md has the branch model):
 #   1. release/<version> from develop: REDROB_VERSION = <version>; pull request into main; merge.
@@ -24,8 +29,8 @@
 #   3. On a Linux build host: the gate's tree, build, then scripts/package-linux.sh <install-dir>.
 #   4. git tag -a v<version> <main sha>; push only that tag.
 #   5. gh release create v<version> --draft --title "Redrob Shape <version>" <the three artefacts>
-#   6. workflow_dispatch here with tag=v<version>; it undrafts when every signature verifies.
-#   7. Back-merge main into develop by pull request (sync/<version>).
+#   6. workflow_dispatch here with tag=v<version>; it publishes when every signature verifies.
+#   7. Back-merge main into develop: gitflow.yml opens that pull request itself.
 #
 # WHAT A SIGNATURE HERE MEANS. It attests that the holder of the certificate approved these bytes.
 # It does NOT attest that the bytes came from this tree: the build ran on another machine.
@@ -37,11 +42,6 @@ on:
       tag:
         description: "Release tag carrying the unsigned artefacts (e.g. v0.1.0)"
         required: true
-      undraft:
-        description: "Publish the release once signing verifies"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
   contents: write
@@ -55,6 +55,7 @@ jobs:
       mac: ${{ steps.assets.outputs.mac }}
       win: ${{ steps.assets.outputs.win }}
       version: ${{ steps.assets.outputs.version }}
+      target: ${{ steps.assets.outputs.target }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -67,6 +68,10 @@ jobs:
             echo "::error::tag ${{ inputs.tag }} does not match REDROB_VERSION $version"
             exit 1
           fi
+          # The commit the tag points at, so the publish job pins the release to it and not to
+          # whatever ref this run was dispatched on.
+          git fetch --depth 1 origin tag "${{ inputs.tag }}"
+          target="$(git rev-parse "${{ inputs.tag }}^{commit}")"
           names="$(gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" \
             --json assets -q '.assets[].name')"
           echo "assets on ${{ inputs.tag }}:"
@@ -76,7 +81,29 @@ jobs:
             echo "mac=$(has 'macos-arm64-unsigned\.zip$')"
             echo "win=$(has 'windows-x64-unsigned\.zip$')"
             echo "version=$version"
+            echo "target=$target"
           } >> "$GITHUB_OUTPUT"
+
+      - name: collect the Linux build as built
+        # Nothing to sign: a tarball is not signed in this ecosystem. It travels as a `release-*`
+        # artifact because the shared publish job replaces every asset on the draft with the
+        # artifacts it is given; a tarball left only on the draft would be deleted with the
+        # unsigned zips.
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          version="$(cat REDROB_VERSION)"
+          if gh release download "${{ inputs.tag }}" -p "redrob-shape-$version-linux-x86_64.tar.gz" -D staging; then
+            python3 scripts/check-asset-names.py --version "$version" staging/*.tar.gz
+          else
+            echo "::notice::no Linux build on this release"
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-linux-x86_64
+          path: staging/*.tar.gz
+          if-no-files-found: ignore
 
   sign-macos:
     name: sign and notarize the macOS app
@@ -266,7 +293,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: signed-macos
+          name: release-macos-aarch64
           path: staging/*.dmg
           if-no-files-found: error
 
@@ -283,13 +310,12 @@ jobs:
       # The OIDC token `azure/login` exchanges for the Artifact Signing credential.
       id-token: write
     env:
-      # Plain IDs (not credentials). AZURE_CLIENT_ID is in the job env so the login step can be
-      # skipped when signing is not set up; the require step below turns that into a failure here,
-      # because a Windows build that cannot be signed must never reach the CDN.
+      # Plain IDs (not credentials), here so the require step below can refuse to run unsigned:
+      # a Windows build that cannot be signed must never reach the CDN. The shared sign-windows
+      # action takes the three ARTIFACT_SIGNING_* values as inputs; the credential comes from the
+      # OIDC login, so nothing here is secret material and no certificate file or client secret
+      # exists anywhere.
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      # sign-and-publish signs through Azure Artifact Signing (sign step below). These name the
-      # signing account; the credential comes from the OIDC login, so nothing here is secret
-      # material and no certificate file or client secret exists anywhere.
       ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.ARTIFACT_SIGNING_ENDPOINT }}
       ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.ARTIFACT_SIGNING_ACCOUNT }}
       ARTIFACT_SIGNING_CERT_PROFILE: ${{ secrets.ARTIFACT_SIGNING_CERT_PROFILE }}
@@ -318,123 +344,70 @@ jobs:
           fi
 
       - name: download and unpack
-        # Before the Azure login: the build is large and GitHub's OIDC token lives minutes.
+        # Before the Azure login: the build is large and GitHub's OIDC token lives minutes. Into a
+        # path without spaces (the shared action takes a whitespace-separated file list); the
+        # folder is renamed back to "Redrob Shape" before it is zipped.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path incoming | Out-Null
           gh release download "${{ inputs.tag }}" -R "${{ github.repository }}" -p "*windows-x64-unsigned.zip" -D incoming
           if ($LASTEXITCODE -ne 0) { throw "download failed" }
           $zip = Get-ChildItem incoming -Filter "*.zip" | Select-Object -First 1
-          Expand-Archive -Path $zip.FullName -DestinationPath "app\Redrob Shape"
-          Get-ChildItem "app\Redrob Shape" -Filter *.exe | ForEach-Object { Write-Host $_.Name }
-
-      - name: the Artifact Signing client and signtool
-        # Also before the login, for the same reason. The signtool dlib comes from the
-        # Microsoft.ArtifactSigning.Client NuGet package; it authenticates with DefaultAzureCredential,
-        # so the `az login` below is what it uses.
-        id: tools
-        shell: pwsh
-        run: |
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
-            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
-            Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) { throw "signtool.exe was not found in the Windows SDK" }
-          $client = Join-Path $env:RUNNER_TEMP "artifact-signing-client"
-          New-Item -ItemType Directory -Force -Path $client | Out-Null
-          $pkg = Join-Path $client "artifact-signing-client.zip"
-          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client" -OutFile $pkg
-          Expand-Archive -Path $pkg -DestinationPath (Join-Path $client "client") -Force
-          $dlib = Get-ChildItem -Path (Join-Path $client "client") -Recurse -Filter Azure.CodeSigning.Dlib.dll |
-            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
-          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found in Microsoft.ArtifactSigning.Client" }
-          $metadata = Join-Path $client "metadata.json"
-          @{
-            Endpoint               = $env:ARTIFACT_SIGNING_ENDPOINT.TrimEnd('/')
-            CodeSigningAccountName = $env:ARTIFACT_SIGNING_ACCOUNT
-            CertificateProfileName = $env:ARTIFACT_SIGNING_CERT_PROFILE
-            # Only the credentials a CI runner or a developer shell can satisfy. Without this list a
-            # missing login falls through to InteractiveBrowserCredential, which opens a browser nobody
-            # sees and waits forever (one release elsewhere hung 30 minutes on it). Now it fails in seconds.
-            ExcludeCredentials     = @(
-              'InteractiveBrowserCredential', 'ManagedIdentityCredential', 'SharedTokenCacheCredential',
-              'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzurePowerShellCredential',
-              'AzureDeveloperCliCredential', 'WorkloadIdentityCredential'
-            )
-          } | ConvertTo-Json | Set-Content -Path $metadata -Encoding utf8
-          "signtool=$($signtool.FullName)" >> $env:GITHUB_OUTPUT
-          "dlib=$($dlib.FullName)" >> $env:GITHUB_OUTPUT
-          "metadata=$metadata" >> $env:GITHUB_OUTPUT
+          Expand-Archive -Path $zip.FullName -DestinationPath "app\win"
+          # The programs a user or Windows itself launches: blender.exe, the console launcher and
+          # the agent. Fewer than two means the wrong archive.
+          $exes = Get-ChildItem "app\win" -Filter *.exe
+          if ($exes.Count -lt 2) { throw "expected blender.exe and the agent, found $($exes.Count) executables" }
+          $exes | ForEach-Object { Write-Host $_.Name }
 
       # Azure Artifact Signing, authenticated with OpenID Connect: the job's GitHub token is exchanged
       # for an Azure token against the organization's app registration, whose federated credential
       # accepts `repo:redrob-labs@<org id>/*:environment:release`. No client secret exists anywhere.
       # Immediately before signing and after every download, because the OIDC token lives minutes.
       - name: Log in to Azure (OIDC)
-        if: env.AZURE_CLIENT_ID != ''
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: sign the executables
-        # The programs a user or Windows itself launches: blender.exe, the console launcher and the
-        # agent. RFC 3161 timestamps from the Artifact Signing service, so the signature outlives the
-        # certificate.
-        shell: pwsh
-        run: |
-          $exes = Get-ChildItem "app\Redrob Shape" -Filter *.exe
-          if ($exes.Count -lt 2) { throw "expected blender.exe and the agent, found $($exes.Count) executables" }
-          Write-Host "Signing with Azure Artifact Signing ($env:ARTIFACT_SIGNING_ACCOUNT / $env:ARTIFACT_SIGNING_CERT_PROFILE)"
-          foreach ($exe in $exes) {
-            & "${{ steps.tools.outputs.signtool }}" sign /v /fd SHA256 /td SHA256 `
-              /d "Redrob Shape" /du "https://github.com/redrob-labs/redrob-shape" `
-              /tr "http://timestamp.acs.microsoft.com" `
-              /dlib "${{ steps.tools.outputs.dlib }}" /dmdf "${{ steps.tools.outputs.metadata }}" $exe.FullName
-            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $($exe.Name) with $LASTEXITCODE" }
-          }
+      - name: sign and verify the executables
+        # The organization's one signing recipe: signtool through the Artifact Signing dlib, RFC 3161
+        # timestamps, then `signtool verify /pa` with Status Valid and the signer's CN compared to
+        # McKinley Rice, Inc. A profile pointed at the wrong certificate never publishes.
+        uses: redrob-labs/.github/actions/sign-windows@main
+        with:
+          files: app/win/*.exe
+          description: Redrob Shape
+          url: https://github.com/redrob-labs/redrob-shape
+          endpoint: ${{ secrets.ARTIFACT_SIGNING_ENDPOINT }}
+          account: ${{ secrets.ARTIFACT_SIGNING_ACCOUNT }}
+          cert-profile: ${{ secrets.ARTIFACT_SIGNING_CERT_PROFILE }}
 
-      - name: verify the Authenticode signatures
-        # A Public Trust certificate chains to a Microsoft root every Windows trusts, so the full
-        # Authenticode check must pass: signtool's own, then Status Valid and nothing less. The
-        # signer must be the organization's certificate, so a profile pointed at the wrong
-        # certificate never publishes.
+      - name: the portable zip, named the way the launcher reads it
+        # "-portable.zip": the one zip name Redrob Launcher reads as an installable Windows build.
         shell: pwsh
         run: |
-          $expectedSigner = "CN=McKinley Rice, Inc."
-          foreach ($exe in Get-ChildItem "app\Redrob Shape" -Filter *.exe) {
-            & "${{ steps.tools.outputs.signtool }}" verify /pa /v $exe.FullName
-            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed on $($exe.Name) with $LASTEXITCODE" }
-            $s = Get-AuthenticodeSignature $exe.FullName
-            if (-not $s.SignerCertificate) { throw "$($exe.Name) has no signer certificate" }
-            if ($s.Status -ne 'Valid') { throw "$($exe.Name) signature status $($s.Status): $($s.StatusMessage)" }
-            if (-not $s.TimeStamperCertificate) { throw "$($exe.Name) carries no timestamp" }
-            if ($s.SignerCertificate.Subject -notlike "$expectedSigner*") {
-              throw "$($exe.Name) is signed by '$($s.SignerCertificate.Subject)', expected '$expectedSigner'"
-            }
-            Write-Host "$($exe.FullName) signed by $($s.SignerCertificate.Subject)"
-          }
+          Rename-Item -Path "app\win" -NewName "Redrob Shape"
           New-Item -ItemType Directory -Force -Path staging | Out-Null
-          # "-portable.zip": the one zip name Redrob Launcher reads as an installable Windows build.
           Compress-Archive -Path "app\Redrob Shape" -DestinationPath "staging\redrob-shape-$env:VERSION-windows-x64-portable.zip"
           python scripts/check-asset-names.py --version $env:VERSION (Get-ChildItem staging\*.zip).FullName
           if ($LASTEXITCODE -ne 0) { throw "the zip is not named the way the launcher reads it" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: signed-windows
+          name: release-windows-x64
           path: staging/*.zip
           if-no-files-found: error
 
-  publish:
-    name: replace the assets, publish to the CDN, undraft
+  cdn:
+    name: publish to cdn.redrob.ai/shape
     needs: [probe, sign-macos, sign-windows]
     # Skipped is not failed: a release without a Windows build still publishes. A build that was
     # meant to be signed and could not be never reaches the CDN.
     if: ${{ !cancelled() && needs.probe.result == 'success' && needs.sign-macos.result != 'failure' && needs.sign-windows.result != 'failure' }}
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.probe.outputs.version }}
       REDROB_CDN_BUCKET: ${{ vars.REDROB_CDN_BUCKET }}
       AWS_ACCESS_KEY_ID: ${{ secrets.REDROB_CDN_ACCESS_KEY_ID }}
@@ -445,86 +418,46 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.1
 
-      - name: collect the Linux build as built
-        # Nothing to sign: a tarball is not signed in this ecosystem.
-        run: |
-          set -euo pipefail
-          mkdir -p staging
-          gh release download "${{ inputs.tag }}" -p "redrob-shape-$VERSION-linux-x86_64.tar.gz" -D staging || \
-            echo "::notice::no Linux build on this release"
-
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
         with:
-          name: signed-macos
+          pattern: release-*
           path: staging
+          merge-multiple: true
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
-        with:
-          name: signed-windows
-          path: staging
-
-      - name: the release manifest Redrob Launcher reads
-        # One small asset beside the installers (redrob-launcher, docs/release-manifest.md). From
-        # it the launcher learns, without a launcher release, that this build reads its shared
-        # account file: signing in to the launcher is all a person needs. Written here, in the one
-        # job that assembles the whole release, so it goes into SHA256SUMS.txt with the rest.
+      - name: what is about to be published, named the way the launcher reads it
+        # The gate for the names: an asset Redrob Launcher would skip is not published. The manifest
+        # and SHA256SUMS.txt are the shared publish job's; they stay off the CDN (the launcher reads
+        # the manifest from the GitHub Release only, and cdn-publish.sh refuses a name without a
+        # -<version> segment).
         run: |
           set -euo pipefail
           test -n "$(ls -A staging 2>/dev/null)" || { echo "::error::nothing to publish"; exit 1; }
-          printf '{ "schema": 1, "sharedAccount": true }\n' > staging/redrob-launcher.json
-          cat staging/redrob-launcher.json
-
-      - name: what is about to be published, named the way the launcher reads it
-        # The gate for the names and for the manifest: a release whose assets Redrob Launcher
-        # skips, or that lacks redrob-launcher.json, is not published.
-        run: |
-          set -euo pipefail
           for f in staging/*; do
             printf '%s  %s bytes  sha256 %s\n' "$(basename "$f")" "$(stat -c%s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
           done
-          python3 scripts/check-asset-names.py --version "$VERSION" --release-dir staging
-
-      - name: put the signed assets on the release, one by one
-        # One upload per file with retries: a single 5xx must not cost a notarized build. The unsigned
-        # uploads are deleted afterwards, so the published release carries only signed bytes.
-        run: |
-          set -euo pipefail
-          up() {
-            for attempt in 1 2 3 4 5; do
-              gh release upload "${{ inputs.tag }}" "$1" --clobber && return 0
-              echo "upload of $(basename "$1") failed (attempt $attempt), retrying"; sleep $((attempt * 15))
-            done
-            return 1
-          }
-          # SHA256SUMS.txt is what Redrob Launcher reads when it must not spend API quota on the
-          # release (it lists redrob-launcher.json too, so that path sees the manifest); the
-          # per-file sidecars are what the CDN page links.
-          ( cd staging && sha256sum -- * > SHA256SUMS.txt && for f in *; do
-              [ "$f" = SHA256SUMS.txt ] || sha256sum "$f" > "$f.sha256"; done )
-          for f in staging/*; do up "$f"; done
-          for pattern in macos-arm64-unsigned.zip windows-x64-unsigned.zip; do
-            name="$(gh release view "${{ inputs.tag }}" --json assets -q ".assets[].name | select(endswith(\"$pattern\"))")"
-            [ -n "$name" ] && gh release delete-asset "${{ inputs.tag }}" "$name" --yes
-          done
-          gh release view "${{ inputs.tag }}" --json assets -q '.assets[].name'
+          python3 scripts/check-asset-names.py --version "$VERSION" staging/*
 
       - name: publish to cdn.redrob.ai/shape
-        # Versioned path first, read back and compared, and only then the latest/ alias. The
-        # manifest stays off the CDN: the launcher reads it from the GitHub Release only, and
-        # cdn-publish.sh refuses a name without a -<version> segment.
+        # Versioned path first, read back and compared, and only then the latest/ alias.
         env:
           APP_VERSION: ${{ needs.probe.outputs.version }}
         run: |
           set -euo pipefail
-          rm -f staging/*.sha256 staging/SHA256SUMS.txt staging/redrob-launcher.json
           bash .github/scripts/cdn-publish.sh staging
 
-      - name: undraft the release
-        # Last: once this runs the artefacts are public.
-        if: ${{ inputs.undraft }}
-        run: |
-          set -euo pipefail
-          gh release edit "${{ inputs.tag }}" --draft=false
-          gh release view "${{ inputs.tag }}" --json isDraft,url -q '"draft=" + (.isDraft|tostring) + "  " + .url'
+  publish:
+    # The organization's one publish job: every `release-*` artifact onto the draft in place of what
+    # was there (the unsigned zips go with it), SHA256SUMS.txt, redrob-launcher.json, and the release
+    # published as latest. Last, after the CDN: once this runs the artefacts are public.
+    needs: [probe, sign-macos, sign-windows, cdn]
+    if: ${{ !cancelled() && needs.probe.result == 'success' && needs.cdn.result == 'success' && needs.sign-macos.result != 'failure' && needs.sign-windows.result != 'failure' }}
+    uses: redrob-labs/.github/.github/workflows/release-publish.yml@main
+    permissions:
+      contents: write
+    with:
+      version: ${{ needs.probe.outputs.version }}
+      title: Redrob Shape
+      tag: ${{ inputs.tag }}
+      target: ${{ needs.probe.outputs.target }}
+      launcher_manifest: true
+      publish: true

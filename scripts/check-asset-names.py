@@ -18,15 +18,17 @@ crates/core/src/platform.rs, parse_asset_name and Platform::tokens). The first r
 redrob-shape-linux-x64-0.1.0.tar.xz, which the launcher skips three times over: the version is in
 the wrong place, "x64" is not a Linux token, and it installs no .tar.xz. Nothing in the pipeline
 noticed, because a name is a string nobody runs. This check is that run: sign-and-publish.yml
-calls it over the staging directory right before the upload.
+calls it over every artefact it signs or collects, and again over the whole set before the CDN
+upload and the release.
 
 Checksum sidecars (*.sha256, SHA256SUMS.txt) are not installable and are accepted as such.
 
---release-dir checks the whole directory about to become the release, and that directory must
+--release-dir checks a whole directory that is to become the release, and that directory must
 also carry redrob-launcher.json, the manifest Redrob Launcher reads to learn that this release
 uses its shared account (redrob-launcher, docs/release-manifest.md). Its content is checked too:
-JSON, "schema": 1, "sharedAccount": true. The per-file calls in the platform jobs do not require
-it, since they see one artefact each; the publish job, which sees them all, does.
+JSON, "schema": 1, "sharedAccount": true. The per-file calls do not require it, since the manifest
+is written by the organization's shared publish job (redrob-labs/.github, release-publish.yml)
+after they ran.
 """
 
 import argparse

@@ -90,10 +90,12 @@ The gate enforces both structurally.
   required reviews, admin enforcement off.
 - **Required checks:** `Add-on unit tests` and `Patches apply to pinned upstream`.
 
-**Working branch names are `<type>/<short-slug>`, and the allowed types are `feat`, `fix`, `docs`,
-`chore`, `test`, `refactor`, `perf`, `hotfix`, `release` and `sync`.**
-`.github/workflows/gitflow.yml` now enforces that on every pull request, and its second job fails a
-push to `main` that `develop` does not yet contain. Both rules were already prose and both were
+**Working branch names are `<type>/<short-slug>`, and the allowed types are the org-wide list:
+`feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `perf`, `ci`, `build`, `sync`, `hotfix` and
+`release`.** `.github/workflows/gitflow.yml` calls the shared workflow in
+[redrob-labs/.github](https://github.com/redrob-labs/.github), which enforces that on every pull
+request and, when a push to `main` leaves commits `develop` does not contain, opens the back-merge
+pull request (`sync/back-merge-<sha>`) itself. Both rules were already prose and both were
 broken anyway: every branch in this repository's history so far carries a `kiro/` prefix that no
 document defines, and a name says what the change is, not which tool made it. `develop` and `main`
 are exempt because a promotion or a back-merge pull request is not named after a type.
@@ -157,6 +159,9 @@ Two workflows, `.github/workflows/verify-patches.yml` and `.github/workflows/git
 - Job `addon-tests`, named **Add-on unit tests**, runs the `unittest discover` command above out of
   `overlay/` without fetching upstream at all.
 - Both job names are the two required checks, so both must pass to merge.
+- `gitflow.yml` is the org template verbatim: one `gitflow` job that `uses` the shared workflow, whose
+  checks appear as **gitflow / branch name follows the convention** and **gitflow / main is contained
+  in develop**.
 - The `addon-tests` job contains a "Setup Python" step that is `actions/setup-node` guarded by `if:
   false`. It never executes, and the job uses the runner's system `python3`.
 
