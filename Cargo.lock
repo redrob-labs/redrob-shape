@@ -2348,6 +2348,7 @@ dependencies = [
  "egui_kittest",
  "env_logger",
  "log",
+ "shape-math",
  "shape-ui-egui",
 ]
 
@@ -2558,6 +2559,14 @@ dependencies = [
 [[package]]
 name = "shape-gpu"
 version = "0.0.1"
+dependencies = [
+ "bytemuck",
+ "log",
+ "shape-geom",
+ "shape-math",
+ "shape-scene",
+ "wgpu",
+]
 
 [[package]]
 name = "shape-math"
@@ -2594,7 +2603,16 @@ version = "0.0.1"
 dependencies = [
  "eframe",
  "egui",
+ "egui-wgpu",
  "egui_kittest",
+ "log",
+ "shape-format",
+ "shape-geom",
+ "shape-gpu",
+ "shape-math",
+ "shape-scene",
+ "shape-undo",
+ "wgpu",
 ]
 
 [[package]]

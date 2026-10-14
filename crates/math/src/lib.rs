@@ -13,6 +13,11 @@ pub const CRATE: &str = "shape-math";
 /// Tolerance for "equal enough" comparisons on positions in scene units (metres).
 pub const EPSILON: f32 = 1e-5;
 
+/// Euler order the UI shows rotations in (XYZ, as Blender does).
+pub fn glam_euler() -> glam::EulerRot {
+    glam::EulerRot::XYZ
+}
+
 /// A half-line: `origin + t * direction` for `t >= 0`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ray {

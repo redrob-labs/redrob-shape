@@ -16,6 +16,7 @@ path = "src/main.rs"
 shape-ui-egui.workspace = true
 eframe = { workspace = true, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 egui.workspace = true
+shape-math.workspace = true
 env_logger.workspace = true
 log.workspace = true
 
