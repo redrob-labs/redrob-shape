@@ -22,9 +22,13 @@ from .i18n import iface_
 _POLL_INTERVAL = 0.2
 _MAX_EVENTS_PER_TICK = 32
 _MAX_STDERR_LINE_BYTES = 4096
-#: How often to ask the agent again whether Redrob Launcher's shared sign-in changed. Only while
-#: that sign-in (or nothing) is the key in use: a key of this app's own changes only from here.
+#: How often to ask the agent again what Redrob Code says. The engine is shared: another Redrob app
+#: can sign in or out, Redrob Launcher can install the engine, so the panel's state changes without
+#: this add-on doing anything.
 _SHARED_REFRESH_INTERVAL = 5.0
+
+#: Error codes that mean "there is no engine to talk to", from the sidecar's `engine` module.
+_ENGINE_CODES = frozenset({"engine_not_installed", "engine_start_failed"})
 
 #: Requests about the Redrob Console connection. Their answers change the connection state, never the
 #: plan status, and none of them carries the key back.
@@ -84,6 +88,9 @@ class AgentRuntime:
         self.generation = 0
         self.last_countdown_redraw = 0.0
         self.last_shared_refresh = 0.0
+        # One id per Blender session, so the shared engine can group this session's requests.
+        # It outlives agent restarts: Reconnect is still the same session.
+        self.session_id = uuid.uuid4().hex
 
     @property
     def running(self):
@@ -119,6 +126,8 @@ class AgentRuntime:
             self.start_error = "Agent binary not found; build with WITH_REDROB_AGENT=ON"
             return False
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        env = dict(os.environ)
+        env["REDROB_SHAPE_SESSION"] = self.session_id
         try:
             process = subprocess.Popen(
                 [str(executable)],
@@ -127,6 +136,7 @@ class AgentRuntime:
                 stderr=subprocess.PIPE,
                 bufsize=0,
                 creationflags=creationflags,
+                env=env,
             )
         except OSError as exc:
             self.start_error = f"Could not start local agent: {exc}"
@@ -209,7 +219,7 @@ class AgentRuntime:
         return self.send("disconnect", {})
 
     def store_key(self, key):
-        # Straight to the agent, which keeps it in the system keychain. Nothing here holds on to it.
+        # Straight to the agent, which hands it to Redrob Code. Nothing here holds on to it.
         return self.send("store_key", {"key": key})
 
     def cancel(self, request_id):
@@ -319,17 +329,17 @@ class AgentRuntime:
                 pass  # the agent is gone; the exit path above already reported it
 
     @staticmethod
-    def follows_the_launcher(current):
-        """Whether the panel's connection state can change without this add-on doing anything:
-        Redrob Launcher's shared sign-in is in use, or there is no key and the launcher may yet
-        sign in. A key of this app's own (keychain, session, environment) only changes from here."""
-        return (
-            current.connection in {'CONNECTED', 'DISCONNECTED'}
-            and current.connection_source in {"", "launcher"}
-        )
+    def follows_the_engine(current):
+        """Whether the panel's connection state can change without this add-on doing anything.
+        The engine is shared, so while it is up another Redrob app can sign in or out; while it is
+        missing, Redrob Launcher can install it. A failed start is not re-tried on a timer: that
+        would spawn the engine every few seconds, and Reconnect is there for it."""
+        if current.connection in {'CONNECTED', 'DISCONNECTED'}:
+            return True
+        return current.connection == 'ERROR' and current.engine_missing
 
     def _shared_refresh_due(self, current):
-        if not self.running or not self.follows_the_launcher(current):
+        if not self.running or not self.follows_the_engine(current):
             return False
         now = time.monotonic()
         if now - self.last_shared_refresh < _SHARED_REFRESH_INTERVAL:
@@ -399,6 +409,9 @@ class AgentRuntime:
                 chat.say(current, "event", "cancelled")
                 current.request_id = ""
                 return
+            if error["code"] in _ENGINE_CODES:
+                # No engine: the Connect block says so, with the launcher link when it is missing.
+                self._engine_unavailable(current, error)
             chat.fail(current, error["message"])
             if request_id == current.request_id:
                 current.request_id = ""
@@ -412,7 +425,10 @@ class AgentRuntime:
             ):
                 self._connection_failed(current, "Local agent returned an invalid health response")
                 return
-            if isinstance(result.get("connection"), dict):
+            engine = result.get("engine")
+            if isinstance(engine, dict) and engine.get("available") is False:
+                self._engine_unavailable(current, engine)
+            elif isinstance(result.get("connection"), dict):
                 self._apply_connection(current, result["connection"])
             current.sidecar_available = result["configured"]
             if current.status == 'IDLE':
@@ -461,18 +477,37 @@ class AgentRuntime:
         connected = bool(status.get("connected"))
         current.connection = 'CONNECTED' if connected else 'DISCONNECTED'
         current.connection_source = str(status.get("source") or "")
+        current.connection_origin = str(status.get("provider_source") or "")
         current.connection_hint = str(status.get("key_hint") or "")
-        current.connection_keychain = bool(status.get("keychain_available", True))
-        current.connection_account = str(status.get("account_name") or "")
+        current.engine_missing = False
         current.sidecar_available = connected
         if current.status == 'IDLE':
             current.status_message = _idle_message(connected)
+
+    @staticmethod
+    def _engine_unavailable(current, error):
+        """Redrob Code is missing or would not start: nothing can be planned, and the Connect block
+        shows the reason (and the launcher, when the engine is missing) instead of Connect."""
+        if current.connection in {'STARTING', 'WAITING'}:
+            clear_connect_code(current)
+        current.connection = 'ERROR'
+        current.connection_message = str(error.get("message") or "")
+        current.connection_source = ""
+        current.connection_origin = ""
+        current.connection_hint = ""
+        current.engine_missing = error.get("code") == "engine_not_installed"
+        current.sidecar_available = False
+        if current.status == 'IDLE':
+            current.status_message = _idle_message(False)
 
     def _handle_connection_event(self, current, method, request_id, event):
         if event["event"] == "error":
             error = event["error"]
             if method == "connect_wait" and request_id != current.connect_request_id:
                 return  # an older attempt that a newer one replaced
+            if error["code"] in _ENGINE_CODES:
+                self._engine_unavailable(current, error)
+                return
             if method in {"connect_start", "connect_wait"}:
                 clear_connect_code(current)
                 if error["code"] == "cancelled":
@@ -525,13 +560,12 @@ class AgentRuntime:
                 current.connection_message = iface_(
                     "Disconnected. Revoke the key in Redrob Console if you no longer need it"
                 )
-            elif current.connection_source == "launcher":
-                # Only this app's own key was removed; the launcher's sign-in is not ours to remove.
+            elif current.connection_origin == "launcher":
+                # The engine fell back to the launcher's sign-in, which is the launcher's to remove.
                 current.connection_message = iface_("Still signed in with Redrob Launcher")
             else:
-                current.connection_message = iface_(
-                    "Still connected through REDROB_API_KEY in the environment"
-                )
+                # The engine's own environment or configuration supplies a key.
+                current.connection_message = iface_("Still connected through Redrob Code's own key")
         elif method == "store_key":
             current.connection_message = iface_("Key stored")
 

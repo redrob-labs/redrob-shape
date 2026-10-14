@@ -50,7 +50,6 @@ describe = credentials.describe
 redact = credentials.redact
 
 GATEWAY_URL = transport.GATEWAY_URL
-LOCAL_ENGINE_URL = transport.LOCAL_ENGINE_URL
 Kind = transport.Kind
 agent_environment = transport.agent_environment
 resolve = transport.resolve
@@ -174,14 +173,6 @@ class _Store:
         return self._held.get(account)
 
 
-def _healthy(_url):
-    return True
-
-
-def _unhealthy(_url):
-    return False
-
-
 def _no_tools(_name):
     return None
 
@@ -191,30 +182,36 @@ def _all_tools(name):
 
 
 class ResolutionOrderTests(unittest.TestCase):
-    def test_local_engine_wins_when_healthy(self):
-        r = resolve(_Store(redrob="k", openai="k"), _healthy, which=_no_tools)
+    def test_the_engine_wins_when_the_sidecar_says_it_is_connected(self):
+        r = resolve(_Store(redrob="k", openai="k"), engine_connected=True, which=_no_tools)
         self.assertIs(r.chosen.kind, Kind.LOCAL)
-        self.assertIn("loopback", r.chosen.reason)
+        self.assertIn("Redrob Code", r.chosen.reason)
 
     def test_gateway_next(self):
-        r = resolve(_Store(redrob="k", openai="k"), _unhealthy, which=_no_tools)
+        r = resolve(_Store(redrob="k", openai="k"), engine_connected=False, which=_no_tools)
         self.assertIs(r.chosen.kind, Kind.GATEWAY)
 
     def test_byo_when_no_gateway_key(self):
-        r = resolve(_Store(anthropic="k"), _unhealthy, which=_no_tools)
+        r = resolve(_Store(anthropic="k"), engine_connected=False, which=_no_tools)
         self.assertIs(r.chosen.kind, Kind.BYO)
         self.assertEqual(r.chosen.provider, "anthropic")
 
     def test_nothing_available_is_reported_not_raised(self):
-        r = resolve(_Store(), _unhealthy, which=_no_tools)
+        r = resolve(_Store(), engine_connected=False, which=_no_tools)
         self.assertFalse(r.ok)
         self.assertIsNone(r.chosen)
         self.assertEqual(r.summary(), "no transport available")
         # Every option is still described, so the UI can tell the user what to set up.
         self.assertEqual(len(r.considered), 6)
 
+    def test_an_unanswered_engine_is_not_available_and_says_it_is_being_asked(self):
+        r = resolve(_Store(), engine_connected=None, which=_no_tools)
+        local = [c for c in r.considered if c.kind is Kind.LOCAL][0]
+        self.assertFalse(local.available)
+        self.assertIn("asking", local.reason)
+
     def test_subscription_is_off_by_default(self):
-        r = resolve(_Store(), _unhealthy, which=_all_tools)
+        r = resolve(_Store(), engine_connected=False, which=_all_tools)
         self.assertFalse(r.ok)
         subs = [c for c in r.considered if c.kind is Kind.SUBSCRIPTION]
         self.assertTrue(subs)
@@ -222,95 +219,85 @@ class ResolutionOrderTests(unittest.TestCase):
         self.assertIn("disabled", subs[0].reason)
 
     def test_subscription_used_when_enabled_and_tool_present(self):
-        r = resolve(_Store(), _unhealthy, subscription_enabled=True, which=_all_tools)
+        r = resolve(_Store(), engine_connected=False, subscription_enabled=True, which=_all_tools)
         self.assertIs(r.chosen.kind, Kind.SUBSCRIPTION)
         self.assertTrue(r.chosen.volatile)
         self.assertIn("policy may change", r.summary())
 
     def test_subscription_unavailable_when_tool_absent(self):
-        r = resolve(_Store(), _unhealthy, subscription_enabled=True, which=_no_tools)
+        r = resolve(_Store(), engine_connected=False, subscription_enabled=True, which=_no_tools)
         self.assertFalse(r.ok)
         subs = [c for c in r.considered if c.kind is Kind.SUBSCRIPTION]
         self.assertIn("not installed", subs[0].reason)
 
     def test_byo_is_preferred_over_subscription(self):
         # BYO never depends on a policy staying put, so it outranks the volatile path.
-        r = resolve(_Store(openai="k"), _unhealthy, subscription_enabled=True, which=_all_tools)
+        r = resolve(_Store(openai="k"), engine_connected=False, subscription_enabled=True, which=_all_tools)
         self.assertIs(r.chosen.kind, Kind.BYO)
 
     def test_explicit_preference_is_honoured(self):
-        r = resolve(_Store(redrob="k"), _healthy, preferred=[Kind.GATEWAY], which=_no_tools)
+        r = resolve(_Store(redrob="k"), engine_connected=True, preferred=[Kind.GATEWAY], which=_no_tools)
         self.assertIs(r.chosen.kind, Kind.GATEWAY)
 
     def test_unavailable_preference_does_not_strand_the_session(self):
-        r = resolve(_Store(redrob="k"), _healthy, preferred=[Kind.BYO], which=_no_tools)
+        r = resolve(_Store(redrob="k"), engine_connected=True, preferred=[Kind.BYO], which=_no_tools)
         self.assertTrue(r.ok)
         self.assertIsNot(r.chosen.kind, Kind.BYO)
-
-    def test_health_check_raising_is_not_fatal(self):
-        def explode(_url):
-            raise OSError("connection refused")
-
-        r = resolve(_Store(redrob="k"), explode, which=_no_tools)
-        self.assertIs(r.chosen.kind, Kind.GATEWAY)
 
 
 class AgentSupportTests(unittest.TestCase):
     def test_unsupported_transports_are_listed_but_never_chosen(self):
         r = resolve(
-            _Store(openai="k", anthropic="k"),
-            _healthy,
+            _Store(redrob="k", openai="k", anthropic="k"),
+            engine_connected=False,
             subscription_enabled=True,
             which=_all_tools,
-            gateway_connected=False,
             supported=transport.AGENT_KINDS,
         )
         self.assertIsNone(r.chosen)
-        unsupported = [c for c in r.considered if c.kind is not Kind.GATEWAY]
-        self.assertTrue(unsupported)
+        unsupported = [c for c in r.considered if c.kind is not Kind.LOCAL]
+        self.assertEqual(len(unsupported), 5)
         for candidate in unsupported:
             self.assertFalse(candidate.available)
             self.assertEqual(candidate.reason, transport.UNSUPPORTED_REASON)
 
-    def test_the_agents_answer_decides_the_gateway(self):
-        connected = resolve(
-            _Store(), _unhealthy, which=_no_tools, gateway_connected=True, supported=transport.AGENT_KINDS
-        )
-        self.assertIs(connected.chosen.kind, Kind.GATEWAY)
-        # A key in the add-on's own store does not count once the agent has said it holds none.
+    def test_the_sidecars_answer_decides_the_engine(self):
+        connected = resolve(_Store(), engine_connected=True, which=_no_tools, supported=transport.AGENT_KINDS)
+        self.assertIs(connected.chosen.kind, Kind.LOCAL)
+        # A Redrob key in the add-on's own store is not a path any more: only the engine's answer counts.
         disconnected = resolve(
-            _Store(redrob="k"),
-            _unhealthy,
-            which=_no_tools,
-            gateway_connected=False,
-            supported=transport.AGENT_KINDS,
+            _Store(redrob="k"), engine_connected=False, which=_no_tools, supported=transport.AGENT_KINDS
         )
         self.assertIsNone(disconnected.chosen)
+
+    def test_the_direct_gateway_is_never_the_agents_path(self):
+        # Two paths would hide whether masking applied; the engine is the only one.
+        self.assertEqual(transport.AGENT_KINDS, frozenset({Kind.LOCAL}))
+        self.assertIn("Redrob Code", transport.UNSUPPORTED_REASON)
 
 
 class AgentEnvironmentTests(unittest.TestCase):
     def _resolve(self, store, **kw):
-        return resolve(store, kw.pop("health", _unhealthy), which=kw.pop("which", _no_tools), **kw)
+        return resolve(store, kw.pop("engine", False), which=kw.pop("which", _no_tools), **kw)
 
-    def test_gateway_leaves_the_key_and_the_endpoint_to_the_agent(self):
-        # This used to assert REDROB_API_KEY = the stored key and REDROB_BASE_URL = GATEWAY_URL.
-        # Both were wrong for the agent that actually runs: it keeps the key in the system keychain
-        # itself, and it treats REDROB_BASE_URL as the FULL completion endpoint, so the gateway root
-        # would have sent every plan to /api/backend. Its default endpoint is already the gateway's.
+    def test_the_engine_gets_no_key_and_no_endpoint(self):
+        # The sidecar finds the shared engine through its record and the engine holds the key. A
+        # key or an endpoint in the environment would be a second path.
         store = _Store(redrob="rdb_key_123456")
         env = agent_environment(
-            self._resolve(store).chosen,
+            self._resolve(store, engine=True).chosen,
             store,
             base={"REDROB_BASE_URL": "https://example.invalid/stale", "REDROB_API_KEY": "rdb_stale"},
         )
         self.assertNotIn("REDROB_API_KEY", env)
         self.assertNotIn("REDROB_BASE_URL", env)
 
-    def test_local_gets_the_loopback_url_and_no_key(self):
-        store = _Store()
-        env = agent_environment(self._resolve(store, health=_healthy).chosen, store, base={})
-        self.assertEqual(env["REDROB_BASE_URL"], LOCAL_ENGINE_URL)
+    def test_gateway_leaves_the_key_and_the_endpoint_alone_too(self):
+        store = _Store(redrob="rdb_key_123456")
+        env = agent_environment(self._resolve(store).chosen, store, base={"REDROB_API_KEY": "rdb_stale"})
+        self.assertIs(self._resolve(store).chosen.kind, Kind.GATEWAY)
         self.assertNotIn("REDROB_API_KEY", env)
+        self.assertNotIn("REDROB_BASE_URL", env)
 
     def test_byo_openai_gets_only_its_own_key(self):
         store = _Store(openai="sk-byo-openai-1")
@@ -329,10 +316,10 @@ class AgentEnvironmentTests(unittest.TestCase):
             self.assertNotIn(name, env)
 
     def test_an_inherited_key_for_another_provider_is_stripped(self):
-        # A stray key in the user's shell must not bill them when they chose the gateway.
-        store = _Store(redrob="rdb_key_123456")
+        # A stray key in the user's shell must not bill them when plans go through the engine.
+        store = _Store()
         env = agent_environment(
-            self._resolve(store).chosen,
+            self._resolve(store, engine=True).chosen,
             store,
             base={"OPENAI_API_KEY": "sk-inherited-from-shell", "PATH": "/usr/bin"},
         )
@@ -340,8 +327,8 @@ class AgentEnvironmentTests(unittest.TestCase):
         self.assertEqual(env["PATH"], "/usr/bin")
 
     def test_unrelated_environment_survives(self):
-        store = _Store(redrob="k")
-        env = agent_environment(self._resolve(store).chosen, store, base={"HOME": "/home/u"})
+        store = _Store()
+        env = agent_environment(self._resolve(store, engine=True).chosen, store, base={"HOME": "/home/u"})
         self.assertEqual(env["HOME"], "/home/u")
 
 

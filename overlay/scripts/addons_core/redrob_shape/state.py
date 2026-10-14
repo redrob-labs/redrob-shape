@@ -51,7 +51,7 @@ _CONNECTION_ITEMS = (
     ('DISCONNECTED', "Not Connected", "Connect Redrob Console to create plans", 'UNLINKED', 1),
     ('STARTING', "Starting", "Asking Redrob Console for a code", 'TIME', 2),
     ('WAITING', "Waiting for Approval", "Approve the code in your browser", 'URL', 3),
-    ('CONNECTED', "Connected", "Plans use your Redrob Console key", 'LINKED', 4),
+    ('CONNECTED', "Connected", "Plans go through Redrob Code with your Redrob Console key", 'LINKED', 4),
     ('ERROR', "Not Connected", "The last connection attempt did not finish", 'ERROR', 5),
 )
 
@@ -94,15 +94,18 @@ class REDROB_PG_session(PropertyGroup):
     show_history: BoolProperty(name="History", default=False, options={'SKIP_SAVE'})
     theme_active: BoolProperty(default=False, options={'SKIP_SAVE'})
 
-    # The connection to Redrob Console. None of these is a secret: the key stays in the agent, and
-    # what reaches Blender is its last four characters and where it is kept.
+    # The connection to Redrob Console. None of these is a secret: the key stays in Redrob Code,
+    # the shared engine on this computer, and what reaches Blender is its last four characters and
+    # where the engine got it.
     connection: EnumProperty(name="Connection", items=_CONNECTION_ITEMS, default='UNKNOWN', options={'SKIP_SAVE'})
     connection_message: StringProperty(default="", options={'SKIP_SAVE'})
+    # "engine" while connected: the only place the key ever is.
     connection_source: StringProperty(default="", options={'SKIP_SAVE'})
+    # The engine's own word for where its key came from: api, env, launcher or config.
+    connection_origin: StringProperty(default="", options={'SKIP_SAVE'})
     connection_hint: StringProperty(default="", options={'SKIP_SAVE'})
-    connection_keychain: BoolProperty(default=True, options={'SKIP_SAVE'})
-    # The workspace Redrob Launcher is signed in to, when its shared sign-in is the key in use.
-    connection_account: StringProperty(default="", options={'SKIP_SAVE'})
+    # Redrob Code is not installed on this computer: the Connect block offers the launcher instead.
+    engine_missing: BoolProperty(default=False, options={'SKIP_SAVE'})
     user_code: StringProperty(default="", options={'SKIP_SAVE'})
     verification_uri: StringProperty(default="", options={'SKIP_SAVE'})
     verification_uri_complete: StringProperty(default="", options={'SKIP_SAVE'})

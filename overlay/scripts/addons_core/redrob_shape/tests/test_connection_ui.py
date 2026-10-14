@@ -144,11 +144,32 @@ class SecretHandlingTests(unittest.TestCase):
         self.assertEqual(targets, set(connection_ui.credentials.KNOWN_ACCOUNTS))
 
 
-class HealthCheckTests(unittest.TestCase):
-    def test_health_check_returns_false_rather_than_raising(self):
-        # It runs while a panel is drawing. An exception there would break the UI, not just the
-        # probe, so a closed port has to be a False.
-        self.assertFalse(connection_ui._health_check("http://127.0.0.1:1"))
+class EngineTests(unittest.TestCase):
+    def test_the_engine_is_the_only_transport_the_agent_plans_through(self):
+        # One path: the shared Redrob Code engine. A direct gateway path would hide whether masking
+        # applied, so it must never be chosen even when the panel still lists it.
+        self.assertEqual(transport.AGENT_KINDS, frozenset({transport.Kind.LOCAL}))
+        resolution = transport.resolve(_NoKeys(), engine_connected=True, supported=transport.AGENT_KINDS)
+        self.assertIs(resolution.chosen.kind, transport.Kind.LOCAL)
+
+    def test_the_install_button_points_at_the_launcher_release(self):
+        self.assertEqual(
+            transport.ENGINE_INSTALL_URL,
+            "https://github.com/redrob-labs/redrob-launcher/releases/latest",
+        )
+        self.assertIn("Redrob Launcher", connection_ui.REDROB_OT_open_install_page.bl_label)
+
+    def test_no_health_probe_runs_while_a_panel_draws(self):
+        # The old loopback probe opened a socket from the draw handler. The sidecar answers now.
+        self.assertFalse(hasattr(connection_ui, "_health_check"))
+
+
+class _NoKeys:
+    def has(self, _account):
+        return False
+
+    def get(self, _account):
+        return None
 
 
 class ConnectOperatorTests(unittest.TestCase):
@@ -157,6 +178,7 @@ class ConnectOperatorTests(unittest.TestCase):
         for name in (
             "redrob_shape.connect",
             "redrob_shape.connect_cancel",
+            "redrob_shape.open_install_page",
             "redrob_shape.open_connect_page",
             "redrob_shape.copy_connect_code",
             "redrob_shape.disconnect",
@@ -168,20 +190,31 @@ class ConnectOperatorTests(unittest.TestCase):
 
     def test_the_key_is_described_by_its_last_four_characters_only(self):
         current = types.SimpleNamespace(
-            connection='CONNECTED', connection_hint="cdef", connection_source="keychain"
+            connection='CONNECTED', connection_hint="cdef", connection_source="engine"
         )
-        self.assertEqual(connection_ui._redrob_key_state(current), "connected (keychain, ending cdef)")
+        self.assertEqual(connection_ui._redrob_key_state(current), "connected (engine, ending cdef)")
         current.connection = 'DISCONNECTED'
         self.assertEqual(connection_ui._redrob_key_state(current), "not connected")
 
-    def test_the_launchers_sign_in_has_its_own_line_and_no_disconnect_button(self):
-        self.assertEqual(connection_ui._SOURCE_NOTES["launcher"][0], "Signed in with Redrob Launcher")
-        # Disconnect removes this app's own key only: hidden for the launcher's shared sign-in,
-        # disabled for a key the environment supplies, offered for a key of our own.
+    def test_the_note_under_connected_follows_where_the_engine_got_its_key(self):
+        notes = connection_ui._SOURCE_NOTES
+        self.assertIn("Redrob Code", notes["api"][0])
+        self.assertEqual(notes["launcher"][0], "Signed in with Redrob Launcher")
+        self.assertIn("REDROB_API_KEY", notes["env"][0])
+        # Disconnect asks the engine to forget a stored key: hidden for the launcher's sign-in,
+        # disabled for a key the engine's environment or configuration supplies, offered otherwise.
         self.assertEqual(connection_ui._disconnect_control("launcher"), 'HIDDEN')
-        self.assertEqual(connection_ui._disconnect_control("environment"), 'DISABLED')
-        for own in ("keychain", "session", ""):
+        self.assertEqual(connection_ui._disconnect_control("env"), 'DISABLED')
+        self.assertEqual(connection_ui._disconnect_control("config"), 'DISABLED')
+        for own in ("api", ""):
             self.assertEqual(connection_ui._disconnect_control(own), 'ENABLED', own)
+
+    def test_connect_and_disconnect_name_redrob_code_not_a_keychain(self):
+        # The key's home moved. Copy that still says "keychain" would send a user looking in the
+        # wrong place.
+        for cls in (connection_ui.REDROB_OT_connect, connection_ui.REDROB_OT_disconnect):
+            self.assertIn("Redrob Code", cls.bl_description)
+            self.assertNotIn("keychain", cls.bl_description)
 
 
 if __name__ == "__main__":

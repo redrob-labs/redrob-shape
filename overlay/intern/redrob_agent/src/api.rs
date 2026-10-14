@@ -4,7 +4,9 @@
 
 use crate::config::Config;
 use crate::conversation::{self, Turn};
+use crate::engine::{Engine, EngineError};
 use crate::validation::{parse_plan, system_prompt, Plan, PlanParseError};
+use redrob_engine_client::Record;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,10 +38,12 @@ impl RedrobClient {
         Ok(Self { client, config })
     }
 
-    /// `api_key` is looked up per request, because it can arrive after start-up through the device flow.
+    /// Plan through the shared Redrob Code daemon. The daemon is found per request (cached once
+    /// found), because it can start, stop and rotate its secret while Blender is open: on a refused
+    /// connection or a 401 the record is read again once and the request repeated.
     pub async fn plan(
         &self,
-        api_key: &str,
+        engine: &Engine,
         instruction: &str,
         context: &Value,
         history: &[Turn],
@@ -64,45 +68,87 @@ impl RedrobClient {
             },
         };
 
-        let response = self
-            .client
-            .post(self.config.endpoint.clone())
-            .bearer_auth(api_key)
-            .json(&request)
-            .send()
-            .await
-            .map_err(map_reqwest_error)?;
+        let record = engine.record().await?;
+        match self.send(engine, &record, &request).await {
+            Err(Attempt::Stale(_)) => {}
+            Err(Attempt::Final(error)) => return Err(error),
+            Ok(plan) => return Ok(plan),
+        }
+        // Once more, against the daemon as it stands now. If that is still refused, the refusal
+        // is the daemon's upstream speaking (the Console no longer takes the key it holds).
+        let record = engine.fresh().await?;
+        match self.send(engine, &record, &request).await {
+            Ok(plan) => Ok(plan),
+            Err(Attempt::Final(error)) => Err(error),
+            Err(Attempt::Stale(StatusCode::UNAUTHORIZED)) => {
+                Err(refusal(401, b"").expect("401 is a refusal"))
+            }
+            Err(Attempt::Stale(_)) => Err(ApiError::Transport),
+        }
+    }
+
+    async fn send(
+        &self,
+        engine: &Engine,
+        record: &Record,
+        request: &CompletionRequest<'_>,
+    ) -> Result<Plan, Attempt> {
+        let mut builder = self.client.post(Engine::chat_url(record));
+        for (name, value) in engine.headers(record) {
+            builder = builder.header(name, value);
+        }
+        let response = builder.json(request).send().await.map_err(|error| {
+            if error.is_connect() {
+                // Nothing listening where the record says: the daemon is gone or restarted.
+                Attempt::Stale(StatusCode::SERVICE_UNAVAILABLE)
+            } else {
+                Attempt::Final(map_reqwest_error(error))
+            }
+        })?;
         let status = response.status();
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(Attempt::Stale(status));
+        }
         if !status.is_success() {
-            if matches!(status.as_u16(), 401 | 402) {
+            if status.as_u16() == 402 {
                 let body = read_bounded(response).await.unwrap_or_default();
                 if let Some(refused) = refusal(status.as_u16(), &body) {
-                    return Err(refused);
+                    return Err(Attempt::Final(refused));
                 }
             }
-            return Err(ApiError::HttpStatus {
+            return Err(Attempt::Final(ApiError::HttpStatus {
                 status: status.as_u16(),
                 retryable: is_retryable_status(status),
-            });
+            }));
         }
 
         if response
             .content_length()
             .is_some_and(|length| length > MAX_API_RESPONSE_BYTES as u64)
         {
-            return Err(ApiError::ResponseTooLarge);
+            return Err(Attempt::Final(ApiError::ResponseTooLarge));
         }
-        let bytes = read_bounded(response).await?;
-        let completion: CompletionResponse =
-            serde_json::from_slice(&bytes).map_err(|_| ApiError::MalformedResponse)?;
+        let bytes = read_bounded(response).await.map_err(Attempt::Final)?;
+        let completion: CompletionResponse = serde_json::from_slice(&bytes)
+            .map_err(|_| Attempt::Final(ApiError::MalformedResponse))?;
         let content = completion
             .choices
             .first()
             .map(|choice| choice.message.content.as_str())
             .filter(|content| !content.trim().is_empty())
-            .ok_or(ApiError::MissingContent)?;
-        parse_plan(content).map_err(ApiError::InvalidPlan)
+            .ok_or(Attempt::Final(ApiError::MissingContent))?;
+        parse_plan(content)
+            .map_err(ApiError::InvalidPlan)
+            .map_err(Attempt::Final)
     }
+}
+
+/// One try against one daemon record.
+enum Attempt {
+    /// The record may be stale: the daemon refused the secret (401) or nothing answered.
+    Stale(StatusCode),
+    /// An answer that a fresh record would not change.
+    Final(ApiError),
 }
 
 /// What the model reads after the system prompt: earlier turns, then the request, then the scene.
@@ -181,6 +227,9 @@ struct CompletionMessage {
 pub enum ApiError {
     #[error("HTTP client configuration failed")]
     ClientConfiguration,
+    /// No daemon to send to. The add-on renders these two itself (install link, reason).
+    #[error("{0}")]
+    Engine(#[from] EngineError),
     #[error("request could not be encoded")]
     InvalidRequest,
     #[error("request timed out")]
@@ -204,8 +253,8 @@ pub enum ApiError {
 
 const MAX_REFUSAL_MESSAGE_CHARS: usize = 240;
 
-/// What a 401 or 402 from the gateway means, read from its OpenAI-compatible envelope
-/// (redrob-console `apps/api/src/inference/openai-error.filter.ts`):
+/// What a 401 or 402 means, read from the Console's OpenAI-compatible envelope as the daemon
+/// passes it on (redrob-console `apps/api/src/inference/openai-error.filter.ts`):
 /// `{"error": {"message", "type", "code"}}`. 402 is either an empty balance (`code` is
 /// `insufficient_quota`) or a key over its monthly budget (`code` is `api_key_budget_exhausted`);
 /// they are fixed in different places, so they get different codes here.
@@ -268,6 +317,7 @@ impl ApiError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::ClientConfiguration => "client_configuration",
+            Self::Engine(error) => error.code(),
             Self::InvalidRequest => "invalid_request",
             Self::Timeout => "timeout",
             Self::Transport => "transport_error",
@@ -282,6 +332,7 @@ impl ApiError {
     pub fn retryable(&self) -> bool {
         match self {
             Self::Timeout | Self::Transport => true,
+            Self::Engine(error) => error.retryable(),
             Self::HttpStatus { retryable, .. } => *retryable,
             _ => false,
         }
@@ -289,6 +340,7 @@ impl ApiError {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)] // each test owns its runtime; the guard spans the test
 mod tests {
     use super::*;
 
@@ -360,6 +412,212 @@ mod tests {
     fn an_unreadable_body_still_gets_a_useful_message() {
         assert_eq!(refusal(402, b"<html>").unwrap().code(), "out_of_credit");
         assert!(refusal(500, b"{}").is_none());
+    }
+
+    use crate::engine::fake::{ok, status, Daemon, ENV_LOCK};
+    use crate::engine::INSTALL_URL;
+
+    fn client() -> RedrobClient {
+        RedrobClient::new(
+            Config::new(crate::config::DEFAULT_DEVICE_BASE_URL, "redrob/auto".into()).unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn completion(summary: &str) -> Value {
+        serde_json::json!({
+            "choices": [{ "message": { "content": format!(r#"{{"summary":"{summary}","actions":[]}}"#) } }]
+        })
+    }
+
+    /// Point the engine client at `daemon`: its run dir holds the record, and `redrob` is `stub`
+    /// (`None`: no engine binary anywhere, which is "not installed").
+    fn point_at(daemon: &Daemon, stub: Option<&std::path::Path>) {
+        std::env::set_var("REDROB_RUN_DIR", &daemon.run_dir);
+        match stub {
+            Some(stub) => std::env::set_var("REDROB_CODE_BIN", stub),
+            None => std::env::set_var("REDROB_CODE_BIN", daemon.run_dir.join("missing-redrob")),
+        }
+    }
+
+    /// An installed engine whose daemon is already up: `redrob service start` would fail, and
+    /// must not be reached.
+    #[cfg(unix)]
+    fn installed(daemon: &Daemon) -> std::path::PathBuf {
+        crate::engine::fake::stub_binary(&daemon.run_dir, None)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_plan_goes_to_the_daemon_with_the_app_headers_and_never_a_bearer_token() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let daemon = Daemon::start("plan").await;
+        daemon.register("first-secret");
+        point_at(&daemon, Some(&installed(&daemon)));
+        daemon.chat(ok(completion("A cube")));
+        let engine = Engine::new("blender-42".into());
+        let plan = client()
+            .plan(&engine, "Add a cube", &serde_json::json!({}), &[])
+            .await
+            .unwrap();
+        assert_eq!(plan.summary, "A cube");
+        let chats = daemon.chats();
+        assert_eq!(chats.len(), 1);
+        let chat = &chats[0];
+        assert_eq!(chat.method, "POST");
+        assert_eq!(
+            chat.header("authorization"),
+            Some(redrob_engine_client::authorization("first-secret").as_str())
+        );
+        assert_eq!(chat.header("x-redrob-app"), Some("shape"));
+        assert_eq!(chat.header("x-redrob-session"), Some("blender-42"));
+        let body: Value = serde_json::from_str(&chat.body).unwrap();
+        assert_eq!(body["model"], "redrob/auto");
+        assert_eq!(body["messages"][1]["role"], "user");
+        // Found once: the health probe ran for the first request only.
+        let probes = daemon
+            .seen()
+            .iter()
+            .filter(|s| s.path == "/api/health")
+            .count();
+        assert_eq!(probes, 1);
+        client()
+            .plan(&engine, "Rounder", &serde_json::json!({}), &[])
+            .await
+            .unwrap();
+        assert_eq!(daemon.chats().len(), 2);
+        assert_eq!(
+            daemon
+                .seen()
+                .iter()
+                .filter(|s| s.path == "/api/health")
+                .count(),
+            1
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_rotated_secret_is_read_again_once_and_the_request_repeated() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let daemon = Daemon::start("rotate").await;
+        daemon.register("old-secret");
+        point_at(&daemon, Some(&installed(&daemon)));
+        daemon.chat(ok(completion("A cube")));
+        let engine = Engine::new("t".into());
+        let client = client();
+        client
+            .plan(&engine, "Add a cube", &serde_json::json!({}), &[])
+            .await
+            .unwrap();
+        // The daemon restarted: a new secret in server.json, and the old one is refused.
+        daemon.register("new-secret");
+        client
+            .plan(&engine, "Rounder", &serde_json::json!({}), &[])
+            .await
+            .unwrap();
+        let chats = daemon.chats();
+        assert_eq!(chats.len(), 3, "first plan, the refused try, the repeat");
+        assert_eq!(
+            chats[1].header("authorization"),
+            Some(redrob_engine_client::authorization("old-secret").as_str())
+        );
+        assert_eq!(
+            chats[2].header("authorization"),
+            Some(redrob_engine_client::authorization("new-secret").as_str())
+        );
+        assert_eq!(
+            daemon
+                .seen()
+                .iter()
+                .filter(|s| s.path == "/api/health")
+                .count(),
+            2
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_second_401_is_the_console_refusing_the_daemons_key() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let daemon = Daemon::start("refused").await;
+        let record = daemon.register("s");
+        // The daemon takes its secret but its upstream refuses: it passes the 401 on.
+        daemon.chat(status(401));
+        point_at(&daemon, Some(&installed(&daemon)));
+        let engine = Engine::new("t".into());
+        let error = client()
+            .plan(&engine, "Add a cube", &serde_json::json!({}), &[])
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "invalid_api_key");
+        assert!(error.to_string().contains("Connect again"), "{error}");
+        assert_eq!(daemon.chats().len(), 2, "one repeat, not a loop");
+        assert!(daemon.chats().iter().all(|c| c.header("authorization")
+            == Some(redrob_engine_client::authorization(&record.secret).as_str())));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_daemon_that_is_not_running_is_started_through_the_engine_binary() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let daemon = Daemon::start("start").await;
+        // No record on disk; `redrob service start --json` (the stub) prints one.
+        let record = daemon.record("started-secret");
+        let stub = crate::engine::fake::stub_binary(&daemon.run_dir, Some(&record));
+        {
+            let _ = std::fs::remove_file(daemon.run_dir.join("server.json"));
+        }
+        daemon.register_secret_only("started-secret");
+        point_at(&daemon, Some(&stub));
+        daemon.chat(ok(completion("A cube")));
+        let engine = Engine::new("t".into());
+        client()
+            .plan(&engine, "Add a cube", &serde_json::json!({}), &[])
+            .await
+            .unwrap();
+        assert_eq!(
+            daemon.chats()[0].header("authorization"),
+            Some(redrob_engine_client::authorization("started-secret").as_str())
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_engine_that_will_not_start_says_why() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let daemon = Daemon::start("start-failed").await;
+        let stub = crate::engine::fake::stub_binary(&daemon.run_dir, None);
+        point_at(&daemon, Some(&stub));
+        let engine = Engine::new("t".into());
+        let error = client()
+            .plan(&engine, "Add a cube", &serde_json::json!({}), &[])
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "engine_start_failed");
+        assert!(error.to_string().contains("port 4096 is taken"), "{error}");
+        assert!(error.retryable());
+        assert!(daemon.chats().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn without_redrob_code_the_answer_is_the_install_message_and_no_request() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let daemon = Daemon::start("missing").await;
+        point_at(&daemon, None);
+        let engine = Engine::new("t".into());
+        let error = client()
+            .plan(&engine, "Add a cube", &serde_json::json!({}), &[])
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "engine_not_installed");
+        assert_eq!(
+            error.to_string(),
+            "Redrob Code is not installed. Install it with Redrob Launcher."
+        );
+        assert!(!error.retryable());
+        assert!(daemon.seen().is_empty(), "nothing was sent anywhere");
+        assert!(INSTALL_URL.starts_with("https://github.com/redrob-labs/redrob-launcher/"));
     }
 
     #[test]

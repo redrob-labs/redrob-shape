@@ -83,6 +83,7 @@ _FIRST_RUN = {
     "REDROB_OT_connect",
     "REDROB_OT_connect_cancel",
     "REDROB_OT_allow_online_access",
+    "REDROB_OT_open_install_page",
     "REDROB_OT_open_connect_page",
     "REDROB_OT_copy_connect_code",
     "REDROB_OT_disconnect",

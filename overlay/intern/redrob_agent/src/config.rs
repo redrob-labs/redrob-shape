@@ -6,19 +6,18 @@ use reqwest::Url;
 use std::env;
 use thiserror::Error;
 
-pub const DEFAULT_BASE_URL: &str = "https://console.redrob.ai/api/backend/v1/chat/completions";
-/// The console's device-flow endpoints, under the same `/v1` as the completion endpoint.
+/// The console's device-flow endpoints. The device flow is how a person obtains a Console key; the
+/// key then goes to the shared Redrob Code daemon, which is the only thing that talks to the
+/// Console for plans. See `engine`.
 pub const DEFAULT_DEVICE_BASE_URL: &str = "https://console.redrob.ai/api/backend/v1";
-pub const DEFAULT_MODEL: &str = "auto";
+/// The model as the daemon names it: `<provider>/<model>`. `redrob/auto` routes through the Console.
+pub const DEFAULT_MODEL: &str = "redrob/auto";
 const MAX_MODEL_LENGTH: usize = 128;
 
-/// Where plans and connections go.
-///
-/// The key is deliberately not part of it. It can arrive after start-up, through the device flow,
-/// so it is looked up for every request instead -- see `credentials`.
+/// Where connecting goes, and what to ask for. Where plans go is not configuration: it is whatever
+/// daemon record `engine` finds at the moment of the request.
 #[derive(Clone, Debug)]
 pub struct Config {
-    pub endpoint: Url,
     /// Always ends in `/`, so `join("device/token")` appends rather than replacing the last segment.
     pub device_base: Url,
     pub model: String,
@@ -26,8 +25,6 @@ pub struct Config {
 
 #[derive(Debug, Error, Clone)]
 pub enum ConfigError {
-    #[error("REDROB_BASE_URL must be a valid HTTPS URL without credentials or a fragment")]
-    InvalidBaseUrl,
     #[error("REDROB_DEVICE_BASE_URL must be a valid HTTPS URL without credentials or a fragment")]
     InvalidDeviceBaseUrl,
     #[error("REDROB_MODEL must be between 1 and {MAX_MODEL_LENGTH} bytes")]
@@ -36,25 +33,13 @@ pub enum ConfigError {
 
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let base_url = env::var("REDROB_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_owned());
         let device_base = env::var("REDROB_DEVICE_BASE_URL")
             .unwrap_or_else(|_| DEFAULT_DEVICE_BASE_URL.to_owned());
         let model = env::var("REDROB_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_owned());
-        Self::new(&base_url, &device_base, model)
+        Self::new(&device_base, model)
     }
 
-    /// `REDROB_API_KEY`, when set, wins over the keychain. It is how CI and development run without
-    /// connecting, and the connection status names it as the environment so nobody mistakes it for
-    /// a stored key.
-    pub fn environment_key() -> Option<String> {
-        env::var("REDROB_API_KEY")
-            .ok()
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
-    }
-
-    pub fn new(base_url: &str, device_base: &str, model: String) -> Result<Self, ConfigError> {
-        let endpoint = https_url(base_url).ok_or(ConfigError::InvalidBaseUrl)?;
+    pub fn new(device_base: &str, model: String) -> Result<Self, ConfigError> {
         let mut device_base = https_url(device_base).ok_or(ConfigError::InvalidDeviceBaseUrl)?;
         if !device_base.path().ends_with('/') {
             let path = format!("{}/", device_base.path());
@@ -64,11 +49,7 @@ impl Config {
         {
             return Err(ConfigError::InvalidModel);
         }
-        Ok(Self {
-            endpoint,
-            device_base,
-            model,
-        })
+        Ok(Self { device_base, model })
     }
 }
 
@@ -90,37 +71,29 @@ mod tests {
     fn rejects_insecure_or_credentialed_urls() {
         assert!(matches!(
             Config::new(
-                "http://example.com/v1",
-                DEFAULT_DEVICE_BASE_URL,
-                "auto".into()
-            ),
-            Err(ConfigError::InvalidBaseUrl)
-        ));
-        assert!(matches!(
-            Config::new(
-                "https://user:pass@example.com/v1",
-                DEFAULT_DEVICE_BASE_URL,
-                "auto".into()
-            ),
-            Err(ConfigError::InvalidBaseUrl)
-        ));
-        assert!(matches!(
-            Config::new(
-                DEFAULT_BASE_URL,
                 "http://console.redrob.ai/api/backend/v1",
-                "auto".into()
+                "redrob/auto".into()
             ),
             Err(ConfigError::InvalidDeviceBaseUrl)
+        ));
+        assert!(matches!(
+            Config::new("https://user:pass@example.com/v1", "redrob/auto".into()),
+            Err(ConfigError::InvalidDeviceBaseUrl)
+        ));
+        assert!(matches!(
+            Config::new(DEFAULT_DEVICE_BASE_URL, String::new()),
+            Err(ConfigError::InvalidModel)
         ));
     }
 
     #[test]
     fn device_endpoints_are_appended_under_v1() {
-        let config = Config::new(DEFAULT_BASE_URL, DEFAULT_DEVICE_BASE_URL, "auto".into())
-            .expect("defaults are valid");
+        let config =
+            Config::new(DEFAULT_DEVICE_BASE_URL, DEFAULT_MODEL.into()).expect("defaults are valid");
         assert_eq!(
             config.device_base.join("device/token").unwrap().as_str(),
             "https://console.redrob.ai/api/backend/v1/device/token"
         );
+        assert_eq!(config.model, "redrob/auto");
     }
 }
