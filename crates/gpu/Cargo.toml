@@ -1,0 +1,20 @@
+[package]
+name = "shape-gpu"
+description = "wgpu viewport: camera, grid, picking, shading modes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+shape-math.workspace = true
+shape-geom.workspace = true
+shape-scene.workspace = true
+shape-ops.workspace = true
+wgpu = { version = "30", default-features = false, features = ["wgsl"] }
+bytemuck = { version = "1", features = ["derive"] }
+log.workspace = true
+
+[lints]
+workspace = true

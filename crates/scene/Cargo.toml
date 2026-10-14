@@ -1,0 +1,16 @@
+[package]
+name = "shape-scene"
+description = "Object tree, materials, lights, cameras and selection."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+shape-math.workspace = true
+shape-geom.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

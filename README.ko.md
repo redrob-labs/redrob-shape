@@ -1,29 +1,44 @@
-# Redrob Shape: Blender를 패치로 고친 배포판
+# 레드롭 셰이프
 
-Redrob Shape는 말로 모델을 다듬고 셰이딩하는 에이전트형 3D 도구이며, 지금 쓰는 .blend 파일을 그대로 엽니다.
+레드롭 셰이프는 프롬프트로 모델을 만들고 셰이딩하며, 기존 .blend 파일을 여는 에이전트형 3D 제작 도구입니다.
 
 [English](README.md)
 
-이 저장소에는 **우리가 바꾼 것만** 있습니다. Blender 원본은 빌드할 때 받아 오고, 저장소에 넣지 않습니다.
+처음부터 끝까지 순수 Rust로 만듭니다. 하프에지 모델러, wgpu 뷰포트, 경로 추적기, egui 에디터, 그리고
+수정안을 제안하고 승인을 기다리는 내장 에이전트로 이루어집니다. Blender도, C++ 툴체인도, OS별 빌드 머신도
+없습니다. Linux·macOS·Windows 모두 `cargo build` 한 번이 빌드 전부입니다.
+
+## 상태
+
+초기 단계입니다. 단계 계획은 [ROADMAP.md](ROADMAP.md)에 있고, 지금 동작하는 범위는 그 표가 기준입니다.
+
+## 빌드
 
 ```
-upstream.json     고정한 Blender 저장소와 커밋
-overlay/          이 제품에만 있는 파일 (복사해 넣고, 패치하지 않음)
-patches/          Blender 파일에 대한 변경, 목적마다 패치 하나
-brand/            디자인 시스템 파일로 만든 아이콘과 스플래시 (sha256으로 고정)
-scripts/          받기, 적용, 게이트
+cargo build --release -p redrob-shape
+./target/release/redrob-shape
 ```
 
-빌드와 검사:
+Linux는 창 관련 헤더가 필요합니다 (Debian/Ubuntu: `libxkbcommon-dev libwayland-dev libx11-dev
+libxrandr-dev libxi-dev libgl1-mesa-dev`).
+
+## 개발
 
 ```
-./scripts/verify-patches.sh     # 원본을 받아 모든 변경을 적용하고 결과를 검사합니다
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
-아이콘과 스플래시는 `scripts/build-brand-assets.py`가 디자인 시스템이 배포한 파일로 만듭니다. 여기서 그리지 않습니다. Redrob Shape는 일곱 제품군에 속하지 않으므로 그룹 아이콘(Redrob Blue 타일 위 흰 심볼)을 씁니다.
+브랜치는 gitflow를 따릅니다. `develop`이 기본, `main`이 릴리즈, 작업 브랜치는 `feat/…`, `fix/…`,
+`docs/…`, `chore/…`, `test/…`, `refactor/…`, `perf/…`, `hotfix/…`, `release/…`, `sync/…` 입니다.
+조직 공통 [CONTRIBUTING](https://github.com/redrob-labs/.github/blob/main/CONTRIBUTING.ko.md)을 참고하세요.
 
-자세한 내용은 [README.md](README.md)에 있습니다.
+## 이력
 
-## 릴리스
+2026년 10월까지 이 저장소는 패치 기반 Blender 배포판이었습니다. 그 트리는 태그 `blender-fork-final`과
+브랜치 `archive/blender-fork-history`에 남아 있고, 여기에는 그중 아무것도 가져오지 않았습니다.
 
-릴리스는 `.github/workflows/sign-and-publish.yml`이 세 빌드에 서명해 공개하는 것입니다. 순서는 그 파일 머리말에 있습니다. 공개되는 자산 이름은 Redrob Launcher가 읽는 형식 `redrob-shape-<버전>-<os>-<arch>[-portable].<확장자>` 하나뿐이며, `scripts/check-asset-names.py`가 업로드 직전에 그 이름을 검사합니다. Linux 빌드는 `scripts/package-linux.sh <설치 디렉터리>`로 묶습니다.
+## 라이선스
+
+MIT 또는 Apache-2.0 중 택일. [NOTICE](NOTICE) 참고.

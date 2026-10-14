@@ -1,0 +1,12 @@
+Redrob Shape
+Copyright (c) 2026 Janghoon Lee (Redrob) and contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE).
+
+Redrob Shape is written from scratch. It is not derived from Blender or any other 3D suite.
+The earlier Blender-based distribution that lived in this repository is preserved under the git
+tag `blender-fork-final` and the branch `archive/blender-fork-history`; Blender is licensed under
+the GNU GPL v3 and nothing from it is carried in this tree.
+
+Brand assets under assets/brand are the published Redrob design-system files, pinned by SHA-256 in
+assets/brand/SOURCES.json.

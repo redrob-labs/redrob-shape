@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Redrob Shape
+Comment=Agentic 3D creation suite
+Exec=redrob-shape %f
+Icon=ai.redrob.shape
+Terminal=false
+Categories=Graphics;3DGraphics;
+MimeType=application/x-blender;model/obj;model/stl;model/gltf+json;model/gltf-binary;
+StartupWMClass=ai.redrob.shape

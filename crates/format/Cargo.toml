@@ -1,0 +1,23 @@
+[package]
+name = "shape-format"
+description = "Native .rshape files plus OBJ, STL, glTF and PLY."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+shape-math.workspace = true
+shape-geom.workspace = true
+shape-scene.workspace = true
+shape-ops.workspace = true
+shape-blend.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names"] }
+base64 = "0.22"
+
+[lints]
+workspace = true

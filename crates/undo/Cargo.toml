@@ -1,0 +1,13 @@
+[package]
+name = "shape-undo"
+description = "Command stack for undo and redo."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

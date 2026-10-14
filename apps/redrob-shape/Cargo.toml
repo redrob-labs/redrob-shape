@@ -1,0 +1,30 @@
+[package]
+name = "redrob-shape"
+description = "Redrob Shape: an agentic 3D creation suite, written from scratch in Rust."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+default-run = "redrob-shape"
+
+[[bin]]
+name = "redrob-shape"
+path = "src/main.rs"
+
+[dependencies]
+shape-ui-egui.workspace = true
+eframe = { workspace = true, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+egui.workspace = true
+shape-math.workspace = true
+shape-scene.workspace = true
+shape-agent.workspace = true
+serde_json.workspace = true
+env_logger.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true
+
+[lints]
+workspace = true
