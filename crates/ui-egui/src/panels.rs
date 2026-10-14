@@ -140,7 +140,14 @@ impl ShapeApp {
                         self.viewport.frame_scene(&self.scene);
                     }
                 });
-                ui.menu_button("Render", |_ui| {});
+                ui.menu_button("Render", |ui| {
+                    if ui.button("Render Image (F12)").clicked() {
+                        self.start_render(ui.ctx());
+                    }
+                    if ui.button("Show Render Window").clicked() {
+                        self.render.open = true;
+                    }
+                });
                 ui.menu_button("Help", |ui| {
                     ui.label(format!("Redrob Shape {VERSION}"));
                 });

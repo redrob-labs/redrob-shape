@@ -16,6 +16,8 @@ shape-undo.workspace = true
 shape-format.workspace = true
 shape-gpu.workspace = true
 shape-agent.workspace = true
+shape-render.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json.workspace = true
 egui.workspace = true
 eframe = { workspace = true, features = ["wgpu"] }

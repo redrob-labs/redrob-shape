@@ -6,11 +6,13 @@
 
 pub mod agent;
 mod panels;
+pub mod render_panel;
 pub mod tools;
 pub mod viewport;
 
 pub use agent::{AgentFactory, AgentPanel};
 use egui::RichText;
+pub use render_panel::RenderPanel;
 pub use shape_agent::ControlServer;
 use shape_geom::primitives;
 use shape_gpu::ShadingMode;
@@ -44,6 +46,7 @@ pub struct ShapeApp {
     /// Tool calls from the MCP server, run on the scene each frame.
     control: Option<ControlServer>,
     pub show_agent: bool,
+    pub render: RenderPanel,
 }
 
 /// Primitives the Add menu offers.
@@ -108,7 +111,23 @@ impl ShapeApp {
             agent: AgentPanel::new(None),
             control: None,
             show_agent: true,
+            render: RenderPanel::new(),
         }
+    }
+
+    /// Camera for a render: the scene's first camera object, else the viewport's view.
+    pub fn render_camera(&self) -> shape_render::RenderCamera {
+        shape_render::RenderScene::scene_camera(&self.scene).unwrap_or_else(|| {
+            let c = &self.viewport.camera;
+            shape_render::RenderCamera::look_at(c.position(), c.target, c.fov_y)
+        })
+    }
+
+    /// Start (or restart) a render of the current scene.
+    pub fn start_render(&mut self, ctx: &egui::Context) {
+        let camera = self.render_camera();
+        self.render.start(&self.scene, camera, ctx.clone());
+        self.status = "Rendering…".into();
     }
 
     /// Attach the agent process factory and the control channel its tools arrive on.
@@ -438,6 +457,10 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() || self.modal.is_some() {
             return;
         }
+        let f12 = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F12));
+        if f12 {
+            self.start_render(ui.ctx());
+        }
         let (undo, redo, del, frame, wire, solid) = ui.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
@@ -491,6 +514,18 @@ impl ShapeApp {
             .inner;
         self.last_pointer = input.pointer.or(self.last_pointer);
         self.handle_viewport_input(&input, enter, escape);
+        match self.render.ui(ui.ctx()) {
+            Some(render_panel::RenderAction::Start) => self.start_render(ui.ctx()),
+            Some(render_panel::RenderAction::Save) => {
+                if let Some(path) = rfd::FileDialog::new().add_filter("PNG", &["png"]).set_file_name("render.png").save_file() {
+                    self.status = match self.render.save_png(&path) {
+                        Ok(()) => format!("Saved {}", path.display()),
+                        Err(e) => format!("Save failed: {e}"),
+                    };
+                }
+            }
+            None => {}
+        }
         if self.modal.is_some() {
             ui.ctx().request_repaint();
         }

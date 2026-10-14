@@ -15,7 +15,7 @@ into `develop` and lands only when its gate is green. Model: the ArtCraft "craft
 | 6 | `scene`, `gpu` | PBR materials, lights, basic UV unwrap | viewport snapshots |
 | 7 | `blend` | read-only `.blend` import (2.5x-5.x, zstd/gzip): objects, meshes, materials, lights, cameras | 3 real files load |
 | 8 | `agent` | `redrob acp --attach` over ACP, MCP tools (scene_summary, add_primitive, transform, material, mesh_op, modifiers, lights, import/export), permission prompts, Agent panel | tools + protocol tests; real prompt needs Redrob Code installed |
-| 9 | `render` | CPU path tracer (rayon), render window, PNG save | PSNR against references |
+| 9 | `render` | CPU path tracer (rayon, progressive, deterministic), Render window (F12), PNG save | Lambert formula, shadow, emission, determinism tests |
 | 10 | packaging | macOS universal, Windows x64/arm64, Linux; OIDC signing; launcher manifest | asset count = build count |
 | later | | bevel, sculpt, keyframes, armatures, booleans, GPU path tracer | v0.2+ |
 

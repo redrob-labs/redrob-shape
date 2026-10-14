@@ -2648,6 +2648,14 @@ dependencies = [
 [[package]]
 name = "shape-render"
 version = "0.0.1"
+dependencies = [
+ "image",
+ "rayon",
+ "shape-geom",
+ "shape-math",
+ "shape-ops",
+ "shape-scene",
+]
 
 [[package]]
 name = "shape-scene"
@@ -2670,6 +2678,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui_kittest",
+ "image",
  "log",
  "rfd",
  "serde_json",
@@ -2679,6 +2688,7 @@ dependencies = [
  "shape-gpu",
  "shape-math",
  "shape-ops",
+ "shape-render",
  "shape-scene",
  "shape-undo",
  "wgpu",
