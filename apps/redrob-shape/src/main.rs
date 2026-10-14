@@ -1,7 +1,7 @@
 //! Redrob Shape desktop entry point.
 //!
-//! `redrob-shape [--demo] [FILE]` opens the editor; `FILE` is any format `shape-format` reads and
-//! `--demo` fills the scene with the primitives so the viewport has something to show.
+//! `redrob-shape [--demo] [--no-grid] [FILE]` opens the editor; `FILE` is any format `shape-format`
+//! reads, `--demo` fills the scene with the primitives and `--no-grid` hides the floor grid.
 
 use shape_ui_egui::{Primitive, ShapeApp};
 
@@ -9,6 +9,7 @@ fn main() -> eframe::Result {
     env_logger::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let demo = args.iter().any(|a| a == "--demo");
+    let no_grid = args.iter().any(|a| a == "--no-grid");
     let file = args.iter().find(|a| !a.starts_with("--")).map(std::path::PathBuf::from);
 
     let options = eframe::NativeOptions {
@@ -31,6 +32,7 @@ fn main() -> eframe::Result {
             if demo {
                 demo_scene(&mut app);
             }
+            app.viewport.options.show_grid = !no_grid;
             Ok(Box::new(app))
         }),
     )

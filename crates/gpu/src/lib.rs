@@ -1,7 +1,8 @@
 //! wgpu viewport: camera, grid, picking, shading modes.
 //!
 //! [`Viewport`] renders a [`Scene`] into its own colour+depth textures with one solid pipeline
-//! (flat Lambert) and one line pipeline (grid, wire overlay, selection outline). The UI shows the
+//! (flat Lambert) and one line pipeline (grid, wire overlay, selection outline) that draws each
+//! segment as a screen-space quad. The UI shows the
 //! colour texture as an image; rendering is submitted on the queue directly, so it does not depend
 //! on egui's own render pass (which has no depth buffer). Picking is done on the CPU with the
 //! geometry BVH -- exact, and it does not need a GPU read-back.
@@ -44,12 +45,52 @@ impl Vertex {
     }
 }
 
+/// One corner of a line quad: both endpoints plus which end / side / kind this corner is.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct LineVertex {
+    pub a: [f32; 3],
+    pub b: [f32; 3],
+    pub color: [f32; 4],
+    /// x: end (0 = a, 1 = b), y: side (-1 / +1), z: kind (0 grid, 1 wire).
+    pub params: [f32; 3],
+}
+
+impl LineVertex {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x3];
+
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<LineVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBUTES,
+        }
+    }
+
+    /// Six corners (two triangles) for the segment `a -> b`.
+    pub fn quad(a: &Vertex, b: &Vertex) -> [LineVertex; 6] {
+        let kind = if a.normal[1] > 0.5 { 1.0 } else { 0.0 };
+        let corner = |end: f32, side: f32| LineVertex { a: a.position, b: b.position, color: a.color, params: [end, side, kind] };
+        let (a0, a1, b0, b1) = (corner(0.0, -1.0), corner(0.0, 1.0), corner(1.0, -1.0), corner(1.0, 1.0));
+        [a0, b0, b1, a0, b1, a1]
+    }
+}
+
+/// Expand a line list (vertex pairs) into quad corners.
+pub fn expand_lines(lines: &[Vertex]) -> Vec<LineVertex> {
+    lines.as_chunks::<2>().0.iter().flat_map(|[a, b]| LineVertex::quad(a, b)).collect()
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Globals {
     view_proj: [[f32; 4]; 4],
     light_dir: [f32; 4],
     ambient: [f32; 4],
+    /// xyz camera position, w grid fade distance.
+    camera: [f32; 4],
+    /// xy size in pixels, z line width in pixels.
+    viewport: [f32; 4],
 }
 
 /// What to draw and how.
@@ -60,6 +101,8 @@ pub struct ViewOptions {
     pub background: [f32; 4],
     /// World direction towards the key light.
     pub light_dir: Vec3,
+    /// Width of grid and wire lines in pixels.
+    pub line_width_px: f32,
 }
 
 impl Default for ViewOptions {
@@ -71,6 +114,7 @@ impl Default for ViewOptions {
             // written to the non-sRGB target as-is
             background: [0x29 as f32 / 255.0, 0x2e as f32 / 255.0, 0x37 as f32 / 255.0, 1.0],
             light_dir: Vec3::new(0.4, 1.0, 0.6),
+            line_width_px: 1.5,
         }
     }
 }
@@ -136,14 +180,14 @@ impl Viewport {
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
-        let make = |label: &str, vs: &str, fs: &str, topology: wgpu::PrimitiveTopology, cull: Option<wgpu::Face>| {
+        let make = |label: &str, vs: &str, fs: &str, layout_desc: wgpu::VertexBufferLayout<'static>, cull: Option<wgpu::Face>| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some(vs),
-                    buffers: &[Some(Vertex::layout())],
+                    buffers: &[Some(layout_desc)],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -156,7 +200,12 @@ impl Viewport {
                     })],
                     compilation_options: Default::default(),
                 }),
-                primitive: wgpu::PrimitiveState { topology, cull_mode: cull, front_face: wgpu::FrontFace::Ccw, ..Default::default() },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: cull,
+                    front_face: wgpu::FrontFace::Ccw,
+                    ..Default::default()
+                },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: Self::DEPTH_FORMAT,
                     depth_write_enabled: Some(true),
@@ -169,8 +218,8 @@ impl Viewport {
                 cache: None,
             })
         };
-        let solid = make("solid", "vs_main", "fs_solid", wgpu::PrimitiveTopology::TriangleList, None);
-        let lines = make("lines", "vs_lines", "fs_flat", wgpu::PrimitiveTopology::LineList, None);
+        let solid = make("solid", "vs_main", "fs_solid", Vertex::layout(), None);
+        let lines = make("lines", "vs_lines", "fs_flat", LineVertex::layout(), None);
         let (color, color_view, depth_view) = Self::make_targets(&device, format, (16, 16));
         Self {
             device,
@@ -257,10 +306,17 @@ impl Viewport {
             view_proj: camera.view_projection(aspect).to_cols_array_2d(),
             light_dir: camera_relative_light(camera, options.light_dir).extend(0.0).to_array(),
             ambient: [0.35, 0.37, 0.42, 1.0],
+            camera: camera.position().extend((camera.distance * 4.0).max(20.0)).to_array(),
+            viewport: [self.size.0 as f32, self.size.1 as f32, options.line_width_px, 0.0],
         };
         self.queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
-        self.tri_buffer = self.upload(&geometry.triangles, "triangles");
-        self.line_buffer = self.upload(&geometry.lines, "lines");
+        let mut tri = self.tri_buffer.take();
+        let mut line = self.line_buffer.take();
+        self.upload(&mut tri, &geometry.triangles, "triangles");
+        let quads = expand_lines(&geometry.lines);
+        self.upload(&mut line, &quads, "lines");
+        self.tri_buffer = tri;
+        self.line_buffer = line;
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
         {
@@ -286,33 +342,49 @@ impl Viewport {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.bind_group, &[]);
-            if let Some((buf, n)) = &self.tri_buffer {
-                pass.set_pipeline(&self.solid);
-                pass.set_vertex_buffer(0, buf.slice(..));
+            if let Some((buf, n)) = &self.line_buffer
+                && *n > 0
+            {
+                pass.set_pipeline(&self.lines);
+                pass.set_vertex_buffer(0, buf.slice(..u64::from(*n) * std::mem::size_of::<LineVertex>() as u64));
                 pass.draw(0..*n, 0..1);
             }
-            if let Some((buf, n)) = &self.line_buffer {
-                pass.set_pipeline(&self.lines);
-                pass.set_vertex_buffer(0, buf.slice(..));
+            if let Some((buf, n)) = &self.tri_buffer
+                && *n > 0
+            {
+                pass.set_pipeline(&self.solid);
+                pass.set_vertex_buffer(0, buf.slice(..u64::from(*n) * std::mem::size_of::<Vertex>() as u64));
                 pass.draw(0..*n, 0..1);
             }
         }
         self.queue.submit([encoder.finish()]);
     }
 
-    fn upload(&self, vertices: &[Vertex], label: &str) -> Option<(wgpu::Buffer, u32)> {
+    /// Upload into a persistent buffer, growing it only when the data no longer fits. Buffers are
+    /// never recreated per frame: the GL backend can keep a stale vertex binding when a freshly
+    /// created buffer reuses a just-destroyed handle, which drew the grid's line list as triangles.
+    fn upload<V: Pod>(&self, slot: &mut Option<(wgpu::Buffer, u32)>, vertices: &[V], label: &str) {
         if vertices.is_empty() {
-            return None;
+            if let Some((_, n)) = slot {
+                *n = 0;
+            }
+            return;
         }
-        let bytes = bytemuck::cast_slice(vertices);
-        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: bytes.len() as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.queue.write_buffer(&buffer, 0, bytes);
-        Some((buffer, vertices.len() as u32))
+        let bytes: &[u8] = bytemuck::cast_slice(vertices);
+        let fits = slot.as_ref().is_some_and(|(b, _)| b.size() >= bytes.len() as u64);
+        if !fits {
+            let capacity = (bytes.len() as u64).next_power_of_two().max(1 << 16);
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: capacity,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            *slot = Some((buffer, 0));
+        }
+        let (buffer, n) = slot.as_mut().expect("slot was just filled");
+        self.queue.write_buffer(buffer, 0, bytes);
+        *n = vertices.len() as u32;
     }
 }
 

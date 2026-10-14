@@ -86,11 +86,11 @@ fn grid(lines: &mut Vec<Vertex>) {
             _ => (GRID_COLOR, GRID_COLOR),
         };
         // line along Z at x = t
-        lines.push(Vertex::new(Vec3::new(t, 0.0, -h), Vec3::Y, cx));
-        lines.push(Vertex::new(Vec3::new(t, 0.0, h), Vec3::Y, cx));
+        lines.push(Vertex::new(Vec3::new(t, 0.0, -h), Vec3::ZERO, cx));
+        lines.push(Vertex::new(Vec3::new(t, 0.0, h), Vec3::ZERO, cx));
         // line along X at z = t
-        lines.push(Vertex::new(Vec3::new(-h, 0.0, t), Vec3::Y, cz));
-        lines.push(Vertex::new(Vec3::new(h, 0.0, t), Vec3::Y, cz));
+        lines.push(Vertex::new(Vec3::new(-h, 0.0, t), Vec3::ZERO, cz));
+        lines.push(Vertex::new(Vec3::new(h, 0.0, t), Vec3::ZERO, cz));
     }
 }
 
