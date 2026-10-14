@@ -153,6 +153,16 @@ its header lists the seven steps in order. The short form: `release/<version>` f
 the tag `v<version>` is pushed alone; `gh release create v<version> --draft` with the three
 artefacts; `sign-and-publish.yml` is dispatched with that tag; `main` is merged back into `develop`.
 
+Windows executables are signed with Azure Artifact Signing, authenticated with the job's OpenID
+Connect token (`azure/login`, job `environment: release`, `permissions: id-token: write`). The
+redrob-labs organization secrets it reads are plain IDs: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_SUBSCRIPTION_ID` and `ARTIFACT_SIGNING_ENDPOINT`, `ARTIFACT_SIGNING_ACCOUNT`,
+`ARTIFACT_SIGNING_CERT_PROFILE`; there is no certificate file and no client secret anywhere, and
+none of them may be recreated as a repository secret. The login runs after every download and right
+before signing, because the OIDC token lives minutes. Every signature is checked with
+`signtool verify /pa` and must read `Valid` from the organization's Public Trust certificate
+(`CN=McKinley Rice, Inc.`); nothing less is published.
+
 The published assets are named the way Redrob Launcher reads a release, and nothing else:
 
 ```
