@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: packaging/macos/bundle.sh substitutes @VERSION@, @SHORT_VERSION@ and @BUILD_SHA@. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>Redrob Shape</string>
+  <key>CFBundleName</key>
+  <string>Redrob Shape</string>
+  <key>CFBundleExecutable</key>
+  <string>Redrob Shape</string>
+  <key>CFBundleIdentifier</key>
+  <string>ai.redrob.shape</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@SHORT_VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@SHORT_VERSION@</string>
+  <key>RedrobShapeVersion</key>
+  <string>@VERSION@</string>
+  <key>RedrobShapeBuildCommit</key>
+  <string>@BUILD_SHA@</string>
+  <key>CFBundleIconFile</key>
+  <string>Redrob Shape</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.graphics-design</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+  <key>NSRequiresAquaSystemAppearance</key>
+  <false/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © 2026 Janghoon Lee (Redrob) and contributors. MIT OR Apache-2.0.</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Redrob Shape Scene</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>rshape</string></array>
+      <key>CFBundleTypeIconFile</key>
+      <string>Redrob Shape</string>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>3D model</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>blend</string><string>obj</string><string>stl</string><string>ply</string><string>gltf</string><string>glb</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>

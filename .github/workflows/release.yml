@@ -1,0 +1,200 @@
+# Release pipeline: a `vX.Y.Z` tag builds archives for every platform and publishes the GitHub
+# Release "Redrob Shape vX.Y.Z". A manual dispatch is a dry run: it builds every job and publishes
+# nothing.
+#
+# The tag must equal the workspace version in Cargo.toml; the version job fails otherwise, and
+# every other job checks out the exact commit it resolved, so a push between dispatch and tag
+# cannot split the binaries from the tag. Windows binaries are signed through Azure Artifact
+# Signing over OIDC when the organization secrets are present; without them they ship unsigned
+# with a warning. macOS bundles are ad-hoc signed (Developer ID signing is a later step).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Resolve version
+        run: |
+          v="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          if ! printf '%s' "$v" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
+            echo "::error::'$v' is not a version like 1.2.3 or 1.2.3-rc.1"; exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$v" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the Cargo.toml version $v"; exit 1
+          fi
+          case "$v" in *-*) pre=true ;; *) pre=false ;; esac
+          { echo "version=$v"; echo "sha=$GITHUB_SHA"; echo "prerelease=$pre"; } >>"$GITHUB_OUTPUT"
+          echo "### Redrob Shape v$v (\`${GITHUB_SHA::9}\`)" >>"$GITHUB_STEP_SUMMARY"
+
+  linux:
+    name: Linux x86_64
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      - name: Build
+        run: cargo build --release -p redrob-shape --target x86_64-unknown-linux-gnu
+      - name: Package
+        run: packaging/linux/package.sh x86_64-unknown-linux-gnu "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/release/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS universal
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos
+      - name: Build both architectures
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          cargo build --release -p redrob-shape --target aarch64-apple-darwin
+          cargo build --release -p redrob-shape --target x86_64-apple-darwin
+      - name: Bundle
+        run: packaging/macos/bundle.sh "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/release/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    needs: version
+    runs-on: windows-latest
+    # `release` is the environment the organization's federated credential names.
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, target: x86_64-pc-windows-msvc }
+          - { arch: arm64, target: aarch64-pc-windows-msvc }
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows-${{ matrix.arch }}
+      - name: Build
+        run: cargo build --release -p redrob-shape --target ${{ matrix.target }}
+      # The login comes AFTER the build: GitHub's OIDC token lives minutes.
+      - name: Log in to Azure (OIDC)
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign and package
+        shell: pwsh
+        env:
+          ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.ARTIFACT_SIGNING_ENDPOINT }}
+          ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.ARTIFACT_SIGNING_ACCOUNT }}
+          ARTIFACT_SIGNING_CERT_PROFILE: ${{ secrets.ARTIFACT_SIGNING_CERT_PROFILE }}
+        run: ./packaging/windows/package.ps1 -Arch ${{ matrix.arch }} -Target ${{ matrix.target }} -Version "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [version, linux, macos, windows]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum -- * | tee SHA256SUMS.txt
+      # Create the release empty, then upload each asset on its own with retries: one atomic
+      # upload of every asset is rolled back whole by a single transient 5xx.
+      - name: Create the release and upload assets
+        working-directory: artifacts
+        run: |
+          tag="v$VERSION"
+          title="Redrob Shape v$VERSION"
+          pre=()
+          if [ "$PRERELEASE" = true ]; then pre=(--prerelease); fi
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$title" --target "$GITHUB_SHA" --generate-notes "${pre[@]}"
+          fi
+          for f in *; do
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$tag" "$f" --clobber; then break; fi
+              echo "upload of $f failed (attempt $attempt)"; sleep $((attempt * 10))
+              [ "$attempt" = 5 ] && exit 1
+            done
+          done
+          want=$(ls | wc -l)
+          have=$(gh release view "$tag" --json assets --jq '.assets | length')
+          [ "$have" = "$want" ] || { echo "::error::uploaded $have of $want assets"; exit 1; }
+          { echo "Release **$title** at \`${GITHUB_SHA::9}\`:"; echo; sed 's/^/    /' SHA256SUMS.txt; } >>"$GITHUB_STEP_SUMMARY"
