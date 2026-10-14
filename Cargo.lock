@@ -1008,6 +1008,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.30.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "glifo"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2446,6 +2455,11 @@ version = "0.0.1"
 [[package]]
 name = "shape-geom"
 version = "0.0.1"
+dependencies = [
+ "serde",
+ "shape-math",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "shape-gpu"
@@ -2454,6 +2468,10 @@ version = "0.0.1"
 [[package]]
 name = "shape-math"
 version = "0.0.1"
+dependencies = [
+ "glam",
+ "serde",
+]
 
 [[package]]
 name = "shape-ops"
