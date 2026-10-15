@@ -23,6 +23,7 @@ pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub mod node_editor;
 pub mod sculpt_mode;
+pub mod timeline;
 pub mod uv_editor;
 pub use layout::{PropsTab, Regions, Workspace};
 pub use object_mode::SetOrigin;
@@ -59,6 +60,8 @@ pub struct ShapeApp {
     property_before: Option<Scene>,
     pub(crate) node_editor: node_editor::NodeEditor,
     pub sculpt: Option<sculpt_mode::SculptMode>,
+    /// Fractional frames carried between playback ticks.
+    pub(crate) play_accum: f32,
     node_editor_origin: egui::Vec2,
     /// Pointer over the viewport last frame, in viewport pixels.
     last_pointer: Option<Vec2>,
@@ -149,6 +152,7 @@ impl ShapeApp {
             property_before: None,
             node_editor: Default::default(),
             sculpt: None,
+            play_accum: 0.0,
             node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
             agent: AgentPanel::new(None),
@@ -627,6 +631,9 @@ impl ShapeApp {
             if let Some(kind) = kind {
                 self.modal = Modal::transform_with(kind, &self.scene, pointer, false, self.xf, Some(&self.viewport.camera));
             }
+            if i && !modal_running && self.popup.is_none() {
+                self.popup = Some(Popup::InsertKeyframe);
+            }
         }
         (enter, escape)
     }
@@ -708,6 +715,8 @@ impl ShapeApp {
             self.popup_pos = None;
         }
         let (enter, escape) = self.modal_keys(ui);
+        self.playback_keys(ui);
+        self.animation_tick(ui);
         // Blender sends keys to the editor under the pointer: the Shader Editor takes its own.
         let over_nodes = self.node_editor.hovered && self.modal.is_none();
         if !over_nodes {
@@ -732,6 +741,9 @@ impl ShapeApp {
         }
         if self.regions.workspace == layout::Workspace::UvEditing && !self.regions.maximized {
             self.uv_editor_panel(ui);
+        }
+        if self.regions.workspace == layout::Workspace::Animation && !self.regions.maximized {
+            self.timeline_panel(ui);
         }
         if self.regions.workspace == layout::Workspace::Shading && !self.regions.maximized {
             self.node_editor_panel(ui);

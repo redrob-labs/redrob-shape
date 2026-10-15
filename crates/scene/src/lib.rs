@@ -32,6 +32,8 @@ id!(TextureId);
 
 /// An image texture: the file it came from and its pixels (linear RGBA floats, decoded from the
 /// 8-bit sRGB file). Pixels are not saved with the scene; they reload from `path` on open.
+pub mod anim;
+pub use anim::{Action, Channel, KeyingSet, Timeline};
 pub mod nodes;
 pub use nodes::{NodeKind, NodeTree};
 
@@ -397,11 +399,14 @@ pub struct Object {
     /// The collection this object is linked to; `None` is the Scene Collection itself.
     #[serde(default)]
     pub collection: Option<CollectionId>,
+    /// Keyframe animation of the transform.
+    #[serde(default)]
+    pub action: Option<anim::Action>,
 }
 
 impl Object {
     pub fn new(name: impl Into<String>, data: ObjectData) -> Self {
-        Self { name: name.into(), transform: Transform::IDENTITY, parent: None, data, visible: true, collection: None }
+        Self { name: name.into(), transform: Transform::IDENTITY, parent: None, data, visible: true, collection: None, action: None }
     }
 }
 
@@ -609,6 +614,9 @@ pub struct Scene {
     /// The 3D cursor: where new objects appear and one of the pivot choices.
     #[serde(default)]
     pub cursor: Vec3,
+    /// Current frame, range and fps.
+    #[serde(default)]
+    pub timeline: anim::Timeline,
 }
 
 impl Scene {

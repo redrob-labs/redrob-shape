@@ -62,6 +62,14 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   normal groups), Cube / Cylinder / Sphere Projection and Pack Islands; Ctrl+E Mark Seam / Clear
   Seam on the selected edges or faces, seams drawn red in the viewport. Seams are saved with the
   mesh.
+- Keyframe animation: objects carry an Action of F-curves (Location / Rotation / Scale X Y Z) with
+  Constant, Linear or Bezier (auto-clamped, Blender's default ease) interpolation; the scene keeps
+  frame, range and fps and is evaluated into the transforms on every frame change. Object-mode I
+  opens the Insert Keyframe menu (Location, Rotation, Scale, Location & Rotation, all), Alt+I
+  deletes the keys at the frame. The Animation workspace adds the Timeline: playback buttons, frame
+  / start / end / fps fields, a ruler with the active object's keys as diamonds (summary plus one
+  row per channel), a blue playhead you can scrub; Space plays, Left / Right step, Shift+Left /
+  Right jump to the ends, Up / Down jump to the next / previous key. Saved in .rshape.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

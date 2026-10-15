@@ -192,6 +192,8 @@ pub enum Popup {
     VertexMenu,
     /// Edit mode U: UV Mapping.
     UvMenu,
+    /// Object mode I: Insert Keyframe.
+    InsertKeyframe,
     EdgeMenu,
     FaceMenu,
     /// M in object mode.
@@ -529,6 +531,7 @@ impl ShapeApp {
         let mut collection_target: Option<Option<shape_scene::CollectionId>> = None;
         let mut new_collection = false;
         let mut uv: Option<crate::UvOp> = None;
+        let mut keying: Option<shape_scene::KeyingSet> = None;
         let area = egui::Area::new(egui::Id::new("blender-popup")).fixed_pos(pos).order(egui::Order::Foreground);
         let response = area.show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -661,6 +664,15 @@ impl ShapeApp {
                             uv = Some(crate::UvOp::ClearSeam);
                         }
                     }
+                    Popup::InsertKeyframe => {
+                        ui.label(RichText::new("Insert Keyframe Menu").strong());
+                        ui.separator();
+                        for set in shape_scene::KeyingSet::ALL {
+                            if ui.button(set.name()).clicked() {
+                                keying = Some(set);
+                            }
+                        }
+                    }
                     Popup::UvMenu => {
                         ui.label(RichText::new("UV Mapping").strong());
                         ui.separator();
@@ -758,6 +770,10 @@ impl ShapeApp {
         }
         if let Some(op) = uv {
             self.uv_op(op);
+            close = true;
+        }
+        if let Some(set) = keying {
+            self.insert_keyframes(set);
             close = true;
         }
         if let Some(target) = collection_target {

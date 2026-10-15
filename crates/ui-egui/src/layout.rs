@@ -72,12 +72,20 @@ pub enum Workspace {
     Sculpting,
     UvEditing,
     Shading,
+    Animation,
     Rendering,
 }
 
 impl Workspace {
-    pub const ALL: [Workspace; 6] =
-        [Workspace::Layout, Workspace::Modeling, Workspace::Sculpting, Workspace::UvEditing, Workspace::Shading, Workspace::Rendering];
+    pub const ALL: [Workspace; 7] = [
+        Workspace::Layout,
+        Workspace::Modeling,
+        Workspace::Sculpting,
+        Workspace::UvEditing,
+        Workspace::Shading,
+        Workspace::Animation,
+        Workspace::Rendering,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Workspace::Layout => "Layout",
@@ -85,6 +93,7 @@ impl Workspace {
             Workspace::Sculpting => "Sculpting",
             Workspace::UvEditing => "UV Editing",
             Workspace::Shading => "Shading",
+            Workspace::Animation => "Animation",
             Workspace::Rendering => "Rendering",
         }
     }
@@ -175,6 +184,12 @@ impl ShapeApp {
                 }
                 self.sculpt = None;
                 self.viewport.options.shading = shape_gpu::ShadingMode::MaterialPreview;
+            }
+            Workspace::Animation => {
+                if self.scene.edit.is_some() {
+                    self.toggle_edit_mode();
+                }
+                self.sculpt = None;
             }
             Workspace::Rendering => self.render.open = true,
         }
