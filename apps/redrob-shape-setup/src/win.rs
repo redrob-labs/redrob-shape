@@ -71,7 +71,6 @@ struct App {
     delete_prefs: bool,
     shown_progress: f32,
     shared: Arc<Mutex<Shared>>,
-    hwnd: HWND,
     dpi: u32,
     hover: Option<Hit>,
     layout: Option<Layout>,
@@ -109,7 +108,6 @@ pub fn run(mode: Mode, demo: bool) -> i32 {
             delete_prefs: false,
             shown_progress: 0.0,
             shared: Arc::new(Mutex::new(Shared::default())),
-            hwnd: std::ptr::null_mut(),
             dpi: 96,
             hover: None,
             layout,
@@ -154,11 +152,7 @@ pub fn run(mode: Mode, demo: bool) -> i32 {
         SetWindowPos(hwnd, std::ptr::null_mut(), (sw - w) / 2, (sh - h) / 2, w, h, SWP_NOZORDER);
         let round = DWMWCP_ROUND;
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE as u32, &round as *const _ as *const _, 4);
-        {
-            let mut a = app();
-            a.hwnd = hwnd;
-            a.dpi = dpi;
-        }
+        app().dpi = dpi;
         ShowWindow(hwnd, SW_SHOW);
         SetTimer(hwnd, TIMER_ID, 30, None);
         let mut msg: MSG = std::mem::zeroed();
