@@ -292,29 +292,36 @@ impl ShapeApp {
         }
         let before = self.prefs.clone();
         let mut open = self.prefs_window.open;
-        egui::Window::new("Preferences").open(&mut open).default_size([560.0, 420.0]).resizable(true).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                for (t, name) in [(PrefsTab::Interface, "Interface"), (PrefsTab::Keymap, "Keymap"), (PrefsTab::Addons, "Add-ons")] {
-                    ui.selectable_value(&mut self.prefs_window.tab, t, name);
+        let centre = ctx.content_rect().center();
+        egui::Window::new("Preferences")
+            .open(&mut open)
+            .default_size([560.0, 420.0])
+            .default_pos(centre - egui::vec2(280.0, 210.0))
+            .collapsible(false)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    for (t, name) in [(PrefsTab::Interface, "Interface"), (PrefsTab::Keymap, "Keymap"), (PrefsTab::Addons, "Add-ons")] {
+                        ui.selectable_value(&mut self.prefs_window.tab, t, name);
+                    }
+                });
+                ui.separator();
+                match self.prefs_window.tab {
+                    PrefsTab::Interface => {
+                        ui.horizontal(|ui| {
+                            ui.label("Resolution Scale");
+                            ui.add(egui::Slider::new(&mut self.prefs.ui_scale, 0.5..=3.0).step_by(0.05));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Viewport background");
+                            ui.color_edit_button_rgb(&mut self.prefs.background);
+                        });
+                        ui.label(RichText::new(format!("Saved to {}", Prefs::path().display())).color(theme::TEXT_WEAK).small());
+                    }
+                    PrefsTab::Keymap => self.keymap_tab(ui),
+                    PrefsTab::Addons => self.addons_tab(ui),
                 }
             });
-            ui.separator();
-            match self.prefs_window.tab {
-                PrefsTab::Interface => {
-                    ui.horizontal(|ui| {
-                        ui.label("Resolution Scale");
-                        ui.add(egui::Slider::new(&mut self.prefs.ui_scale, 0.5..=3.0).step_by(0.05));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Viewport background");
-                        ui.color_edit_button_rgb(&mut self.prefs.background);
-                    });
-                    ui.label(RichText::new(format!("Saved to {}", Prefs::path().display())).color(theme::TEXT_WEAK).small());
-                }
-                PrefsTab::Keymap => self.keymap_tab(ui),
-                PrefsTab::Addons => self.addons_tab(ui),
-            }
-        });
         self.prefs_window.open = open;
         if self.prefs != before {
             self.apply_prefs(ctx);

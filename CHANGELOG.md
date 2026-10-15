@@ -4,6 +4,10 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-15
+
+Blender parity P1-P15 (behaviour port; see ROADMAP.md "Blender parity").
+
 ### Changed
 - The default screen follows Blender's Layout workspace: top bar with File/Edit/Render/Window/Help
   and workspace tabs (Layout, Modeling, Rendering), a 3D viewport header (mode, View/Select/Add/

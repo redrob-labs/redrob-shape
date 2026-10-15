@@ -2396,7 +2396,7 @@ dependencies = [
 
 [[package]]
 name = "redrob-shape"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2612,7 +2612,7 @@ dependencies = [
 
 [[package]]
 name = "shape-agent"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "log",
  "serde_json",
@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "shape-blend"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "flate2",
  "log",
@@ -2638,7 +2638,7 @@ dependencies = [
 
 [[package]]
 name = "shape-format"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "gltf",
@@ -2655,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "shape-geom"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "shape-math",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "shape-gpu"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "log",
@@ -2678,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "shape-math"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "glam",
  "serde",
@@ -2686,7 +2686,7 @@ dependencies = [
 
 [[package]]
 name = "shape-ops"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "earcut",
  "epaint_default_fonts",
@@ -2698,7 +2698,7 @@ dependencies = [
 
 [[package]]
 name = "shape-render"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "image",
  "rayon",
@@ -2710,7 +2710,7 @@ dependencies = [
 
 [[package]]
 name = "shape-scene"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "image",
  "serde",
@@ -2720,11 +2720,11 @@ dependencies = [
 
 [[package]]
 name = "shape-testkit"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "shape-ui-egui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dirs",
  "eframe",
@@ -2750,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "shape-undo"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "shlex"

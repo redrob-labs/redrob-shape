@@ -1040,6 +1040,44 @@ mod tests {
     }
 
     #[test]
+    fn preferences_window_geometry_nodes_and_scripting_workspaces() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        app.scene.selection.set(a);
+        // Edit > Preferences opens the window with its three tabs.
+        app.prefs_window.open = true;
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Preferences");
+        harness.get_by_label("Keymap").click();
+        harness.run();
+        harness.run();
+        harness.get_by_label("Duplicate Objects");
+        harness.get_by_label("Shift+D");
+        drop(harness);
+        // Geometry Nodes workspace: New adds the modifier with the default tree.
+        app.prefs_window.open = false;
+        app.set_workspace(layout::Workspace::GeometryNodes);
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Geometry Node Editor");
+        harness.get_by_label("New").click();
+        harness.run();
+        harness.run();
+        drop(harness);
+        assert!(matches!(app.scene.modifiers(a).first(), Some(shape_scene::Modifier::GeometryNodes { tree }) if tree.nodes.len() == 2));
+        // Scripting workspace: the console runs Shape Script.
+        app.set_workspace(layout::Workspace::Scripting);
+        let out = app.run_script("add_primitive kind=sphere name=Ball", "test");
+        assert!(out.iter().any(|l| l.contains("Ball")), "{out:?}");
+        assert_eq!(app.scene.object_count(), 2);
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Console");
+        drop(harness);
+    }
+
+    #[test]
     fn shading_workspace_shows_the_shader_editor_and_use_nodes() {
         let mut app = ShapeApp::default();
         let a = app.add_primitive(Primitive::Cube);
