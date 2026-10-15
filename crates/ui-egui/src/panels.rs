@@ -177,15 +177,11 @@ impl ShapeApp {
                 ui.label(RichText::new("Scene Collection is empty").weak());
                 return;
             }
-            let shift = ui.input(|i| i.modifiers.shift);
-            let roots: Vec<ObjectId> = self.scene.roots().collect();
-            for id in roots {
-                self.outliner_row(ui, id, shift);
-            }
+            self.outliner_tree(ui);
         });
     }
 
-    fn outliner_row(&mut self, ui: &mut egui::Ui, id: ObjectId, shift: bool) {
+    pub(crate) fn outliner_row(&mut self, ui: &mut egui::Ui, id: ObjectId, shift: bool) {
         let Some(object) = self.scene.object(id) else { return };
         let selected = self.scene.selection.contains(id);
         let icon = match object.data {

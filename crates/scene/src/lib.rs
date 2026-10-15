@@ -27,6 +27,15 @@ macro_rules! id {
 id!(ObjectId);
 id!(MeshId);
 id!(MaterialId);
+id!(CollectionId);
+
+/// A Blender collection: a named group in the outliner with its own visibility. Objects not in
+/// any collection sit directly in the Scene Collection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Collection {
+    pub name: String,
+    pub visible: bool,
+}
 
 /// Physically based surface parameters, metal/rough workflow.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -287,11 +296,14 @@ pub struct Object {
     pub parent: Option<ObjectId>,
     pub data: ObjectData,
     pub visible: bool,
+    /// The collection this object is linked to; `None` is the Scene Collection itself.
+    #[serde(default)]
+    pub collection: Option<CollectionId>,
 }
 
 impl Object {
     pub fn new(name: impl Into<String>, data: ObjectData) -> Self {
-        Self { name: name.into(), transform: Transform::IDENTITY, parent: None, data, visible: true }
+        Self { name: name.into(), transform: Transform::IDENTITY, parent: None, data, visible: true, collection: None }
     }
 }
 
@@ -488,6 +500,11 @@ pub struct Scene {
     /// `Some` while in edit mode. Not saved: a file always opens in object mode.
     #[serde(skip)]
     pub edit: Option<EditSelection>,
+    #[serde(default)]
+    pub collections: Vec<Collection>,
+    /// The 3D cursor: where new objects appear and one of the pivot choices.
+    #[serde(default)]
+    pub cursor: Vec3,
 }
 
 impl Scene {
@@ -554,6 +571,39 @@ impl Scene {
     }
     pub fn roots(&self) -> impl Iterator<Item = ObjectId> + '_ {
         self.children(None)
+    }
+
+    // ---- collections ----
+
+    pub fn add_collection(&mut self, name: impl Into<String>) -> CollectionId {
+        self.collections.push(Collection { name: name.into(), visible: true });
+        CollectionId(self.collections.len() as u32 - 1)
+    }
+
+    pub fn collection(&self, id: CollectionId) -> Option<&Collection> {
+        self.collections.get(id.index())
+    }
+
+    pub fn collection_mut(&mut self, id: CollectionId) -> Option<&mut Collection> {
+        self.collections.get_mut(id.index())
+    }
+
+    /// Link an object to a collection (`None` = the Scene Collection).
+    pub fn move_to_collection(&mut self, id: ObjectId, collection: Option<CollectionId>) {
+        if let Some(o) = self.object_mut(id) {
+            o.collection = collection;
+        }
+    }
+
+    /// Objects directly in a collection, in id order.
+    pub fn collection_members(&self, collection: Option<CollectionId>) -> impl Iterator<Item = ObjectId> + '_ {
+        self.objects().filter(move |(_, o)| o.collection == collection).map(|(id, _)| id)
+    }
+
+    /// Visible on screen: the object itself and its collection are both visible.
+    pub fn is_visible(&self, id: ObjectId) -> bool {
+        let Some(o) = self.object(id) else { return false };
+        o.visible && o.collection.and_then(|c| self.collection(c)).is_none_or(|c| c.visible)
     }
 
     /// Set the parent, refusing a cycle. Returns false when `parent` is `id` or a descendant.

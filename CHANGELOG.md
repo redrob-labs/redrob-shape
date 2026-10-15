@@ -26,6 +26,12 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   Screw (axis, angle, steps, screw), Simple Deform (twist / bend / taper / stretch), Displace
   (noise strength, scale), Weld (distance); Bevel gained Segments. All available to the agent's
   `add_modifier`.
+- Object mode the Blender way: a 3D cursor (Shift+right click places it; new objects appear there),
+  pivot point (median / active / individual origins / cursor) and transform orientation (global /
+  local / view) dropdowns in the header, Ctrl snapping during G/R/S, G/R/S on vertices in edit mode
+  with proportional editing (O, wheel sizes the falloff), Ctrl+P / Alt+P parenting that keeps the
+  world placement, Object > Set Origin (geometry to origin, origin to geometry / cursor, cursor to
+  selected), collections in the outliner with eye toggles and M > Move to Collection.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

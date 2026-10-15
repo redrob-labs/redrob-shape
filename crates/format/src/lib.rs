@@ -165,7 +165,7 @@ pub fn mesh_from_soup(positions: &[Vec3], polygons: &[Vec<u32>]) -> Result<Mesh>
 pub(crate) fn world_polygons(scene: &Scene) -> Vec<(String, Vec<Vec3>, Vec<Vec<u32>>)> {
     let mut out = Vec::new();
     for (id, o) in scene.objects() {
-        if !o.visible {
+        if !scene.is_visible(id) {
             continue;
         }
         if let Some(mesh) = shape_ops::evaluated_mesh(scene, id) {
@@ -185,7 +185,7 @@ pub(crate) fn world_polygons(scene: &Scene) -> Vec<(String, Vec<Vec3>, Vec<Vec<u
 pub(crate) fn world_uvs(scene: &Scene) -> Vec<Option<Vec<Vec<shape_math::Vec2>>>> {
     let mut out = Vec::new();
     for (id, o) in scene.objects() {
-        if !o.visible {
+        if !scene.is_visible(id) {
             continue;
         }
         if shape_ops::evaluated_mesh(scene, id).is_some() {

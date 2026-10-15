@@ -55,7 +55,7 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
     }
     out.lights = scene_lights(scene);
     for (id, object) in scene.objects() {
-        if !object.visible {
+        if !scene.is_visible(id) {
             continue;
         }
         let world = scene.world_transform(id);
@@ -139,7 +139,7 @@ pub fn scene_lights(scene: &Scene) -> Vec<GpuLight> {
     let mut out = Vec::new();
     for (id, object) in scene.objects() {
         let ObjectData::Light(light) = &object.data else { continue };
-        if !object.visible {
+        if !scene.is_visible(id) {
             continue;
         }
         let world = scene.world_transform(id);
@@ -260,8 +260,8 @@ pub fn pick(scene: &Scene, camera: &OrbitCamera, pixel: Vec2, size: Vec2) -> Opt
 pub fn pick_detail(scene: &Scene, camera: &OrbitCamera, pixel: Vec2, size: Vec2) -> Option<PickHit> {
     let ray = camera.ray_pixel(pixel, size);
     let mut best: Option<PickHit> = None;
-    for (id, object) in scene.objects() {
-        if !object.visible {
+    for (id, _object) in scene.objects() {
+        if !scene.is_visible(id) {
             continue;
         }
         if let Some(e) = &scene.edit

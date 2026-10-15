@@ -184,6 +184,8 @@ pub enum Popup {
     VertexMenu,
     EdgeMenu,
     FaceMenu,
+    /// M in object mode.
+    MoveToCollection,
 }
 
 /// What an edit-mode menu item does.
@@ -494,6 +496,8 @@ impl ShapeApp {
         let mut merge: Option<shape_ops::MergeAt> = None;
         let mut edit_delete: Option<crate::EditDelete> = None;
         let mut edit_action: Option<EditAction> = None;
+        let mut collection_target: Option<Option<shape_scene::CollectionId>> = None;
+        let mut new_collection = false;
         let area = egui::Area::new(egui::Id::new("blender-popup")).fixed_pos(pos).order(egui::Order::Foreground);
         let response = area.show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -620,6 +624,23 @@ impl ShapeApp {
                             edit_delete = Some(crate::EditDelete::DissolveFaces);
                         }
                     }
+                    Popup::MoveToCollection => {
+                        ui.label(RichText::new("Move to Collection").strong());
+                        ui.separator();
+                        if ui.button("Scene Collection").clicked() {
+                            collection_target = Some(None);
+                        }
+                        let names: Vec<(usize, String)> = self.scene.collections.iter().enumerate().map(|(i, c)| (i, c.name.clone())).collect();
+                        for (i, name) in names {
+                            if ui.button(name).clicked() {
+                                collection_target = Some(Some(shape_scene::CollectionId(i as u32)));
+                            }
+                        }
+                        ui.separator();
+                        if ui.button("+ New Collection").clicked() {
+                            new_collection = true;
+                        }
+                    }
                     Popup::Search { query } => {
                         let mut q = query.clone();
                         let edit = ui.add(egui::TextEdit::singleline(&mut q).hint_text("Search operators…").desired_width(260.0));
@@ -665,6 +686,14 @@ impl ShapeApp {
         }
         if let Some(what) = edit_delete {
             self.edit_delete(what);
+            close = true;
+        }
+        if let Some(target) = collection_target {
+            self.move_to_collection(target);
+            close = true;
+        }
+        if new_collection {
+            self.new_collection_with_selection();
             close = true;
         }
         if let Some(action) = edit_action {

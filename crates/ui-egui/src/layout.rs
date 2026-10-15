@@ -3,6 +3,7 @@
 //! (N), a right column holding the Outliner over the Properties editor with its tab strip, and a
 //! status bar. Measurements and colours are in [`crate::theme`].
 
+use crate::keymap::Popup;
 use crate::theme::{self, HEADER_H, OUTLINER_H, PROPS_TABS_W, RIGHT_COLUMN_W, SIDEBAR_W, STATUS_H, TOOLBAR_W, TOP_BAR_H};
 use crate::tools::Tool;
 use crate::{ShapeApp, VERSION};
@@ -268,6 +269,8 @@ impl ShapeApp {
                 } else {
                     self.object_menu(ui);
                 }
+                ui.separator();
+                self.transform_header(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     for (mode, glyph, tip) in [
                         (ShadingMode::SolidWire, "◫", "Solid + wireframe"),
@@ -317,6 +320,25 @@ impl ShapeApp {
             }
             if ui.button("Reveal Hidden (Alt+H)").clicked() {
                 self.reveal_all();
+            }
+            ui.separator();
+            ui.menu_button("Set Origin", |ui| {
+                for how in crate::SetOrigin::ALL {
+                    if ui.add_enabled(any, egui::Button::new(how.name())).clicked() {
+                        self.set_origin(how);
+                    }
+                }
+            });
+            ui.menu_button("Parent", |ui| {
+                if ui.add_enabled(any, egui::Button::new("Object (Ctrl+P)")).clicked() {
+                    self.parent_to_active();
+                }
+                if ui.add_enabled(any, egui::Button::new("Clear Parent (Alt+P)")).clicked() {
+                    self.clear_parent();
+                }
+            });
+            if ui.add_enabled(any, egui::Button::new("Move to Collection (M)")).clicked() {
+                self.popup = Some(Popup::MoveToCollection);
             }
             ui.separator();
             if ui.add_enabled(any, egui::Button::new("Apply Modifiers")).clicked() {

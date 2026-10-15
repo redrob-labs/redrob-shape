@@ -9,6 +9,7 @@ pub mod edit_mode;
 pub mod edit_tools;
 pub mod keymap;
 pub mod layout;
+pub mod object_mode;
 mod panels;
 mod properties;
 pub mod render_panel;
@@ -21,6 +22,7 @@ pub use edit_mode::EditDelete;
 pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub use layout::{PropsTab, Regions, Workspace};
+pub use object_mode::SetOrigin;
 pub use render_panel::RenderPanel;
 pub use shape_agent::ControlServer;
 use shape_geom::primitives;
@@ -29,6 +31,7 @@ use shape_scene::{EditSelection, Modifier, ObjectId, Scene};
 use shape_undo::{History, Snapshot};
 use std::path::PathBuf;
 pub use tools::{Modal, ModalEnd, ModalKind, Tool};
+pub use tools::{Orientation, PivotPoint, TransformSettings};
 pub use viewport::{GpuContext, ViewportInput, ViewportPanel};
 
 /// Crate name, used by the layering test in `apps/redrob-shape`.
@@ -65,6 +68,8 @@ pub struct ShapeApp {
     render_requested: bool,
     pub circle: Option<CircleSelect>,
     pub knife: Option<Knife>,
+    /// Pivot point, orientation and proportional editing for G/R/S.
+    pub xf: TransformSettings,
 }
 
 /// Consume a key press only when exactly these modifiers are held. egui's own `consume_key`
@@ -145,6 +150,7 @@ impl ShapeApp {
             render_requested: false,
             circle: None,
             knife: None,
+            xf: TransformSettings { proportional_size: 1.0, ..Default::default() },
         }
     }
 
@@ -219,7 +225,7 @@ impl ShapeApp {
 
     pub fn add_primitive(&mut self, p: Primitive) -> ObjectId {
         let n = self.scene.object_count();
-        let at = self.scene.selection_center();
+        let at = self.scene.cursor;
         let mut id = ObjectId(0);
         self.edit(&format!("Add {}", p.name()), |scene| {
             let name = if n == 0 { p.name().to_owned() } else { format!("{}.{:03}", p.name(), n) };
@@ -564,6 +570,18 @@ impl ShapeApp {
             self.select_all();
         }
         if self.scene.edit.is_some() {
+            let kind = if g {
+                Some(ModalKind::Move)
+            } else if r {
+                Some(ModalKind::Rotate)
+            } else if sc {
+                Some(ModalKind::Scale)
+            } else {
+                None
+            };
+            if let Some(kind) = kind {
+                self.modal = Modal::edit_transform(kind, &self.scene, pointer, self.xf, Some(&self.viewport.camera));
+            }
             if e {
                 self.modal = Modal::faces(ModalKind::Extrude, &self.scene, pointer);
             }
@@ -587,7 +605,7 @@ impl ShapeApp {
                 None
             };
             if let Some(kind) = kind {
-                self.modal = Modal::transform(kind, &self.scene, pointer, false);
+                self.modal = Modal::transform_with(kind, &self.scene, pointer, false, self.xf, Some(&self.viewport.camera));
             }
         }
         (enter, escape)
@@ -675,6 +693,7 @@ impl ShapeApp {
             self.object_keys(ui);
             self.edit_keys(ui);
             self.edit_tool_keys(ui);
+            self.object_mode_keys(ui);
         }
         if std::mem::take(&mut self.render_requested) {
             self.start_render(ui.ctx());
@@ -717,13 +736,14 @@ impl ShapeApp {
         }
         if self.popup.is_some() {
             self.popup_ui(ui);
-        } else if self.circle_select_input(&input, escape) || self.knife_input(&input, escape) {
+        } else if self.circle_select_input(&input, escape) || self.knife_input(&input, escape) || self.place_cursor(&input) {
             // a paint/click tool owns the pointer
         } else if !self.box_select_input(&input) {
             self.handle_viewport_input(&input, enter, escape);
         }
         self.box_select_overlay(ui);
         self.edit_tool_overlay(ui);
+        self.cursor_overlay(ui);
         if self.circle.is_some() || self.knife.is_some() {
             ui.ctx().request_repaint();
         }
@@ -749,6 +769,11 @@ impl ShapeApp {
         let size = input.size.max(Vec2::ONE);
         if let Some(modal) = &mut self.modal {
             modal.scroll(input.scroll);
+            modal.snap = input.ctrl;
+            if modal.edit_xf.is_some() && input.scroll != 0.0 {
+                modal.scroll_proportional(input.scroll, &self.scene);
+                self.xf.proportional_size = modal.settings.proportional_size;
+            }
             if let Some(p) = input.pointer {
                 modal.update(&mut self.scene, &self.viewport.camera, p, size);
             }
@@ -775,7 +800,7 @@ impl ShapeApp {
         {
             let over_selected = shape_gpu::pick(&self.scene, &self.viewport.camera, p, size).is_some_and(|(id, _)| self.scene.selection.contains(id));
             if over_selected {
-                self.modal = Modal::transform(kind, &self.scene, p, true);
+                self.modal = Modal::transform_with(kind, &self.scene, p, true, self.xf, Some(&self.viewport.camera));
                 return;
             }
         }

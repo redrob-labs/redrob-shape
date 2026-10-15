@@ -64,7 +64,7 @@ impl RenderScene {
         let mut tris = Vec::new();
         let mut lights = Vec::new();
         for (id, object) in scene.objects() {
-            if !object.visible {
+            if !scene.is_visible(id) {
                 continue;
             }
             let world = scene.world_transform(id);
