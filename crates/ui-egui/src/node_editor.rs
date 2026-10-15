@@ -71,29 +71,30 @@ impl ShapeApp {
     }
 
     pub(crate) fn node_editor_panel(&mut self, ui: &mut egui::Ui) {
-        let resp = egui::Panel::bottom("shader-editor").default_size(EDITOR_H).resizable(true).frame(theme::region_frame(theme::TIMELINE)).show(ui, |ui| {
-            self.node_editor_header(ui);
-            ui.set_min_height(EDITOR_H - theme::HEADER_H);
-            let Some(mid) = self.shader_material() else {
-                ui.centered_and_justified(|ui| ui.label(RichText::new("Select a mesh with a material").color(theme::TEXT_WEAK)));
-                return;
-            };
-            let has_nodes = self.scene.material(mid).is_some_and(|m| m.nodes.is_some());
-            if !has_nodes {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(40.0);
-                    if ui.button("Use Nodes").clicked() {
-                        self.edit("Use Nodes", |scene| {
-                            if let Some(m) = scene.material_mut(mid) {
-                                m.nodes = Some(NodeTree::from_material(m));
-                            }
-                        });
-                    }
-                });
-                return;
-            }
-            self.node_canvas(ui, mid);
-        });
+        let resp =
+            egui::Panel::bottom("shader-editor").default_size(EDITOR_H).resizable(true).frame(theme::region_frame(theme::TIMELINE)).show(ui, |ui| {
+                self.node_editor_header(ui);
+                ui.set_min_height(EDITOR_H - theme::HEADER_H);
+                let Some(mid) = self.shader_material() else {
+                    ui.centered_and_justified(|ui| ui.label(RichText::new("Select a mesh with a material").color(theme::TEXT_WEAK)));
+                    return;
+                };
+                let has_nodes = self.scene.material(mid).is_some_and(|m| m.nodes.is_some());
+                if !has_nodes {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(40.0);
+                        if ui.button("Use Nodes").clicked() {
+                            self.edit("Use Nodes", |scene| {
+                                if let Some(m) = scene.material_mut(mid) {
+                                    m.nodes = Some(NodeTree::from_material(m));
+                                }
+                            });
+                        }
+                    });
+                    return;
+                }
+                self.node_canvas(ui, mid);
+            });
         self.node_editor.hovered = ui.rect_contains_pointer(resp.response.rect);
     }
 
