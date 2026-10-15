@@ -132,19 +132,77 @@ pub const MAX_LIGHTS: usize = 4;
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Globals {
     view_proj: [[f32; 4]; 4],
+    view: [[f32; 4]; 4],
     light_dir: [f32; 4],
     ambient: [f32; 4],
     /// xyz camera position, w grid fade distance.
     camera: [f32; 4],
     /// xy size in pixels, z line width in pixels, w light count.
     viewport: [f32; 4],
+    /// x lighting (0 studio, 1 matcap, 2 flat), y matcap index, z cavity strength, w x-ray alpha.
+    shading: [f32; 4],
     lights: [GpuLight; MAX_LIGHTS],
 }
+
+/// Blender's Solid-mode lighting choice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Lighting {
+    #[default]
+    Studio,
+    MatCap,
+    Flat,
+}
+
+/// Blender's Solid-mode colour source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ColorMode {
+    /// The material's viewport display colour.
+    #[default]
+    Material,
+    /// One colour for every object.
+    Object,
+    /// A stable random hue per object.
+    Random,
+    /// `SolidOptions::single_color`.
+    Single,
+}
+
+/// Blender's viewport shading popover for Solid mode.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SolidOptions {
+    pub lighting: Lighting,
+    pub matcap: u32,
+    pub color: ColorMode,
+    pub single_color: [f32; 4],
+    pub backface_culling: bool,
+    pub xray: bool,
+    pub xray_alpha: f32,
+    pub cavity: bool,
+}
+
+impl Default for SolidOptions {
+    fn default() -> Self {
+        Self {
+            lighting: Lighting::Studio,
+            matcap: 0,
+            color: ColorMode::Material,
+            single_color: [0.8, 0.8, 0.8, 1.0],
+            backface_culling: false,
+            xray: false,
+            xray_alpha: 0.5,
+            cavity: false,
+        }
+    }
+}
+
+/// The matcaps the shader can draw (procedural spheres, see `viewport.wgsl`).
+pub const MATCAPS: [&str; 4] = ["Clay", "Metal", "Red Wax", "Ceramic"];
 
 /// What to draw and how.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewOptions {
     pub shading: ShadingMode,
+    pub solid: SolidOptions,
     pub show_grid: bool,
     pub background: [f32; 4],
     /// World direction towards the key light.
@@ -157,6 +215,7 @@ impl Default for ViewOptions {
     fn default() -> Self {
         Self {
             shading: ShadingMode::Solid,
+            solid: SolidOptions::default(),
             show_grid: true,
             // Blender's default 3D viewport background (#3f3f3f), already sRGB-encoded: the clear
             // colour is written to the non-sRGB target as-is
@@ -191,6 +250,9 @@ pub struct Viewport {
     globals: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     solid: wgpu::RenderPipeline,
+    solid_cull: wgpu::RenderPipeline,
+    solid_xray: wgpu::RenderPipeline,
+    solid_cull_xray: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     tri_buffer: Option<(wgpu::Buffer, u32)>,
     /// One vertex buffer per textured group, reused frame to frame.
@@ -272,7 +334,7 @@ impl Viewport {
             bind_group_layouts: &[Some(&bgl), Some(&texture_bgl)],
             immediate_size: 0,
         });
-        let make = |label: &str, vs: &str, fs: &str, layout_desc: wgpu::VertexBufferLayout<'static>, cull: Option<wgpu::Face>| {
+        let make = |label: &str, vs: &str, fs: &str, layout_desc: wgpu::VertexBufferLayout<'static>, cull: Option<wgpu::Face>, depth_write: bool| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
@@ -300,7 +362,7 @@ impl Viewport {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: Self::DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
+                    depth_write_enabled: Some(depth_write),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
                     bias: Default::default(),
@@ -310,8 +372,12 @@ impl Viewport {
                 cache: None,
             })
         };
-        let solid = make("solid", "vs_main", "fs_solid", Vertex::layout(), None);
-        let lines = make("lines", "vs_lines", "fs_flat", LineVertex::layout(), None);
+        let solid = make("solid", "vs_main", "fs_solid", Vertex::layout(), None, true);
+        let solid_cull = make("solid-cull", "vs_main", "fs_solid", Vertex::layout(), Some(wgpu::Face::Back), true);
+        // X-ray: see-through surfaces that do not occlude each other.
+        let solid_xray = make("solid-xray", "vs_main", "fs_solid", Vertex::layout(), None, false);
+        let solid_cull_xray = make("solid-cull-xray", "vs_main", "fs_solid", Vertex::layout(), Some(wgpu::Face::Back), false);
+        let lines = make("lines", "vs_lines", "fs_flat", LineVertex::layout(), None, true);
         let (color, color_view, depth_view) = Self::make_targets(&device, format, (16, 16));
         Self {
             device,
@@ -324,6 +390,9 @@ impl Viewport {
             globals,
             bind_group,
             solid,
+            solid_cull,
+            solid_xray,
+            solid_cull_xray,
             lines,
             tri_buffer: None,
             textured_buffers: Vec::new(),
@@ -454,10 +523,17 @@ impl Viewport {
         let aspect = self.size.0 as f32 / self.size.1 as f32;
         let g = Globals {
             view_proj: camera.view_projection(aspect).to_cols_array_2d(),
+            view: camera.view().to_cols_array_2d(),
             light_dir: camera_relative_light(camera, options.light_dir).extend(0.0).to_array(),
             ambient: [0.35, 0.37, 0.42, 1.0],
             camera: camera.position().extend((camera.distance * 4.0).max(20.0)).to_array(),
             viewport: [self.size.0 as f32, self.size.1 as f32, options.line_width_px, geometry.lights.len().min(MAX_LIGHTS) as f32],
+            shading: {
+                let s = &options.solid;
+                let solid = options.shading != ShadingMode::MaterialPreview;
+                let lighting = if !solid { 0.0 } else { s.lighting as u32 as f32 };
+                [lighting, s.matcap as f32, if solid && s.cavity { 1.0 } else { 0.0 }, if s.xray { s.xray_alpha } else { 1.0 }]
+            },
             lights: {
                 let mut arr = [GpuLight::default(); MAX_LIGHTS];
                 for (slot, l) in arr.iter_mut().zip(&geometry.lights) {
@@ -507,6 +583,12 @@ impl Viewport {
             });
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_bind_group(1, &self.white, &[]);
+            let solid = match (options.solid.backface_culling, options.solid.xray) {
+                (false, false) => &self.solid,
+                (true, false) => &self.solid_cull,
+                (false, true) => &self.solid_xray,
+                (true, true) => &self.solid_cull_xray,
+            };
             if let Some((buf, n)) = &self.line_buffer
                 && *n > 0
             {
@@ -517,7 +599,7 @@ impl Viewport {
             if let Some((buf, n)) = &self.tri_buffer
                 && *n > 0
             {
-                pass.set_pipeline(&self.solid);
+                pass.set_pipeline(solid);
                 pass.set_vertex_buffer(0, buf.slice(..u64::from(*n) * std::mem::size_of::<Vertex>() as u64));
                 pass.draw(0..*n, 0..1);
             }
@@ -527,7 +609,7 @@ impl Viewport {
                     continue;
                 }
                 let bg = self.textures.get(id).map(|(bg, _)| bg).unwrap_or(&self.white);
-                pass.set_pipeline(&self.solid);
+                pass.set_pipeline(solid);
                 pass.set_bind_group(1, bg, &[]);
                 pass.set_vertex_buffer(0, buf.slice(..u64::from(*n) * std::mem::size_of::<Vertex>() as u64));
                 pass.draw(0..*n, 0..1);

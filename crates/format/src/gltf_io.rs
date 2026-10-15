@@ -26,6 +26,7 @@ pub fn load(path: &Path) -> Result<Scene> {
                 emissive: e,
                 base_color_texture: None,
                 nodes: None,
+                viewport_color: [0.8, 0.8, 0.8, 1.0],
             })
         })
         .collect();

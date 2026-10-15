@@ -52,6 +52,7 @@ pub fn import_file(file: &BlendFile, name: &str) -> Result<Scene> {
             emissive: [0.0; 3],
             base_color_texture: None,
             nodes: None,
+            viewport_color: [0.8, 0.8, 0.8, 1.0],
         };
         materials.insert(b.old, scene.add_material(m));
     }

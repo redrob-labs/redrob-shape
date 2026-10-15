@@ -122,3 +122,31 @@ fn material_preview_colours_untextured_materials() {
     let reddish = px.iter().filter(|p| p[0] > p[1] + 40 && p[0] > p[2] + 40).count();
     assert!(reddish > 500, "material colour shows under the sun: {reddish}");
 }
+
+#[test]
+fn solid_shading_popover_options_change_the_pixels() {
+    use shape_gpu::{ColorMode, Lighting, SolidOptions};
+    let mut scene = Scene::new("t");
+    let m = scene.add_material(shape_scene::Material { viewport_color: [0.8, 0.8, 0.8, 1.0], ..Default::default() });
+    scene.add_mesh_object("Sphere", primitives::uv_sphere(1.0, 32, 16), Some(m));
+    let cam = OrbitCamera { yaw: 0.0, pitch: 0.3, distance: 4.0, ..Default::default() };
+    let opts = |solid: SolidOptions| ViewOptions { show_grid: false, solid, ..Default::default() };
+    let Some(studio) = render(&scene, &cam, &opts(SolidOptions::default()), 160, 120) else { return };
+    let distinct = |px: &[[u8; 4]]| px.iter().map(|p| (p[0] / 8, p[1] / 8, p[2] / 8)).collect::<std::collections::HashSet<_>>().len();
+    // Flat: the sphere is one colour (no shading), so far fewer distinct shades than Studio.
+    let flat = render(&scene, &cam, &opts(SolidOptions { lighting: Lighting::Flat, ..Default::default() }), 160, 120).unwrap();
+    assert!(distinct(&flat) < distinct(&studio) / 2, "flat {} studio {}", distinct(&flat), distinct(&studio));
+    // Red wax matcap: red pixels where Studio has none.
+    let wax = render(&scene, &cam, &opts(SolidOptions { lighting: Lighting::MatCap, matcap: 2, ..Default::default() }), 160, 120).unwrap();
+    let red = |px: &[[u8; 4]]| px.iter().filter(|p| p[0] as i32 > p[1] as i32 + 60 && p[0] as i32 > p[2] as i32 + 60).count();
+    assert!(red(&wax) > 500 && red(&studio) == 0, "wax {} studio {}", red(&wax), red(&studio));
+    // Single colour: the chosen blue shows.
+    let single =
+        render(&scene, &cam, &opts(SolidOptions { color: ColorMode::Single, single_color: [0.1, 0.2, 0.9, 1.0], ..Default::default() }), 160, 120)
+            .unwrap();
+    assert!(single.iter().filter(|p| p[2] as i32 > p[0] as i32 + 60).count() > 500);
+    // X-ray: the sphere lets the background through, so the centre pixel is darker than opaque.
+    let xray = render(&scene, &cam, &opts(SolidOptions { xray: true, ..Default::default() }), 160, 120).unwrap();
+    let c = 60 * 160 + 80;
+    assert!(xray[c][0] < studio[c][0], "x-ray {:?} opaque {:?}", xray[c], studio[c]);
+}

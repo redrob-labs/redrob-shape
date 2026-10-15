@@ -292,6 +292,10 @@ impl ShapeApp {
             }
         });
         ui.horizontal(|ui| {
+            ui.label("Viewport Display");
+            ui.color_edit_button_rgba_unmultiplied(&mut m.viewport_color).on_hover_text("Colour in Solid shading");
+        });
+        ui.horizontal(|ui| {
             if m.nodes.is_none() {
                 if ui.button("Use Nodes").clicked() {
                     m.nodes = Some(shape_scene::NodeTree::from_material(&m));

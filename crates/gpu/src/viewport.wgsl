@@ -15,12 +15,35 @@ struct Light {
 
 struct Globals {
     view_proj: mat4x4<f32>,
+    view: mat4x4<f32>,
     light_dir: vec4<f32>,   // fallback key light, world space, towards the light
     ambient: vec4<f32>,     // rgb ambient, a unused
     camera: vec4<f32>,      // xyz camera position, w = grid fade distance
     viewport: vec4<f32>,    // xy size in pixels, z line width in pixels, w = light count
+    shading: vec4<f32>,     // x lighting (0 studio, 1 matcap, 2 flat), y matcap, z cavity, w x-ray alpha
     lights: array<Light, 4>,
 };
+
+// Procedural matcaps: a lit sphere seen head-on, indexed by the view-space normal.
+fn matcap(index: u32, nv: vec3<f32>) -> vec3<f32> {
+    let l = normalize(vec3<f32>(0.35, 0.55, 0.75));
+    let ndl = max(dot(nv, l), 0.0);
+    let spec = pow(max(dot(nv, normalize(l + vec3<f32>(0.0, 0.0, 1.0))), 0.0), 48.0);
+    let rim = pow(1.0 - max(nv.z, 0.0), 3.0);
+    if (index == 1u) {
+        // Metal: dark base, broad reflection band, sharp highlight.
+        let band = smoothstep(-0.2, 0.6, nv.y) * 0.45;
+        return vec3<f32>(0.18, 0.19, 0.21) + vec3<f32>(band) + vec3<f32>(spec * 0.9) + vec3<f32>(rim * 0.25);
+    } else if (index == 2u) {
+        // Red wax: warm, soft falloff, waxy highlight.
+        return vec3<f32>(0.62, 0.12, 0.08) * (0.35 + 0.65 * ndl) + vec3<f32>(0.9, 0.6, 0.5) * spec * 0.35 + vec3<f32>(0.4, 0.1, 0.08) * rim;
+    } else if (index == 3u) {
+        // Ceramic: bright white, glossy.
+        return vec3<f32>(0.85, 0.86, 0.88) * (0.45 + 0.55 * ndl) + vec3<f32>(spec * 0.6);
+    }
+    // Clay: matte grey-beige.
+    return vec3<f32>(0.55, 0.52, 0.48) * (0.3 + 0.7 * ndl) + vec3<f32>(spec * 0.08);
+}
 
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(1) @binding(0) var base_tex: texture_2d<f32>;
@@ -72,6 +95,24 @@ fn fs_solid(in: VertexOut) -> @location(0) vec4<f32> {
         // The texture is sRGB-decoded by the sampler; v = 0 is the bottom row.
         base = base * textureSample(base_tex, base_samp, vec2<f32>(in.uv.x, 1.0 - in.uv.y)).rgb;
     }
+    // Cavity (approximation): the normal's screen-space rate of change darkens creases and
+    // edges, where Blender's screen-space cavity shows its valleys and ridges.
+    var cavity = 1.0;
+    if (globals.shading.z > 0.5) {
+        let curvature = length(fwidth(n));
+        cavity = clamp(1.0 - curvature * 1.5, 0.35, 1.0);
+    }
+    let lighting = u32(globals.shading.x);
+    let alpha = globals.shading.w;
+    if (lighting == 2u) {
+        // Flat: the colour as it is, no lighting.
+        return vec4<f32>(to_srgb(base * cavity), alpha);
+    }
+    if (lighting == 1u) {
+        let nv = normalize((globals.view * vec4<f32>(n, 0.0)).xyz);
+        let lit = matcap(u32(globals.shading.y), nv);
+        return vec4<f32>(to_srgb(lit * cavity), alpha);
+    }
     let diffuse_color = base * (1.0 - metallic * 0.85);
     let spec_color = mix(vec3<f32>(0.04), base, metallic);
     let shininess = mix(256.0, 4.0, roughness);
@@ -112,7 +153,7 @@ fn fs_solid(in: VertexOut) -> @location(0) vec4<f32> {
     color = color + in.emissive.rgb;
     // soft roll-off instead of a hard clip
     color = color / (color + vec3<f32>(0.6)) * 1.6;
-    return vec4<f32>(to_srgb(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0))), in.color.a);
+    return vec4<f32>(to_srgb(clamp(color * cavity, vec3<f32>(0.0), vec3<f32>(1.0))), in.color.a * alpha);
 }
 
 // ---- lines ----

@@ -35,6 +35,7 @@ pub enum Op {
     TogglePerspective,
     Shading(ShadingMode),
     ToggleWireframe,
+    ToggleXray,
     RenderImage,
     ApplyModifiers,
     Subdivide,
@@ -84,6 +85,7 @@ impl Op {
         Op::Shading(ShadingMode::SolidWire),
         Op::Shading(ShadingMode::MaterialPreview),
         Op::ToggleWireframe,
+        Op::ToggleXray,
         Op::RenderImage,
         Op::ApplyModifiers,
         Op::Subdivide,
@@ -125,6 +127,7 @@ impl Op {
             Op::Shading(ShadingMode::SolidWire) => "Viewport Shading > Solid + Wireframe".into(),
             Op::Shading(ShadingMode::MaterialPreview) => "Viewport Shading > Material Preview".into(),
             Op::ToggleWireframe => "Viewport Shading > Toggle Wireframe".into(),
+            Op::ToggleXray => "Viewport Shading > Toggle X-Ray".into(),
             Op::RenderImage => "Render > Render Image".into(),
             Op::ApplyModifiers => "Object > Apply > Visual Geometry to Mesh".into(),
             Op::Subdivide => "Mesh > Subdivide (Catmull-Clark)".into(),
@@ -159,6 +162,7 @@ impl Op {
             Op::TogglePerspective => "Numpad 5",
             Op::Shading(_) => "Z",
             Op::ToggleWireframe => "Shift+Z",
+            Op::ToggleXray => "Alt+Z",
             Op::RenderImage => "F12",
             Op::ApplyModifiers => "",
             Op::Subdivide | Op::SubdivideLinear | Op::SmoothVertices | Op::Triangulate | Op::FlipNormals | Op::BevelAll => "",
@@ -247,6 +251,7 @@ impl ShapeApp {
             Op::View(v) => self.viewport.camera.set_axis_view(v),
             Op::TogglePerspective => self.viewport.camera.ortho = !self.viewport.camera.ortho,
             Op::Shading(m) => self.viewport.options.shading = m,
+            Op::ToggleXray => self.viewport.options.solid.xray = !self.viewport.options.solid.xray,
             Op::ToggleWireframe => {
                 self.viewport.options.shading =
                     if self.viewport.options.shading == ShadingMode::Wireframe { ShadingMode::Solid } else { ShadingMode::Wireframe };
@@ -420,6 +425,7 @@ impl ShapeApp {
                 crate::key(i, egui::Modifiers::SHIFT, egui::Key::A),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::Z),
                 crate::key(i, egui::Modifiers::SHIFT, egui::Key::Z),
+                crate::key(i, egui::Modifiers::ALT, egui::Key::Z),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::F3),
                 crate::key(i, egui::Modifiers::COMMAND, egui::Key::Tab),
                 crate::key(i, egui::Modifiers::COMMAND, egui::Key::J),
@@ -437,7 +443,7 @@ impl ShapeApp {
                 crate::key(i, egui::Modifiers::NONE, egui::Key::Escape),
             ]
         });
-        let [add, shading, wire, search, mode, join, separate, center, boxkey, n1, c1, n3, c3, n7, c7, n5, period, escape] = keys;
+        let [add, shading, wire, xray, search, mode, join, separate, center, boxkey, n1, c1, n3, c3, n7, c7, n5, period, escape] = keys;
         if escape {
             self.popup = None;
             self.box_pending = false;
@@ -450,6 +456,9 @@ impl ShapeApp {
         }
         if wire {
             self.run_op(Op::ToggleWireframe);
+        }
+        if xray {
+            self.run_op(Op::ToggleXray);
         }
         if search {
             self.popup = Some(Popup::Search { query: String::new() });

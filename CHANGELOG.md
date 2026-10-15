@@ -45,6 +45,10 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   drag or scroll pans. Every change evaluates the tree back into the material the viewport and the
   path tracer read; the material panel's fields write the BSDF constants and its Image button
   adds the Image Texture node. Node trees are saved with the material.
+- Viewport shading popover (the arrow next to the shading buttons), after Blender's: Lighting
+  Studio / MatCap (Clay, Metal, Red Wax, Ceramic, drawn in the shader from the view-space normal) /
+  Flat; Color Material (the material's new Viewport Display colour) / Object / Random / Single;
+  Backface Culling, X-Ray with alpha (Alt+Z, header toggle) and Cavity (crease darkening).
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

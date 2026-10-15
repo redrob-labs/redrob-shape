@@ -129,6 +129,13 @@ pub struct Material {
     /// Shader node tree ("Use Nodes"); evaluated into the fields above after each edit.
     #[serde(default)]
     pub nodes: Option<nodes::NodeTree>,
+    /// Viewport Display colour: what Solid shading shows (Blender keeps it apart from Base Color).
+    #[serde(default = "default_viewport_color")]
+    pub viewport_color: [f32; 4],
+}
+
+fn default_viewport_color() -> [f32; 4] {
+    [0.8, 0.8, 0.8, 1.0]
 }
 
 impl Default for Material {
@@ -141,6 +148,7 @@ impl Default for Material {
             emissive: [0.0; 3],
             base_color_texture: None,
             nodes: None,
+            viewport_color: default_viewport_color(),
         }
     }
 }

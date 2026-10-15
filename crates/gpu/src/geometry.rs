@@ -1,6 +1,6 @@
 //! CPU side of a frame: turn the scene into vertex lists, and pick objects with the BVH.
 
-use crate::{FrameGeometry, GpuLight, OrbitCamera, Vertex, ViewOptions};
+use crate::{ColorMode, FrameGeometry, GpuLight, OrbitCamera, SolidOptions, Vertex, ViewOptions};
 use shape_geom::FaceId;
 use shape_geom::bvh::Bvh;
 use shape_math::{Vec2, Vec3};
@@ -32,6 +32,38 @@ impl ShadingMode {
     /// Surfaces take their material colour (else Blender's solid grey).
     pub fn uses_materials(self) -> bool {
         self == ShadingMode::MaterialPreview
+    }
+}
+
+/// Solid-mode surface colour per Blender's shading popover "Color" setting.
+fn solid_color(scene: &Scene, id: ObjectId, data: &ObjectData, solid: &SolidOptions) -> [f32; 4] {
+    match solid.color {
+        ColorMode::Material => match data {
+            ObjectData::Mesh { material: Some(m), .. } => scene.material(*m).map(|m| m.viewport_color).unwrap_or(DEFAULT_SURFACE),
+            _ => DEFAULT_SURFACE,
+        },
+        ColorMode::Object => DEFAULT_SURFACE,
+        ColorMode::Random => {
+            // A stable pastel per object id (golden-ratio hue walk).
+            let hue = (id.0 as f32 * 0.618_034) % 1.0;
+            let (r, g, b) = hsv(hue, 0.45, 0.85);
+            [r, g, b, 1.0]
+        }
+        ColorMode::Single => solid.single_color,
+    }
+}
+
+fn hsv(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    let i = (h * 6.0).floor();
+    let f = h * 6.0 - i;
+    let (p, q, t) = (v * (1.0 - s), v * (1.0 - s * f), v * (1.0 - s * (1.0 - f)));
+    match i as i32 % 6 {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
     }
 }
 
@@ -104,7 +136,11 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
             ObjectData::Mesh { material: Some(m), .. } if options.shading.uses_materials() => scene.material(*m),
             _ => None,
         };
-        let base = material.map(|m| m.base_color).unwrap_or(DEFAULT_SURFACE);
+        let base = if options.shading.uses_materials() {
+            material.map(|m| m.base_color).unwrap_or(DEFAULT_SURFACE)
+        } else {
+            solid_color(scene, id, &object.data, &options.solid)
+        };
         let (metallic, roughness, emissive) = material.map(|m| (m.metallic, m.roughness, m.emissive)).unwrap_or((0.0, 0.5, [0.0; 3]));
         // Image texture: only with UVs on the base mesh (modifiers drop them), in Material Preview.
         let uvs = match (&object.data, material.and_then(|m| m.base_color_texture)) {

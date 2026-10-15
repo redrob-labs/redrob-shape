@@ -921,6 +921,34 @@ mod tests {
     }
 
     #[test]
+    fn shading_popover_sets_solid_options() {
+        let mut app = ShapeApp::default();
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("▾").click();
+        harness.run();
+        harness.get_by_label("MatCap").click();
+        harness.run();
+        harness.run();
+        harness.get_by_label("Red Wax").click();
+        harness.run();
+        harness.run();
+        harness.get_by_label("Cavity").click();
+        harness.run();
+        drop(harness);
+        assert_eq!(app.viewport.options.solid.lighting, shape_gpu::Lighting::MatCap);
+        assert_eq!(app.viewport.options.solid.matcap, 2);
+        assert!(app.viewport.options.solid.cavity);
+        // Alt+Z toggles X-ray like Blender.
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.key_press_modifiers(egui::Modifiers::ALT, egui::Key::Z);
+        harness.run();
+        drop(harness);
+        assert!(app.viewport.options.solid.xray);
+    }
+
+    #[test]
     fn popups_open_at_the_pointer_and_x_asks_before_deleting() {
         let mut app = ShapeApp::default();
         let a = app.add_primitive(Primitive::Cube);

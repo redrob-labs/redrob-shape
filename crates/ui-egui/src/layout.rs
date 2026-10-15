@@ -158,6 +158,46 @@ impl ShapeApp {
         }
     }
 
+    /// Solid-mode shading options, laid out like Blender's popover: Lighting, Color, Options.
+    fn shading_popover(&mut self, ui: &mut egui::Ui) {
+        use shape_gpu::{ColorMode, Lighting, MATCAPS};
+        ui.set_min_width(220.0);
+        let s = &mut self.viewport.options.solid;
+        ui.label(RichText::new("Lighting").color(theme::TEXT_WEAK));
+        ui.horizontal(|ui| {
+            for (l, name) in [(Lighting::Studio, "Studio"), (Lighting::MatCap, "MatCap"), (Lighting::Flat, "Flat")] {
+                ui.selectable_value(&mut s.lighting, l, name);
+            }
+        });
+        if s.lighting == Lighting::MatCap {
+            ui.horizontal_wrapped(|ui| {
+                for (i, name) in MATCAPS.iter().enumerate() {
+                    ui.selectable_value(&mut s.matcap, i as u32, *name);
+                }
+            });
+        }
+        ui.separator();
+        ui.label(RichText::new("Color").color(theme::TEXT_WEAK));
+        ui.horizontal(|ui| {
+            for (c, name) in
+                [(ColorMode::Material, "Material"), (ColorMode::Object, "Object"), (ColorMode::Random, "Random"), (ColorMode::Single, "Single")]
+            {
+                ui.selectable_value(&mut s.color, c, name);
+            }
+        });
+        if s.color == ColorMode::Single {
+            ui.color_edit_button_rgba_unmultiplied(&mut s.single_color);
+        }
+        ui.separator();
+        ui.label(RichText::new("Options").color(theme::TEXT_WEAK));
+        ui.checkbox(&mut s.backface_culling, "Backface Culling");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut s.xray, "X-Ray");
+            ui.add_enabled(s.xray, egui::Slider::new(&mut s.xray_alpha, 0.0..=1.0).show_value(false));
+        });
+        ui.checkbox(&mut s.cavity, "Cavity");
+    }
+
     pub(crate) fn window_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Window", |ui| {
             ui.checkbox(&mut self.regions.toolbar, "Toolbar (T)");
@@ -280,6 +320,17 @@ impl ShapeApp {
                 ui.separator();
                 self.transform_header(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Blender's shading popover (the arrow next to the shading buttons).
+                    let config = egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+                    egui::containers::menu::MenuButton::new("▾")
+                        .config(config)
+                        .ui(ui, |ui| self.shading_popover(ui))
+                        .0
+                        .on_hover_text("Viewport Shading");
+                    let xray = self.viewport.options.solid.xray;
+                    if ui.selectable_label(xray, "◈").on_hover_text("Toggle X-Ray (Alt+Z)").clicked() {
+                        self.viewport.options.solid.xray = !xray;
+                    }
                     for (mode, glyph, tip) in [
                         (ShadingMode::MaterialPreview, "◉", "Material Preview (materials, textures)"),
                         (ShadingMode::SolidWire, "◫", "Solid + wireframe"),
