@@ -5,13 +5,16 @@
 //! `viewport`.
 
 pub mod agent;
+pub mod layout;
 mod panels;
+mod properties;
 pub mod render_panel;
+pub mod theme;
 pub mod tools;
 pub mod viewport;
 
 pub use agent::{AgentFactory, AgentPanel};
-use egui::RichText;
+pub use layout::{PropsTab, Regions, Workspace};
 pub use render_panel::RenderPanel;
 pub use shape_agent::ControlServer;
 use shape_geom::primitives;
@@ -45,7 +48,7 @@ pub struct ShapeApp {
     pub agent: AgentPanel,
     /// Tool calls from the MCP server, run on the scene each frame.
     control: Option<ControlServer>,
-    pub show_agent: bool,
+    pub regions: Regions,
     pub render: RenderPanel,
 }
 
@@ -94,6 +97,7 @@ impl ShapeApp {
     pub const WINDOW_TITLE: &str = "Redrob Shape";
 
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        theme::apply(&cc.egui_ctx);
         Self::with_gpu(GpuContext::from_eframe(cc))
     }
 
@@ -110,7 +114,7 @@ impl ShapeApp {
             last_pointer: None,
             agent: AgentPanel::new(None),
             control: None,
-            show_agent: true,
+            regions: Regions::default(),
             render: RenderPanel::new(),
         }
     }
@@ -282,6 +286,109 @@ impl ShapeApp {
             }
             scene.prune_meshes();
         });
+    }
+
+    pub fn select_none(&mut self) {
+        if let Some(edit) = &mut self.scene.edit {
+            edit.faces.clear();
+        } else {
+            self.scene.selection.clear();
+        }
+    }
+
+    pub fn select_invert(&mut self) {
+        if let Some(object) = self.scene.edit.as_ref().map(|e| e.object) {
+            let Some((_, mesh)) = self.scene.object_mesh(object) else { return };
+            let all: std::collections::BTreeSet<_> = mesh.face_ids().collect();
+            let Some(edit) = &mut self.scene.edit else { return };
+            edit.faces = all.difference(&edit.faces).copied().collect();
+        } else {
+            let all: Vec<ObjectId> = self.scene.objects().map(|(id, _)| id).collect();
+            let sel = &mut self.scene.selection;
+            let inverted: std::collections::BTreeSet<ObjectId> = all.into_iter().filter(|id| !sel.objects.contains(id)).collect();
+            sel.active = inverted.iter().next_back().copied();
+            sel.objects = inverted;
+        }
+    }
+
+    /// Shift+D: copy the selected objects, each with its own mesh data, and select the copies.
+    pub fn duplicate_selected(&mut self) {
+        if self.scene.selection.is_empty() || self.scene.edit.is_some() {
+            return;
+        }
+        self.edit("Duplicate", |scene| {
+            let ids: Vec<ObjectId> = scene.selection.objects.iter().copied().collect();
+            let mut copies = Vec::new();
+            for id in ids {
+                let Some(mut copy) = scene.object(id).cloned() else { continue };
+                let stem = copy
+                    .name
+                    .rsplit_once('.')
+                    .filter(|(_, n)| n.len() == 3 && n.chars().all(|c| c.is_ascii_digit()))
+                    .map(|(s, _)| s.to_owned())
+                    .unwrap_or(copy.name.clone());
+                copy.name = format!("{stem}.{:03}", scene.object_count());
+                if let shape_scene::ObjectData::Mesh { mesh, .. } = &mut copy.data
+                    && let Some(data) = scene.mesh(*mesh).cloned()
+                {
+                    *mesh = scene.add_mesh(data);
+                }
+                copies.push(scene.add_object(copy));
+            }
+            scene.selection.clear();
+            for id in &copies {
+                scene.selection.objects.insert(*id);
+            }
+            scene.selection.active = copies.last().copied();
+        });
+    }
+
+    /// H hides the selection (and deselects it); Alt+H shows everything again.
+    pub fn hide_selected(&mut self, hide: bool) {
+        if self.scene.selection.is_empty() {
+            return;
+        }
+        self.edit("Hide", |scene| {
+            let ids: Vec<ObjectId> = scene.selection.objects.iter().copied().collect();
+            for id in ids {
+                if let Some(o) = scene.object_mut(id) {
+                    o.visible = !hide;
+                }
+            }
+            scene.selection.clear();
+        });
+    }
+
+    pub fn reveal_all(&mut self) {
+        let hidden: Vec<ObjectId> = self.scene.objects().filter(|(_, o)| !o.visible).map(|(id, _)| id).collect();
+        if hidden.is_empty() {
+            return;
+        }
+        self.edit("Reveal Hidden", |scene| {
+            for id in hidden {
+                if let Some(o) = scene.object_mut(id) {
+                    o.visible = true;
+                }
+                scene.selection.objects.insert(id);
+                scene.selection.active = Some(id);
+            }
+        });
+    }
+
+    /// Start an edit-mode face modal from a menu (the pointer position is the last one seen).
+    pub fn start_face_modal(&mut self, kind: ModalKind) {
+        let pointer = self.last_pointer.unwrap_or(Vec2::ZERO);
+        self.modal = Modal::faces(kind, &self.scene, pointer);
+    }
+
+    /// Live edit from a property widget: one undo step is recorded when the drag/typing ends.
+    pub(crate) fn edit_object_live(&mut self, id: ObjectId, edited: shape_scene::Object) {
+        if self.property_before.is_none() {
+            self.property_before = Some(self.scene.clone());
+        }
+        if let Some(o) = self.scene.object_mut(id) {
+            *o = edited;
+        }
     }
 
     pub fn open(&mut self, path: PathBuf) {
@@ -465,6 +572,42 @@ impl ShapeApp {
         if f12 {
             self.start_render(ui.ctx());
         }
+        let (toolbar, sidebar, maximize, dup, hide, reveal, none, invert) = ui.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, egui::Key::T),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::N),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space),
+                i.consume_key(egui::Modifiers::SHIFT, egui::Key::D),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::H),
+                i.consume_key(egui::Modifiers::ALT, egui::Key::H),
+                i.consume_key(egui::Modifiers::ALT, egui::Key::A),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::I),
+            )
+        });
+        if toolbar {
+            self.regions.toolbar = !self.regions.toolbar;
+        }
+        if sidebar {
+            self.regions.sidebar = !self.regions.sidebar;
+        }
+        if maximize {
+            self.regions.maximized = !self.regions.maximized;
+        }
+        if dup {
+            self.duplicate_selected();
+        }
+        if hide {
+            self.hide_selected(true);
+        }
+        if reveal {
+            self.reveal_all();
+        }
+        if none {
+            self.select_none();
+        }
+        if invert {
+            self.select_invert();
+        }
         let (undo, redo, del, frame, wire, solid) = ui.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
@@ -500,20 +643,31 @@ impl ShapeApp {
         self.drain_control();
         let (enter, escape) = self.modal_keys(ui);
         self.hotkeys(ui);
-        self.menu_bar(ui);
+        self.top_bar(ui);
         self.status_bar(ui);
-        self.outliner(ui);
-        self.properties(ui);
-        if self.show_agent {
-            egui::Panel::bottom("agent").default_size(200.0).resizable(true).show(ui, |ui| self.agent.ui(ui));
+        if self.regions.right_column && !self.regions.maximized {
+            self.right_column(ui);
+        }
+        if self.regions.agent && !self.regions.maximized {
+            egui::Panel::bottom("agent")
+                .default_size(200.0)
+                .resizable(true)
+                .frame(theme::region_frame(theme::TIMELINE))
+                .show(ui, |ui| self.agent.ui(ui));
         }
         self.viewport.camera_enabled = self.modal.is_none();
         let overlay = self.modal.as_ref().map(|m| m.status()).unwrap_or_default();
         let input = egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame::NONE.fill(theme::VIEWPORT_BG))
             .show(ui, |ui| {
-                self.tool_bar(ui);
-                self.viewport.ui(ui, &self.scene, &overlay)
+                self.viewport_header(ui);
+                if self.regions.toolbar {
+                    self.toolbar(ui);
+                }
+                if self.regions.sidebar {
+                    self.sidebar(ui);
+                }
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.viewport.ui(ui, &self.scene, &overlay)).inner
             })
             .inner;
         self.last_pointer = input.pointer.or(self.last_pointer);
@@ -533,29 +687,6 @@ impl ShapeApp {
         if self.modal.is_some() {
             ui.ctx().request_repaint();
         }
-    }
-
-    fn tool_bar(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("tools").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                for t in Tool::ALL {
-                    if ui.selectable_label(self.tool == t, t.name()).clicked() {
-                        self.tool = t;
-                    }
-                }
-                ui.separator();
-                let editing = self.scene.edit.is_some();
-                if ui.selectable_label(editing, "Edit Mode (Tab)").clicked() {
-                    self.toggle_edit_mode();
-                }
-                let hint = if editing {
-                    "click face · shift add · E extrude · I inset · Ctrl+B bevel · Ctrl+R loop cut · A all"
-                } else {
-                    "G move · R rotate · S scale · X delete · Home frame"
-                };
-                ui.label(RichText::new(hint).weak());
-            });
-        });
     }
 
     /// Run the modal, or pick, from this frame's viewport input.
@@ -649,9 +780,49 @@ mod tests {
         let mut app = ShapeApp::default();
         let mut harness = Harness::new_ui(|ui| app.ui(ui));
         harness.run();
-        for label in ["Outliner", "Properties", "Ready", "File", "Add", "View", "Select", "Move", "Edit Mode (Tab)"] {
+        // Blender's default screen: top bar menus + workspace tabs, viewport header, right column.
+        for label in ["Outliner", "Sampling", "Ready", "File", "Edit", "Window", "Help", "Layout", "Modeling", "Add", "View", "Select"] {
             harness.get_by_label(label);
         }
+        // T hides the toolbar, N shows the sidebar, Ctrl+Space hides the right column.
+        harness.key_press(egui::Key::T);
+        harness.key_press(egui::Key::N);
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Space);
+        harness.run();
+        assert!(harness.query_by_label("Outliner").is_none(), "maximized viewport hides the right column");
+        harness.get_by_label("Item");
+        drop(harness);
+        assert!(!app.regions.toolbar && app.regions.sidebar && app.regions.maximized);
+    }
+
+    #[test]
+    fn duplicate_hide_reveal_and_select_invert_are_undo_steps() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        let b = app.add_primitive(Primitive::Sphere);
+        app.scene.selection.set(a);
+        app.duplicate_selected();
+        assert_eq!(app.scene.object_count(), 3);
+        let copy = app.scene.selection.active.unwrap();
+        assert_ne!(copy, a);
+        assert_eq!(app.scene.object(copy).unwrap().name, "Cube.002");
+        let (ma, _) = app.scene.object_mesh(a).unwrap();
+        let (mc, _) = app.scene.object_mesh(copy).unwrap();
+        assert_ne!(ma, mc, "a duplicate owns its mesh data");
+        app.hide_selected(true);
+        assert!(!app.scene.object(copy).unwrap().visible);
+        assert!(app.scene.selection.is_empty());
+        app.reveal_all();
+        assert!(app.scene.object(copy).unwrap().visible);
+        app.scene.selection.set(b);
+        app.select_invert();
+        assert!(app.scene.selection.contains(a) && app.scene.selection.contains(copy) && !app.scene.selection.contains(b));
+        app.select_none();
+        assert!(app.scene.selection.is_empty());
+        for _ in 0..3 {
+            app.history.undo(&mut app.scene);
+        }
+        assert_eq!(app.scene.object_count(), 2, "Duplicate, Hide and Reveal were three undo steps");
     }
 
     #[test]
@@ -760,9 +931,11 @@ mod tests {
         app.history.undo(&mut app.scene);
         app.history.undo(&mut app.scene);
         assert!(app.scene.object(sun).is_none());
+        app.scene.selection.set(cube);
+        app.regions.props_tab = PropsTab::Material;
         let mut harness = Harness::new_ui(|ui| app.ui(ui));
         harness.run();
-        harness.get_by_label("Material");
+        assert!(harness.query_all_by_label("Material").count() >= 1);
     }
 
     #[test]
@@ -791,6 +964,10 @@ mod tests {
         harness.run();
         assert!(harness.query_all_by_label_contains("Torus").count() >= 2, "outliner row and status");
         harness.get_by_label("Location");
+        drop(harness);
+        app.regions.props_tab = PropsTab::Data;
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
         harness.get_by_label_contains("vertices");
     }
 }

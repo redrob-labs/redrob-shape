@@ -166,7 +166,7 @@ impl ViewportPanel {
                 ui.painter().image(id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
             }
             None => {
-                ui.painter().rect_filled(rect, 0.0, Color32::from_rgb(0x29, 0x2e, 0x37));
+                ui.painter().rect_filled(rect, 0.0, crate::theme::VIEWPORT_BG);
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,

@@ -32,6 +32,26 @@ impl Tool {
         }
     }
 
+    /// Toolbar glyph, standing in for Blender's tool icons.
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Tool::Select => "↖",
+            Tool::Move => "✥",
+            Tool::Rotate => "↻",
+            Tool::Scale => "⤢",
+        }
+    }
+
+    /// Default key, as in Blender.
+    pub fn key(self) -> &'static str {
+        match self {
+            Tool::Select => "W",
+            Tool::Move => "G",
+            Tool::Rotate => "R",
+            Tool::Scale => "S",
+        }
+    }
+
     pub fn modal(self) -> Option<ModalKind> {
         match self {
             Tool::Select => None,

@@ -2,6 +2,18 @@
 
 All notable changes to Redrob Shape. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- The default screen follows Blender's Layout workspace: top bar with File/Edit/Render/Window/Help
+  and workspace tabs (Layout, Modeling, Rendering), a 3D viewport header (mode, View/Select/Add/
+  Object or Mesh menus, shading), the T tool column, the N sidebar (Item transform, View), a right
+  column with the Outliner over a tabbed Properties editor (Render, Output, World, Object,
+  Modifiers, Data, Material), and a status bar. Blender's dark theme colours and region sizes.
+- Keys: T toolbar, N sidebar, Ctrl+Space maximize viewport, Shift+D duplicate, H / Alt+H hide and
+  reveal, Alt+A select none, Ctrl+I invert selection.
+- Viewport background is Blender's #3f3f3f.
+
 ## [0.3.0] - 2026-10-15
 
 ### Added

@@ -137,9 +137,9 @@ impl Default for ViewOptions {
         Self {
             shading: ShadingMode::Solid,
             show_grid: true,
-            // gray-8 (#292e37) from the design tokens, already sRGB-encoded: the clear colour is
-            // written to the non-sRGB target as-is
-            background: [0x29 as f32 / 255.0, 0x2e as f32 / 255.0, 0x37 as f32 / 255.0, 1.0],
+            // Blender's default 3D viewport background (#3f3f3f), already sRGB-encoded: the clear
+            // colour is written to the non-sRGB target as-is
+            background: [0x3f as f32 / 255.0, 0x3f as f32 / 255.0, 0x3f as f32 / 255.0, 1.0],
             light_dir: Vec3::new(0.4, 1.0, 0.6),
             line_width_px: 1.5,
         }
