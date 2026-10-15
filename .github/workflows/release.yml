@@ -1,12 +1,19 @@
-# Release pipeline: a `vX.Y.Z` tag builds archives for every platform and publishes the GitHub
-# Release "Redrob Shape vX.Y.Z". A manual dispatch is a dry run: it builds every job and publishes
-# nothing.
+# Release pipeline: a `vX.Y.Z` tag builds an installer for every platform, publishes them to
+# cdn.redrob.ai/shape/, then publishes the GitHub Release "Redrob Shape vX.Y.Z" through the
+# organization's shared publish job (SHA256SUMS.txt, redrob-launcher.json, published as latest).
+# A manual dispatch is a dry run: it builds and signs every job and publishes nothing.
 #
 # The tag must equal the workspace version in Cargo.toml; the version job fails otherwise, and
 # every other job checks out the exact commit it resolved, so a push between dispatch and tag
-# cannot split the binaries from the tag. Windows binaries are signed through Azure Artifact
-# Signing over OIDC when the organization secrets are present; without them they ship unsigned
-# with a warning. macOS bundles are ad-hoc signed (Developer ID signing is a later step).
+# cannot split the binaries from the tag.
+#
+# Signing is the organization's: Windows through Azure Artifact Signing over OIDC, macOS with the
+# Developer ID certificate and notarized through the App Store Connect API key. Every secret is
+# optional: without them the build ships unsigned (Windows) or ad-hoc signed and not notarized
+# (macOS), with a warning in the log.
+#
+# Asset names follow `redrob-shape-<version>-<os>-<arch>[-portable].<ext>`, the one shape Redrob
+# Launcher installs (scripts/check-asset-names.py refuses anything else before it is published).
 name: Release
 
 on:
@@ -19,6 +26,7 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
+  # Never cancel a run mid-notarization or mid-upload; a newer push waits its turn.
   cancel-in-progress: false
 
 env:
@@ -32,7 +40,6 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       sha: ${{ steps.v.outputs.sha }}
-      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       - id: v
@@ -45,9 +52,10 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$v" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match the Cargo.toml version $v"; exit 1
           fi
-          case "$v" in *-*) pre=true ;; *) pre=false ;; esac
-          { echo "version=$v"; echo "sha=$GITHUB_SHA"; echo "prerelease=$pre"; } >>"$GITHUB_OUTPUT"
+          { echo "version=$v"; echo "sha=$GITHUB_SHA"; } >>"$GITHUB_OUTPUT"
           echo "### Redrob Shape v$v (\`${GITHUB_SHA::9}\`)" >>"$GITHUB_STEP_SUMMARY"
+      - name: The asset-name gate tests itself
+        run: python3 scripts/check-asset-names.py --self-test
 
   linux:
     name: Linux x86_64
@@ -70,6 +78,8 @@ jobs:
         run: cargo build --release -p redrob-shape --target x86_64-unknown-linux-gnu
       - name: Package
         run: packaging/linux/package.sh x86_64-unknown-linux-gnu "${{ needs.version.outputs.version }}"
+      - name: Named the way the launcher reads it
+        run: python3 scripts/check-asset-names.py --version "${{ needs.version.outputs.version }}" dist/release/*
       - uses: actions/upload-artifact@v4
         with:
           name: release-linux
@@ -80,6 +90,8 @@ jobs:
     name: macOS universal
     needs: version
     runs-on: macos-latest
+    # `release` is the environment whose protection rules guard the signing secrets.
+    environment: release
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,13 +108,29 @@ jobs:
         run: |
           cargo build --release -p redrob-shape --target aarch64-apple-darwin
           cargo build --release -p redrob-shape --target x86_64-apple-darwin
-      - name: Bundle
+      # After the build: the certificate sits in a temporary keychain only as long as it is needed.
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+        run: packaging/macos/import-cert.sh
+      - name: Bundle, sign, notarize, disk image
+        env:
+          APPLE_NOTARY_API_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
+          APPLE_NOTARY_API_KEY_ID: ${{ secrets.APPLE_NOTARY_API_KEY_ID }}
+          APPLE_NOTARY_API_ISSUER_ID: ${{ secrets.APPLE_NOTARY_API_ISSUER_ID }}
         run: packaging/macos/bundle.sh "${{ needs.version.outputs.version }}"
+      - name: Named the way the launcher reads it
+        run: python3 scripts/check-asset-names.py --version "${{ needs.version.outputs.version }}" dist/release/*
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos
           path: dist/release/*
           if-no-files-found: error
+      - name: Remove the temporary keychain
+        if: always()
+        run: |
+          if [ -n "${MACOS_KEYCHAIN:-}" ]; then security delete-keychain "$MACOS_KEYCHAIN" || true; fi
 
   windows:
     name: Windows ${{ matrix.arch }}
@@ -148,53 +176,64 @@ jobs:
           ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.ARTIFACT_SIGNING_ACCOUNT }}
           ARTIFACT_SIGNING_CERT_PROFILE: ${{ secrets.ARTIFACT_SIGNING_CERT_PROFILE }}
         run: ./packaging/windows/package.ps1 -Arch ${{ matrix.arch }} -Target ${{ matrix.target }} -Version "${{ needs.version.outputs.version }}"
+      - name: Named the way the launcher reads it
+        shell: bash
+        run: python3 scripts/check-asset-names.py --version "${{ needs.version.outputs.version }}" dist/release/*
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows-${{ matrix.arch }}
           path: dist/release/*
           if-no-files-found: error
 
-  release:
-    name: Publish GitHub Release
+  cdn:
+    name: Publish to cdn.redrob.ai/shape
     needs: [version, linux, macos, windows]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
-      VERSION: ${{ needs.version.outputs.version }}
-      PRERELEASE: ${{ needs.version.outputs.prerelease }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GH_REPO: ${{ github.repository }}
+      APP_VERSION: ${{ needs.version.outputs.version }}
+      REDROB_CDN_BUCKET: ${{ vars.REDROB_CDN_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.REDROB_CDN_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.REDROB_CDN_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+      CDN_PUBLIC_HOST: cdn.redrob.ai
+      CDN_PREFIX: shape
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
-          path: artifacts
+          path: staging
           merge-multiple: true
-      - name: Checksums
-        working-directory: artifacts
-        run: sha256sum -- * | tee SHA256SUMS.txt
-      # Create the release empty, then upload each asset on its own with retries: one atomic
-      # upload of every asset is rolled back whole by a single transient 5xx.
-      - name: Create the release and upload assets
-        working-directory: artifacts
+      - name: What is about to be published, named the way the launcher reads it
         run: |
-          tag="v$VERSION"
-          title="Redrob Shape v$VERSION"
-          pre=()
-          if [ "$PRERELEASE" = true ]; then pre=(--prerelease); fi
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "$title" --target "$GITHUB_SHA" --generate-notes "${pre[@]}"
-          fi
-          for f in *; do
-            for attempt in 1 2 3 4 5; do
-              if gh release upload "$tag" "$f" --clobber; then break; fi
-              echo "upload of $f failed (attempt $attempt)"; sleep $((attempt * 10))
-              [ "$attempt" = 5 ] && exit 1
-            done
+          set -euo pipefail
+          test -n "$(ls -A staging 2>/dev/null)" || { echo "::error::nothing to publish"; exit 1; }
+          for f in staging/*; do
+            printf '%s  %s bytes  sha256 %s\n' "$(basename "$f")" "$(stat -c%s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
           done
-          want=$(ls | wc -l)
-          have=$(gh release view "$tag" --json assets --jq '.assets | length')
-          [ "$have" = "$want" ] || { echo "::error::uploaded $have of $want assets"; exit 1; }
-          { echo "Release **$title** at \`${GITHUB_SHA::9}\`:"; echo; sed 's/^/    /' SHA256SUMS.txt; } >>"$GITHUB_STEP_SUMMARY"
+          python3 scripts/check-asset-names.py --version "$APP_VERSION" staging/*
+      # Versioned path first, read back and compared, and only then the latest/ alias. Without the
+      # bucket variable and credentials the script says so and uploads nothing.
+      - name: Publish to cdn.redrob.ai/shape
+        run: bash .github/scripts/cdn-publish.sh staging
+
+  publish:
+    # The organization's one publish job: every `release-*` artifact, SHA256SUMS.txt,
+    # redrob-launcher.json (Redrob Shape signs in through the shared engine, which reads the
+    # launcher's shared account), and the release published as latest. Last, after the CDN: once
+    # this runs the artifacts are public.
+    name: Publish GitHub Release
+    needs: [version, cdn]
+    if: github.ref_type == 'tag'
+    uses: redrob-labs/.github/.github/workflows/release-publish.yml@main
+    permissions:
+      contents: write
+    with:
+      version: ${{ needs.version.outputs.version }}
+      title: Redrob Shape
+      target: ${{ needs.version.outputs.sha }}
+      launcher_manifest: true
+      publish: true

@@ -2,6 +2,15 @@
 
 All notable changes to Redrob Shape. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- macOS: signed with the Developer ID certificate, notarized and stapled; ships as a
+  drag-to-Applications disk image (`redrob-shape-<version>-macos-universal.dmg`).
+- Windows: the archive is named `-portable.zip`, the name Redrob Launcher installs.
+- Releases are published to cdn.redrob.ai/shape/ and through the organization's shared publish
+  job, with `SHA256SUMS.txt` and `redrob-launcher.json` beside the installers.
+
 ## [0.2.0] - 2026-10-14
 
 The first release of Redrob Shape written from scratch in Rust. Nothing from the earlier
