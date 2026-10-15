@@ -34,8 +34,10 @@ id!(TextureId);
 /// 8-bit sRGB file). Pixels are not saved with the scene; they reload from `path` on open.
 pub mod anim;
 pub mod armature;
+pub mod curve;
 pub use anim::{Action, Channel, KeyingSet, Timeline};
 pub use armature::{Armature, Bone, VertexGroup};
+pub use curve::{Curve, HandleType};
 pub mod nodes;
 pub use nodes::{NodeKind, NodeTree};
 
@@ -410,6 +412,7 @@ pub enum ObjectData {
     Light(Light),
     Camera(Camera),
     Armature(armature::Armature),
+    Curve(curve::Curve),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

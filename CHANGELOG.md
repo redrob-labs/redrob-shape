@@ -93,6 +93,13 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   noise level, used for the window and saved PNGs), Output gains Resolution %, the frame range and
   an output path, and Render > Render Animation (Ctrl+F12) renders every frame of the range to
   `<path>####.png` on a worker thread with progress in the Output tab.
+- Curve objects: Shift+A > Curve > Bezier / Circle add Bezier splines (control points with
+  Automatic / Vector / Aligned / Free handles, Resolution Preview U, Cyclic U); a Bevel Depth and
+  Resolution sweep a tube that the viewport, the renderer and the exporters use, and Object >
+  Convert to Mesh (also in the Data tab) turns it into mesh data. Curve Edit Mode (Tab): click picks
+  a control point (points and handles drawn), G moves, E extrudes from the end of the spline, X
+  deletes, V sets the handle type, A selects all. Fix: pressing Tab no longer parks keyboard focus
+  on a panel widget, so hotkeys keep working after a mode change.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

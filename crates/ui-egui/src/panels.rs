@@ -193,6 +193,7 @@ impl ShapeApp {
             ObjectData::Camera(_) => "🎥",
             ObjectData::Empty => "○",
             ObjectData::Armature(_) => "🦴",
+            ObjectData::Curve(_) => "∿",
         };
         let eye = if object.visible { "" } else { "  (hidden)" };
         let text = format!("{icon} {}{eye}", object.name);

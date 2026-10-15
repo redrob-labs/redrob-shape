@@ -184,6 +184,10 @@ impl ShapeApp {
                             }
                         });
                     }
+                    ObjectData::Curve(_) => {
+                        self.curve_data_panel(ui, id);
+                        return;
+                    }
                     ObjectData::Camera(cam) => {
                         egui::CollapsingHeader::new("Lens").default_open(true).show(ui, |ui| {
                             let mut fov = cam.fov_y.to_degrees();

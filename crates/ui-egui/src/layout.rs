@@ -59,7 +59,7 @@ impl PropsTab {
             PropsTab::Render | PropsTab::Output | PropsTab::World => true,
             PropsTab::Object => data.is_some(),
             PropsTab::Modifiers | PropsTab::Material => matches!(data, Some(ObjectData::Mesh { .. })),
-            PropsTab::Data => matches!(data, Some(ObjectData::Mesh { .. } | ObjectData::Light(_) | ObjectData::Camera(_))),
+            PropsTab::Data => matches!(data, Some(ObjectData::Mesh { .. } | ObjectData::Light(_) | ObjectData::Camera(_) | ObjectData::Curve(_))),
         }
     }
 }
@@ -449,6 +449,10 @@ impl ShapeApp {
             }
             if ui.add_enabled(any, egui::Button::new("Delete (X)")).clicked() {
                 self.delete_selected();
+            }
+            ui.separator();
+            if ui.add_enabled(self.active_is_curve(), egui::Button::new("Convert to Mesh")).clicked() {
+                self.convert_to_mesh();
             }
             ui.separator();
             if ui.add_enabled(any, egui::Button::new("Hide Selected (H)")).clicked() {

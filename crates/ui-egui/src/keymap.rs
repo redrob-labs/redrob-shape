@@ -20,6 +20,8 @@ pub enum Op {
     AddCamera,
     AddEmpty,
     AddArmature,
+    AddBezier,
+    AddCircleCurve,
     Delete,
     Duplicate,
     Hide,
@@ -63,6 +65,8 @@ impl Op {
         Op::AddCamera,
         Op::AddEmpty,
         Op::AddArmature,
+        Op::AddBezier,
+        Op::AddCircleCurve,
         Op::Delete,
         Op::Duplicate,
         Op::Hide,
@@ -111,6 +115,8 @@ impl Op {
             Op::AddCamera => "Add > Camera".into(),
             Op::AddEmpty => "Add > Empty".into(),
             Op::AddArmature => "Add > Armature".into(),
+            Op::AddBezier => "Add > Curve > Bezier".into(),
+            Op::AddCircleCurve => "Add > Curve > Circle".into(),
             Op::Delete => "Object > Delete".into(),
             Op::Duplicate => "Object > Duplicate Objects".into(),
             Op::Hide => "Object > Show/Hide > Hide Selected".into(),
@@ -148,7 +154,15 @@ impl Op {
     /// Blender's default key, or empty.
     pub fn key(self) -> &'static str {
         match self {
-            Op::Add(_) | Op::AddPointLight | Op::AddSun | Op::AddSpot | Op::AddCamera | Op::AddEmpty | Op::AddArmature => "Shift+A",
+            Op::Add(_)
+            | Op::AddPointLight
+            | Op::AddSun
+            | Op::AddSpot
+            | Op::AddCamera
+            | Op::AddEmpty
+            | Op::AddArmature
+            | Op::AddBezier
+            | Op::AddCircleCurve => "Shift+A",
             Op::Delete => "X / Delete",
             Op::Duplicate => "Shift+D",
             Op::Hide => "H",
@@ -199,6 +213,8 @@ pub enum Popup {
     InsertKeyframe,
     /// Ctrl+P: Set Parent To.
     ParentMenu,
+    /// Curve edit V: handle type.
+    HandleType,
     EdgeMenu,
     FaceMenu,
     /// M in object mode.
@@ -250,6 +266,12 @@ impl ShapeApp {
             Op::AddArmature => {
                 let at = self.scene.cursor;
                 self.add_object("Armature", ObjectData::Armature(shape_scene::Armature::single_bone()), at);
+            }
+            Op::AddBezier => {
+                self.add_curve(shape_scene::Curve::bezier(), "BezierCurve");
+            }
+            Op::AddCircleCurve => {
+                self.add_curve(shape_scene::Curve::circle(1.0), "BezierCircle");
             }
             Op::Delete => self.delete_selected(),
             Op::Duplicate => self.duplicate_selected(),
@@ -556,6 +578,7 @@ impl ShapeApp {
         let mut uv: Option<crate::UvOp> = None;
         let mut keying: Option<shape_scene::KeyingSet> = None;
         let mut parent: Option<crate::ParentKind> = None;
+        let mut handle: Option<shape_scene::HandleType> = None;
         let area = egui::Area::new(egui::Id::new("blender-popup")).fixed_pos(pos).order(egui::Order::Foreground);
         let response = area.show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -568,6 +591,13 @@ impl ShapeApp {
                         for p in Primitive::ALL {
                             if ui.button(p.name()).clicked() {
                                 run = Some(Op::Add(p));
+                            }
+                        }
+                        ui.separator();
+                        ui.label(RichText::new("Curve").color(crate::theme::TEXT_WEAK));
+                        for (op, label) in [(Op::AddBezier, "Bezier"), (Op::AddCircleCurve, "Circle")] {
+                            if ui.button(label).clicked() {
+                                run = Some(op);
                             }
                         }
                         ui.separator();
@@ -711,6 +741,15 @@ impl ShapeApp {
                             uv = Some(crate::UvOp::ClearSeam);
                         }
                     }
+                    Popup::HandleType => {
+                        ui.label(RichText::new("Set Handle Type").strong());
+                        ui.separator();
+                        for ty in shape_scene::HandleType::ALL {
+                            if ui.button(ty.name()).clicked() {
+                                handle = Some(ty);
+                            }
+                        }
+                    }
                     Popup::ParentMenu => {
                         ui.label(RichText::new("Set Parent To").strong());
                         ui.separator();
@@ -841,6 +880,10 @@ impl ShapeApp {
         }
         if let Some(kind) = parent {
             self.parent_selected(kind);
+            close = true;
+        }
+        if let Some(ty) = handle {
+            self.set_handle_type(ty);
             close = true;
         }
         if let Some(target) = collection_target {

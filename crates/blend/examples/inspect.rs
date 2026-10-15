@@ -21,6 +21,7 @@ fn main() {
             shape_scene::ObjectData::Camera(c) => format!("camera fov {:.1}", c.fov_y.to_degrees()),
             shape_scene::ObjectData::Empty => "empty".into(),
             shape_scene::ObjectData::Armature(a) => format!("armature {} bones", a.bones.len()),
+            shape_scene::ObjectData::Curve(c) => format!("curve {} splines", c.splines.len()),
         };
         println!("{:<24} at {:?}  {}", o.name, o.transform.translation, kind);
     }

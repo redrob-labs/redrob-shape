@@ -22,6 +22,7 @@ pub use edit_mode::EditDelete;
 pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub mod bone_edit;
+pub mod curve_edit;
 pub mod node_editor;
 pub mod pose_mode;
 pub use pose_mode::ParentKind;
@@ -66,6 +67,7 @@ pub struct ShapeApp {
     pub sculpt: Option<sculpt_mode::SculptMode>,
     pub pose: Option<pose_mode::PoseMode>,
     pub bone_edit: Option<bone_edit::BoneEditMode>,
+    pub curve_edit: Option<curve_edit::CurveEditMode>,
     pub weight_paint: Option<weight_paint::WeightPaint>,
     /// Fractional frames carried between playback ticks.
     pub(crate) play_accum: f32,
@@ -74,6 +76,8 @@ pub struct ShapeApp {
     last_pointer: Option<Vec2>,
     /// Last status line echoed to stderr (`SHAPE_TRACE_STATUS=1`), for driving the app from scripts.
     traced_status: String,
+    /// Whether some widget had keyboard focus when the previous frame ended.
+    focused_last_frame: bool,
     pub agent: AgentPanel,
     /// Tool calls from the MCP server, run on the scene each frame.
     control: Option<ControlServer>,
@@ -163,11 +167,13 @@ impl ShapeApp {
             sculpt: None,
             pose: None,
             bone_edit: None,
+            curve_edit: None,
             weight_paint: None,
             play_accum: 0.0,
             node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
             traced_status: String::new(),
+            focused_last_frame: false,
             agent: AgentPanel::new(None),
             control: None,
             regions: Regions::default(),
@@ -520,6 +526,10 @@ impl ShapeApp {
             self.toggle_bone_edit_mode();
             return;
         }
+        if self.curve_edit.is_some() || (self.scene.edit.is_none() && self.active_is_curve()) {
+            self.toggle_curve_edit_mode();
+            return;
+        }
         if self.scene.edit.is_some() {
             self.scene.edit = None;
             self.status = "Object Mode".into();
@@ -585,7 +595,7 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return (false, false);
         }
-        if self.sculpt.is_some() || self.pose.is_some() || self.bone_edit.is_some() || self.weight_paint.is_some() {
+        if self.sculpt.is_some() || self.pose.is_some() || self.bone_edit.is_some() || self.weight_paint.is_some() || self.curve_edit.is_some() {
             // Sculpt / Pose / Armature Edit Mode own G / R / S / E / I / X etc.; only confirm / cancel pass.
             return ui.input_mut(|inp| {
                 (crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter), crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape))
@@ -750,6 +760,10 @@ impl ShapeApp {
     /// Draw one frame. Split out of `eframe::App::ui` so `egui_kittest` can drive it.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.drain_control();
+        // egui moves keyboard focus to the first widget on Tab before we see the key; Blender's
+        // Tab is a mode toggle, so give the focus back to the viewport or hotkeys die.
+        let tab_event = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Tab, pressed: true, .. })));
+        let drop_tab_focus = tab_event && !self.focused_last_frame;
         if self.status != self.traced_status {
             self.traced_status = self.status.clone();
             if std::env::var_os("SHAPE_TRACE_STATUS").is_some() {
@@ -776,6 +790,9 @@ impl ShapeApp {
             self.mode_keys(ui);
         } else if self.bone_edit.is_some() && self.popup.is_none() && !over_nodes {
             self.bone_edit_keys(ui);
+            self.mode_keys(ui);
+        } else if self.curve_edit.is_some() && self.popup.is_none() && !over_nodes {
+            self.curve_edit_keys(ui);
             self.mode_keys(ui);
         } else if self.weight_paint.is_some() && self.popup.is_none() && !over_nodes {
             self.mode_keys(ui);
@@ -838,6 +855,7 @@ impl ShapeApp {
         if self.popup.is_some() {
             self.popup_ui(ui);
         } else if self.weight_paint_input(&input)
+            || self.curve_edit_input(&input, enter, escape)
             || self.bone_edit_input(&input, enter, escape)
             || self.pose_input(&input, enter, escape)
             || self.sculpt_input(&input, enter, escape)
@@ -856,6 +874,15 @@ impl ShapeApp {
         if self.circle.is_some() || self.knife.is_some() {
             ui.ctx().request_repaint();
         }
+        if drop_tab_focus {
+            // The widgets of this frame took the focus egui handed out for Tab; give it back.
+            ui.ctx().memory_mut(|m| {
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
+        }
+        self.focused_last_frame = ui.ctx().memory(|m| m.focused().is_some());
         match self.render.ui(ui.ctx()) {
             Some(render_panel::RenderAction::Start) => self.start_render(ui.ctx()),
             Some(render_panel::RenderAction::Save) => {

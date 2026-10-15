@@ -144,6 +144,12 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
                 armature_gizmo(&mut out.lines, &world, arm, selected);
                 continue;
             }
+            ObjectData::Curve(curve) => {
+                curve_lines(&mut out, &world, curve, selected, scene.edit.as_ref().is_some_and(|e| e.object == id));
+                if curve.bevel_depth <= 0.0 {
+                    continue;
+                }
+            }
             ObjectData::Mesh { .. } => {}
         }
         let Some(mesh) = display_mesh(scene, id) else { continue };
@@ -291,6 +297,37 @@ fn seg(lines: &mut Vec<Vertex>, a: Vec3, b: Vec3, c: [f32; 4]) {
 fn axes_gizmo(lines: &mut Vec<Vertex>, at: Vec3, r: f32, c: [f32; 4]) {
     for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
         seg(lines, at - axis * r, at + axis * r, c);
+    }
+}
+
+/// A curve object: the evaluated polyline (black, orange when selected) and, in edit mode, its
+/// control points as dots with their handles as thin lines.
+fn curve_lines(out: &mut FrameGeometry, world: &shape_math::Transform, curve: &shape_scene::Curve, selected: bool, editing: bool) {
+    let c = if selected { SELECTED_WIRE } else { WIRE };
+    for (pts, cyclic) in curve.polylines() {
+        let n = pts.len();
+        if n < 2 {
+            continue;
+        }
+        let segs = if cyclic { n } else { n - 1 };
+        for i in 0..segs {
+            out.lines.push(Vertex::new(world.transform_point(pts[i]), Vec3::Y, c));
+            out.lines.push(Vertex::new(world.transform_point(pts[(i + 1) % n]), Vec3::Y, c));
+        }
+    }
+    if editing {
+        const HANDLE: [f32; 4] = [0.45, 0.45, 0.5, 1.0];
+        for s in &curve.splines {
+            for p in &s.points {
+                let col = if p.selected { EDIT_SELECTED } else { EDIT_WIRE };
+                for h in [p.handle_left, p.handle_right] {
+                    out.lines.push(Vertex::new(world.transform_point(p.co), Vec3::Y, HANDLE));
+                    out.lines.push(Vertex::new(world.transform_point(h), Vec3::Y, HANDLE));
+                    out.points.push(Vertex::new(world.transform_point(h), Vec3::Y, HANDLE));
+                }
+                out.points.push(Vertex::new(world.transform_point(p.co), Vec3::Y, col));
+            }
+        }
     }
 }
 

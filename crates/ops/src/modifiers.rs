@@ -111,9 +111,15 @@ pub fn evaluate_in<'a>(context: Option<(&Scene, ObjectId)>, mesh: &'a Mesh, stac
 /// The mesh an object shows: its data with modifiers applied. `None` for non-mesh objects.
 pub fn evaluated_mesh(scene: &Scene, id: ObjectId) -> Option<Cow<'_, Mesh>> {
     let object = scene.object(id)?;
-    let ObjectData::Mesh { mesh, modifiers, .. } = &object.data else { return None };
-    let data = scene.mesh(*mesh)?;
-    Some(evaluate_in(Some((scene, id)), &data.mesh, modifiers))
+    match &object.data {
+        ObjectData::Mesh { mesh, modifiers, .. } => {
+            let data = scene.mesh(*mesh)?;
+            Some(evaluate_in(Some((scene, id)), &data.mesh, modifiers))
+        }
+        // A bevelled curve shows (and exports) as its tube.
+        ObjectData::Curve(c) if c.bevel_depth > 0.0 => Some(Cow::Owned(c.to_mesh())),
+        _ => None,
+    }
 }
 
 /// The base (unmodified) mesh of a mesh object.
