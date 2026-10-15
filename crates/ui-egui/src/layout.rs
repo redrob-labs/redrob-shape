@@ -85,10 +85,11 @@ pub enum Workspace {
     Animation,
     Rendering,
     GeometryNodes,
+    Scripting,
 }
 
 impl Workspace {
-    pub const ALL: [Workspace; 8] = [
+    pub const ALL: [Workspace; 9] = [
         Workspace::Layout,
         Workspace::Modeling,
         Workspace::Sculpting,
@@ -97,6 +98,7 @@ impl Workspace {
         Workspace::Animation,
         Workspace::Rendering,
         Workspace::GeometryNodes,
+        Workspace::Scripting,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -108,6 +110,7 @@ impl Workspace {
             Workspace::Animation => "Animation",
             Workspace::Rendering => "Rendering",
             Workspace::GeometryNodes => "Geometry Nodes",
+            Workspace::Scripting => "Scripting",
         }
     }
 }
@@ -147,6 +150,7 @@ impl ShapeApp {
                 self.edit_menu(ui);
                 self.render_menu(ui);
                 self.window_menu(ui);
+                self.scripts_menu(ui);
                 self.help_menu(ui);
                 ui.add_space(12.0);
                 for w in Workspace::ALL {
@@ -205,7 +209,7 @@ impl ShapeApp {
                 self.sculpt = None;
             }
             Workspace::Rendering => self.render.open = true,
-            Workspace::GeometryNodes => {
+            Workspace::GeometryNodes | Workspace::Scripting => {
                 if self.scene.edit.is_some() {
                     self.toggle_edit_mode();
                 }

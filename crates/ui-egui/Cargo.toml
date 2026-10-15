@@ -25,6 +25,7 @@ egui-wgpu.workspace = true
 wgpu = { version = "30", default-features = false }
 log.workspace = true
 rfd.workspace = true
+dirs.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true

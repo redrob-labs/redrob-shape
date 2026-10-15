@@ -10,6 +10,7 @@
 
 pub mod control;
 pub mod mcp;
+pub mod script;
 pub mod tools;
 
 pub use control::{CONTROL_TOKEN_ENV, ControlRequest, ControlServer, Remote};

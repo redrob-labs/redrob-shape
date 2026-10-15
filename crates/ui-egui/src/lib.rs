@@ -24,7 +24,9 @@ pub use keymap::{BoxSelect, Op, Popup};
 pub mod bone_edit;
 pub mod curve_edit;
 pub mod generated;
+pub mod console;
 pub mod geo_node_editor;
+pub mod prefs;
 pub mod node_editor;
 pub mod pose_mode;
 pub use pose_mode::ParentKind;
@@ -67,6 +69,9 @@ pub struct ShapeApp {
     property_before: Option<Scene>,
     pub(crate) node_editor: node_editor::NodeEditor,
     pub(crate) geo_editor: geo_node_editor::GeoNodeEditor,
+    pub(crate) console: console::Console,
+    pub(crate) prefs: prefs::Prefs,
+    pub(crate) prefs_window: prefs::PrefsWindow,
     pub sculpt: Option<sculpt_mode::SculptMode>,
     pub pose: Option<pose_mode::PoseMode>,
     pub bone_edit: Option<bone_edit::BoneEditMode>,
@@ -153,7 +158,11 @@ impl ShapeApp {
 
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply(&cc.egui_ctx);
-        Self::with_gpu(GpuContext::from_eframe(cc))
+        let mut app = Self::with_gpu(GpuContext::from_eframe(cc));
+        app.apply_prefs(&cc.egui_ctx);
+        app.prefs_window.addons = prefs::scan_addons();
+        app.prefs_window.scanned = true;
+        app
     }
 
     pub fn with_gpu(gpu: Option<GpuContext>) -> Self {
@@ -168,6 +177,9 @@ impl ShapeApp {
             property_before: None,
             node_editor: Default::default(),
             geo_editor: Default::default(),
+            console: Default::default(),
+            prefs: prefs::Prefs::load(),
+            prefs_window: Default::default(),
             sculpt: None,
             pose: None,
             bone_edit: None,
@@ -692,8 +704,9 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() || self.modal.is_some() {
             return;
         }
-        let (f12, ctrl_f12) =
-            ui.input_mut(|i| (crate::key(i, egui::Modifiers::NONE, egui::Key::F12), crate::key(i, egui::Modifiers::COMMAND, egui::Key::F12)));
+        use prefs::Action as A;
+        let p = self.prefs.clone();
+        let (f12, ctrl_f12) = ui.input_mut(|i| (p.pressed(i, A::Render), p.pressed(i, A::RenderAnimation)));
         if f12 {
             self.start_render(ui.ctx());
         }
@@ -702,14 +715,14 @@ impl ShapeApp {
         }
         let (toolbar, sidebar, maximize, dup, hide, reveal, none, invert) = ui.input_mut(|i| {
             (
-                crate::key(i, egui::Modifiers::NONE, egui::Key::T),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::N),
-                crate::key(i, egui::Modifiers::COMMAND, egui::Key::Space),
-                crate::key(i, egui::Modifiers::SHIFT, egui::Key::D),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::H),
-                crate::key(i, egui::Modifiers::ALT, egui::Key::H),
-                crate::key(i, egui::Modifiers::ALT, egui::Key::A),
-                crate::key(i, egui::Modifiers::COMMAND, egui::Key::I),
+                p.pressed(i, A::ToggleToolbar),
+                p.pressed(i, A::ToggleSidebar),
+                p.pressed(i, A::MaximizeArea),
+                p.pressed(i, A::Duplicate),
+                p.pressed(i, A::Hide),
+                p.pressed(i, A::Reveal),
+                p.pressed(i, A::SelectNone),
+                p.pressed(i, A::SelectInvert),
             )
         });
         if toolbar {
@@ -738,11 +751,10 @@ impl ShapeApp {
         }
         let (undo, redo, del, frame) = ui.input_mut(|i| {
             (
-                crate::key(i, egui::Modifiers::COMMAND, egui::Key::Z),
-                crate::key(i, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
-                    || crate::key(i, egui::Modifiers::COMMAND, egui::Key::Y),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::Delete),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::Home),
+                p.pressed(i, A::Undo),
+                p.pressed(i, A::Redo) || crate::key(i, egui::Modifiers::COMMAND, egui::Key::Y),
+                p.pressed(i, A::Delete),
+                p.pressed(i, A::FrameAll),
             )
         });
         if redo {
@@ -753,7 +765,7 @@ impl ShapeApp {
         if del {
             self.delete_selected();
         }
-        if ui.input_mut(|i| crate::key(i, egui::Modifiers::NONE, egui::Key::X)) && !self.scene.selection.is_empty() && self.scene.edit.is_none() {
+        if ui.input_mut(|i| p.pressed(i, A::DeleteConfirm)) && !self.scene.selection.is_empty() && self.scene.edit.is_none() {
             self.popup = Some(Popup::DeleteConfirm);
         }
         if frame {
@@ -782,7 +794,7 @@ impl ShapeApp {
         self.playback_keys(ui);
         self.animation_tick(ui);
         // Blender sends keys to the editor under the pointer: the Shader Editor takes its own.
-        let over_nodes = (self.node_editor.hovered || self.geo_editor.hovered) && self.modal.is_none();
+        let over_nodes = (self.node_editor.hovered || self.geo_editor.hovered || self.console.hovered) && self.modal.is_none();
         if !over_nodes {
             self.hotkeys(ui);
         }
@@ -830,7 +842,16 @@ impl ShapeApp {
         } else {
             self.geo_editor.hovered = false;
         }
-        if !matches!(self.regions.workspace, layout::Workspace::Shading | layout::Workspace::GeometryNodes) && self.regions.agent && !self.regions.maximized {
+        if self.regions.workspace == layout::Workspace::Scripting && !self.regions.maximized {
+            self.console_panel(ui);
+        } else {
+            self.console.hovered = false;
+        }
+        self.preferences_window(ui.ctx());
+        if !matches!(self.regions.workspace, layout::Workspace::Shading | layout::Workspace::GeometryNodes | layout::Workspace::Scripting)
+            && self.regions.agent
+            && !self.regions.maximized
+        {
             egui::Panel::bottom("agent")
                 .default_size(200.0)
                 .resizable(true)

@@ -118,6 +118,14 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 - Compositor: Use Nodes plus a chain of Blur, Bright/Contrast, Glare, Gamma, Hue/Saturation/Value,
   Mix Color and Invert nodes between Render Layers and Composite, applied to the Render window
   image and to Render Animation frames; saved with the scene.
+- Preferences (Edit > Preferences): Interface (Resolution Scale, viewport background), Keymap
+  (object-mode shortcuts rebind by pressing a key, Restore Defaults, fixed bindings listed) and
+  Add-ons tabs; stored in the user's config directory as `redrob-shape/prefs.json`.
+- Scripting: Shape Script, a line-per-tool-call language sharing the agent's tools
+  (`add_primitive kind=cube size=1`, `transform_object object=Cube location=[0,1,0]`, `help`),
+  a Scripting workspace with a console (Enter runs, Up/Down history, Run Script…), and add-ons:
+  `*.shape` files in the config `addons/` folder with `# name:` / `# description:` / `# menu:`
+  headers, enabled in Preferences and run from the Scripts menu.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

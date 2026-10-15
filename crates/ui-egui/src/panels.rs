@@ -59,6 +59,10 @@ impl ShapeApp {
                 self.redo();
             }
             ui.separator();
+            if ui.button("Preferences…").clicked() {
+                self.prefs_window.open = true;
+            }
+            ui.separator();
             if ui.add_enabled(!self.scene.selection.is_empty(), egui::Button::new("Delete")).clicked() {
                 self.delete_selected();
             }
@@ -163,6 +167,32 @@ impl ShapeApp {
             }
             if ui.button("Show Render Window").clicked() {
                 self.render.open = true;
+            }
+        });
+    }
+
+    /// Enabled add-ons with a `# menu:` line, plus the console.
+    pub(crate) fn scripts_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Scripts", |ui| {
+            if ui.button("Console (Scripting workspace)").clicked() {
+                self.set_workspace(crate::layout::Workspace::Scripting);
+            }
+            let entries = self.addon_menu_entries();
+            if !entries.is_empty() {
+                ui.separator();
+            }
+            for (label, source, name) in entries {
+                if ui.button(label).clicked() {
+                    let out = self.run_script(&source, &name);
+                    if let Some(last) = out.last() {
+                        self.status = last.clone();
+                    }
+                }
+            }
+            ui.separator();
+            if ui.button("Add-ons…").clicked() {
+                self.prefs_window.open = true;
+                self.prefs_window.tab = crate::prefs::PrefsTab::Addons;
             }
         });
     }

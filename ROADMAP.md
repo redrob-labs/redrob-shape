@@ -43,7 +43,7 @@ same window size, Blender left and Shape right, and a keymap table checked again
 | P12 | objects | curves (Bezier/NURBS), text, metaballs, lattice, empties, image planes | import/export round trips |
 | P13 | formats | FBX (ASCII), USD (usda), Collada import/export; Alembic deferred (needs an Ogawa reader) | round trips against Blender's output |
 | P14 | nodes | geometry nodes, compositor | node graph golden outputs |
-| P15 | platform | Preferences, keymap editor, scripting (no Python: embedded Rhai), add-on model | scripted smoke test |
+| P15 | platform | Preferences, keymap editor, scripting (Shape Script console; Rhai deferred, not in offline registry), add-on model | scripted smoke test |
 
 Layering (a crate may depend only on crates above it):
 

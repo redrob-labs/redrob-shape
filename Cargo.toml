@@ -39,6 +39,7 @@ eframe = { version = "0.36", default-features = false }
 egui-wgpu = "0.36"
 egui_kittest = { version = "0.36", features = ["snapshot", "wgpu"] }
 rfd = "0.17"
+dirs = "6"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
