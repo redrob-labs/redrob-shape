@@ -117,6 +117,30 @@ mod tests {
     }
 
     #[test]
+    fn an_image_texture_tints_the_surface_through_the_uvs() {
+        // A 2x1 texture: left half red, right half blue; planar UVs put u = 0 at x = -50.
+        let mut scene = Scene::new("t");
+        let tex = scene.add_texture(shape_scene::Texture::from_rgba("stripes", 2, 1, vec![[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]));
+        let mat =
+            scene.add_material(Material { base_color: [1.0, 1.0, 1.0, 1.0], roughness: 1.0, base_color_texture: Some(tex), ..Default::default() });
+        let id = scene.add_mesh_object("Floor", plane(100.0, 1, 1), Some(mat));
+        let (mesh_id, mesh) = scene.object_mesh(id).unwrap();
+        let uvs = shape_ops::uv_planar(mesh, 1);
+        scene.mesh_mut(mesh_id).unwrap().uvs = Some(uvs);
+        scene.add_object(sun_from_above(2.0));
+        let settings = Settings { sky: Vec3::ZERO, max_depth: 1, ..Default::default() };
+        let rs = RenderScene::build(&scene, top_camera(40.0), &settings);
+        let mut r = Renderer::new(16, 16, settings);
+        for _ in 0..8 {
+            r.pass(&rs);
+        }
+        let left = r.pixel(2, 8);
+        let right = r.pixel(13, 8);
+        assert!(left.x > left.z * 4.0 || right.x > right.z * 4.0, "one side is red: {left} {right}");
+        assert!(left.z > left.x * 4.0 || right.z > right.x * 4.0, "the other is blue: {left} {right}");
+    }
+
+    #[test]
     fn lambert_plane_under_a_sun_matches_the_formula() {
         let mut scene = Scene::new("t");
         let mat = scene.add_material(Material { base_color: [0.5, 0.5, 0.5, 1.0], roughness: 1.0, ..Default::default() });

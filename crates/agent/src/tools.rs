@@ -21,8 +21,8 @@ pub fn tool_definitions() -> Value {
          "inputSchema": {"type": "object", "properties": {"object": object, "location": vec3("x y z"), "rotation": vec3("degrees about X Y Z"), "scale": vec3("sx sy sz")}, "required": ["object"]}},
         {"name": "rename_object", "description": "Rename an object.", "inputSchema": {"type": "object", "properties": {"object": object, "name": {"type": "string"}}, "required": ["object", "name"]}},
         {"name": "delete_object", "description": "Delete an object.", "inputSchema": {"type": "object", "properties": {"object": object}, "required": ["object"]}},
-        {"name": "set_material", "description": "Give a mesh object a material (created if it has none) and set its colour (linear RGBA 0..1), metallic, roughness and emissive.",
-         "inputSchema": {"type": "object", "properties": {"object": object, "color": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 4}, "metallic": {"type": "number"}, "roughness": {"type": "number"}, "emissive": vec3("linear RGB"), "name": {"type": "string"}}, "required": ["object"]}},
+        {"name": "set_material", "description": "Give a mesh object a material (created if it has none) and set its colour (linear RGBA 0..1), metallic, roughness, emissive and an image texture (PNG/JPEG path) for the base colour; box UVs are generated when the mesh has none.",
+         "inputSchema": {"type": "object", "properties": {"object": object, "color": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 4}, "metallic": {"type": "number"}, "roughness": {"type": "number"}, "emissive": vec3("linear RGB"), "name": {"type": "string"}, "texture": {"type": "string"}}, "required": ["object"]}},
         {"name": "mesh_op", "description": "Edit a mesh object's geometry destructively. op: subdivide (Catmull-Clark), subdivide_linear, smooth, extrude (all faces by amount), inset (all faces by amount), bevel (all edges by amount), shrink_fatten (amount), triangulate, flip_normals.",
          "inputSchema": {"type": "object", "properties": {"object": object, "op": {"type": "string", "enum": ["subdivide", "subdivide_linear", "smooth", "extrude", "inset", "bevel", "shrink_fatten", "triangulate", "flip_normals"]}, "amount": {"type": "number"}}, "required": ["object", "op"]}},
         {"name": "add_modifier", "description": "Add a non-destructive modifier to a mesh object. kind: mirror {axis: x|y|z}, array {count, offset:[x,y,z]}, subdivision {levels, smooth}, smooth {iterations, factor}, bevel {offset, segments}, solidify {thickness, offset}, decimate {ratio}, wireframe {thickness}, triangulate, screw {axis, angle(deg), steps, screw}, simple_deform {mode: twist|bend|taper|stretch, axis, factor(radians for twist/bend)}, displace {strength, scale}, weld {distance}, boolean {operation: union|difference|intersect, target: object}, shrinkwrap {target: object, offset}.",
@@ -129,7 +129,24 @@ pub fn execute(scene: &mut Scene, name: &str, args: &Value) -> Result<Value, Str
             if let Some(e) = vec3_arg(a, "emissive") {
                 m.emissive = e.to_array();
             }
-            Ok(json!({"object": id.0, "material": m.name, "base_color": m.base_color, "metallic": m.metallic, "roughness": m.roughness}))
+            let (name, base_color, metallic, roughness) = (m.name.clone(), m.base_color, m.metallic, m.roughness);
+            if let Some(path) = a.get("texture").and_then(Value::as_str) {
+                let tex = shape_scene::Texture::load(std::path::Path::new(path)).map_err(|e| format!("texture: {e}"))?;
+                let tid = scene.add_texture(tex);
+                if let Some(m) = scene.material_mut(mid) {
+                    m.base_color_texture = Some(tid);
+                }
+                // The texture needs UVs: box-project when the mesh has none.
+                if let Some((mesh_id, mesh)) = scene.object_mesh(id)
+                    && scene.mesh(mesh_id).is_some_and(|d| d.uvs.is_none())
+                {
+                    let uvs = shape_ops::uv_box(mesh);
+                    if let Some(d) = scene.mesh_mut(mesh_id) {
+                        d.uvs = Some(uvs);
+                    }
+                }
+            }
+            Ok(json!({"object": id.0, "material": name, "base_color": base_color, "metallic": metallic, "roughness": roughness}))
         }
         "mesh_op" => {
             let id = find(scene, a.get("object"))?;

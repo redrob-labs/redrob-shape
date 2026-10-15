@@ -32,6 +32,11 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   with proportional editing (O, wheel sizes the falloff), Ctrl+P / Alt+P parenting that keeps the
   world placement, Object > Set Origin (geometry to origin, origin to geometry / cursor, cursor to
   selected), collections in the outliner with eye toggles and M > Move to Collection.
+- Shading like Blender's: Solid is studio grey for every surface; Material Preview shows materials,
+  the scene's lights and image textures. Materials take a Base Color image (PNG/JPEG; box UVs are
+  generated when the mesh has none) that the viewport samples through the mesh UVs and the path
+  tracer samples at the hit. Textures reload from their path when a scene is opened. The agent's
+  `set_material` takes a `texture` path; `--shading wire|solid|material` picks the start mode.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

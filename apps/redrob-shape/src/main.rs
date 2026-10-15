@@ -1,6 +1,6 @@
 //! Redrob Shape desktop entry point.
 //!
-//! `redrob-shape [--demo] [--no-grid] [FILE]` opens the editor; `FILE` is any format `shape-format`
+//! `redrob-shape [--demo] [--no-grid] [--shading wire|solid|material] [FILE]` opens the editor; `FILE` is any format `shape-format`
 //! reads, `--demo` fills the scene with the primitives and `--no-grid` hides the floor grid.
 //! `redrob-shape mcp --connect ADDR` runs the MCP server the agent uses to reach a window.
 
@@ -25,7 +25,27 @@ fn main() -> eframe::Result {
     }
     let demo = args.iter().any(|a| a == "--demo");
     let no_grid = args.iter().any(|a| a == "--no-grid");
-    let file = args.iter().find(|a| !a.starts_with("--")).map(std::path::PathBuf::from);
+    // `--shading wire|solid|material`: the viewport shading to start in.
+    let shading = args.iter().position(|a| a == "--shading").and_then(|i| args.get(i + 1)).map(|s| match s.as_str() {
+        "wire" | "wireframe" => shape_ui_egui::ShadingMode::Wireframe,
+        "material" | "preview" => shape_ui_egui::ShadingMode::MaterialPreview,
+        _ => shape_ui_egui::ShadingMode::Solid,
+    });
+    let mut skip_next = false;
+    let file = args
+        .iter()
+        .find(|a| {
+            if skip_next {
+                skip_next = false;
+                return false;
+            }
+            if *a == "--shading" {
+                skip_next = true;
+                return false;
+            }
+            !a.starts_with("--")
+        })
+        .map(std::path::PathBuf::from);
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -49,6 +69,9 @@ fn main() -> eframe::Result {
                 demo_scene(&mut app);
             }
             app.viewport.options.show_grid = !no_grid;
+            if let Some(mode) = shading {
+                app.viewport.options.shading = mode;
+            }
             Ok(Box::new(app))
         }),
     )
@@ -105,6 +128,24 @@ fn demo_scene(app: &mut ShapeApp) {
         && let Some(shape_scene::ObjectData::Mesh { material, .. }) = app.scene.object_mut(id).map(|o| &mut o.data)
     {
         *material = Some(red);
+    }
+    // A checkerboard image texture on the plane shows UV-mapped textures (Material Preview).
+    let checker: Vec<[f32; 4]> =
+        (0..64 * 64).map(|i| if ((i % 64) / 8 + (i / 64) / 8) % 2 == 0 { [0.9, 0.85, 0.75, 1.0] } else { [0.75, 0.2, 0.15, 1.0] }).collect();
+    let tex = app.scene.add_texture(shape_scene::Texture::from_rgba("checker", 64, 64, checker));
+    let checker_mat =
+        app.scene.add_material(shape_scene::Material { name: "Checker".into(), base_color_texture: Some(tex), roughness: 0.8, ..Default::default() });
+    let plane = app.scene.objects().find(|(_, o)| o.name.starts_with("Plane")).map(|(id, _)| id);
+    if let Some(id) = plane {
+        if let Some((mesh_id, mesh)) = app.scene.object_mesh(id) {
+            let uvs = shape_ui_egui::shape_ops::uv_planar(mesh, 1);
+            if let Some(d) = app.scene.mesh_mut(mesh_id) {
+                d.uvs = Some(uvs);
+            }
+        }
+        if let Some(shape_scene::ObjectData::Mesh { material, .. }) = app.scene.object_mut(id).map(|o| &mut o.data) {
+            *material = Some(checker_mat);
+        }
     }
     app.add_object("Sun", shape_scene::ObjectData::Light(shape_scene::Light::sun(3.0)), Vec3::new(4.0, 8.0, 3.0));
     app.add_object("Lamp", shape_scene::ObjectData::Light(shape_scene::Light::point(600.0)), Vec3::new(-3.0, 3.5, 2.5));

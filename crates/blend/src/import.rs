@@ -50,6 +50,7 @@ pub fn import_file(file: &BlendFile, name: &str) -> Result<Scene> {
             metallic: v.f32("metallic").unwrap_or(0.0),
             roughness: v.f32("roughness").unwrap_or(0.5),
             emissive: [0.0; 3],
+            base_color_texture: None,
         };
         materials.insert(b.old, scene.add_material(m));
     }

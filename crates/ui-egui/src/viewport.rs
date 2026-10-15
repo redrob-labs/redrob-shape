@@ -2,7 +2,7 @@
 //! and reports pointer state so the app can run tools and modals on top.
 
 use egui::{Color32, Sense};
-use shape_gpu::{OrbitCamera, ShadingMode, ViewOptions, Viewport};
+use shape_gpu::{OrbitCamera, ViewOptions, Viewport};
 use shape_math::Vec2;
 use shape_scene::Scene;
 use std::sync::Arc;
@@ -193,11 +193,7 @@ impl ViewportPanel {
         }
 
         // ---- overlay ----
-        let label = match self.options.shading {
-            ShadingMode::Wireframe => "Wireframe",
-            ShadingMode::Solid => "Solid",
-            ShadingMode::SolidWire => "Solid + Wire",
-        };
+        let label = self.options.shading.name();
         let mode = if scene.edit.is_some() { "Edit Mode" } else { "Object Mode" };
         ui.painter().text(
             rect.left_top() + egui::vec2(8.0, 6.0),

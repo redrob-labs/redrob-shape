@@ -11,6 +11,7 @@ repository.workspace = true
 shape-math.workspace = true
 shape-geom.workspace = true
 serde.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [lints]
 workspace = true

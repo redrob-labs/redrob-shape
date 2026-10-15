@@ -273,6 +273,7 @@ impl ShapeApp {
                 self.transform_header(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     for (mode, glyph, tip) in [
+                        (ShadingMode::MaterialPreview, "◉", "Material Preview (materials, textures)"),
                         (ShadingMode::SolidWire, "◫", "Solid + wireframe"),
                         (ShadingMode::Solid, "●", "Solid shading (Z: 2)"),
                         (ShadingMode::Wireframe, "◌", "Wireframe (Z: 1)"),

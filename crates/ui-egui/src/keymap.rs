@@ -82,6 +82,7 @@ impl Op {
         Op::Shading(ShadingMode::Wireframe),
         Op::Shading(ShadingMode::Solid),
         Op::Shading(ShadingMode::SolidWire),
+        Op::Shading(ShadingMode::MaterialPreview),
         Op::ToggleWireframe,
         Op::RenderImage,
         Op::ApplyModifiers,
@@ -122,6 +123,7 @@ impl Op {
             Op::Shading(ShadingMode::Wireframe) => "Viewport Shading > Wireframe".into(),
             Op::Shading(ShadingMode::Solid) => "Viewport Shading > Solid".into(),
             Op::Shading(ShadingMode::SolidWire) => "Viewport Shading > Solid + Wireframe".into(),
+            Op::Shading(ShadingMode::MaterialPreview) => "Viewport Shading > Material Preview".into(),
             Op::ToggleWireframe => "Viewport Shading > Toggle Wireframe".into(),
             Op::RenderImage => "Render > Render Image".into(),
             Op::ApplyModifiers => "Object > Apply > Visual Geometry to Mesh".into(),
@@ -529,9 +531,7 @@ impl ShapeApp {
                     Popup::Shading => {
                         ui.label(RichText::new("Viewport Shading").strong());
                         ui.separator();
-                        for (mode, label) in
-                            [(ShadingMode::Wireframe, "Wireframe"), (ShadingMode::Solid, "Solid"), (ShadingMode::SolidWire, "Solid + Wireframe")]
-                        {
+                        for (mode, label) in ShadingMode::ALL.map(|m| (m, m.name())) {
                             if ui.selectable_label(self.viewport.options.shading == mode, label).clicked() {
                                 run = Some(Op::Shading(mode));
                             }

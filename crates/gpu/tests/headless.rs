@@ -86,3 +86,39 @@ fn vertex_mode_draws_dots_and_selection_orange() {
     assert!(black < 5, "no dots outside vertex mode: {black}");
     let _ = Vec3::ZERO;
 }
+
+#[test]
+fn material_preview_shows_the_texture_and_solid_hides_materials() {
+    let mut scene = Scene::new("t");
+    // Pure red texture on a white material; Solid must ignore it, Material Preview must show it.
+    let tex = scene.add_texture(shape_scene::Texture::from_rgba("red", 2, 2, vec![[1.0, 0.0, 0.0, 1.0]; 4]));
+    let mat = scene.add_material(shape_scene::Material { base_color: [1.0, 1.0, 1.0, 1.0], base_color_texture: Some(tex), ..Default::default() });
+    let id = scene.add_mesh_object("Cube", primitives::cube(2.0), Some(mat));
+    let (mesh_id, mesh) = scene.object_mesh(id).unwrap();
+    let uvs = shape_ops::uv_box(mesh);
+    scene.mesh_mut(mesh_id).unwrap().uvs = Some(uvs);
+    let cam = OrbitCamera { yaw: 0.6, pitch: 0.5, distance: 6.0, ..Default::default() };
+    let reddish = |px: &[[u8; 4]]| px.iter().filter(|p| p[0] > 120 && p[1] < 60 && p[2] < 60).count();
+    let solid = ViewOptions { show_grid: false, shading: shape_gpu::ShadingMode::Solid, ..Default::default() };
+    let Some(px) = render(&scene, &cam, &solid, 320, 240) else {
+        eprintln!("no GPU adapter: skipping");
+        return;
+    };
+    assert_eq!(reddish(&px), 0, "Solid shading is studio grey");
+    let preview = ViewOptions { show_grid: false, shading: shape_gpu::ShadingMode::MaterialPreview, ..Default::default() };
+    let px = render(&scene, &cam, &preview, 320, 240).unwrap();
+    assert!(reddish(&px) > 1000, "Material Preview samples the texture: {} red px", reddish(&px));
+}
+
+#[test]
+fn material_preview_colours_untextured_materials() {
+    let mut scene = Scene::new("t");
+    let gold = scene.add_material(shape_scene::Material { base_color: [1.0, 0.2, 0.2, 1.0], metallic: 0.0, roughness: 0.5, ..Default::default() });
+    scene.add_mesh_object("Sphere", primitives::uv_sphere(1.0, 32, 16), Some(gold));
+    scene.add_object(shape_scene::Object::new("Sun", shape_scene::ObjectData::Light(shape_scene::Light::sun(3.0))));
+    let cam = OrbitCamera { yaw: 0.0, pitch: 0.3, distance: 5.0, ..Default::default() };
+    let preview = ViewOptions { show_grid: false, shading: shape_gpu::ShadingMode::MaterialPreview, ..Default::default() };
+    let Some(px) = render(&scene, &cam, &preview, 320, 240) else { return };
+    let reddish = px.iter().filter(|p| p[0] > p[1] + 40 && p[0] > p[2] + 40).count();
+    assert!(reddish > 500, "material colour shows under the sun: {reddish}");
+}

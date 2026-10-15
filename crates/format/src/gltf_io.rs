@@ -24,6 +24,7 @@ pub fn load(path: &Path) -> Result<Scene> {
                 metallic: pbr.metallic_factor(),
                 roughness: pbr.roughness_factor(),
                 emissive: e,
+                base_color_texture: None,
             })
         })
         .collect();

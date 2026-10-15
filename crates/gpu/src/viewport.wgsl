@@ -23,14 +23,17 @@ struct Globals {
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
+@group(1) @binding(0) var base_tex: texture_2d<f32>;
+@group(1) @binding(1) var base_samp: sampler;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec4<f32>,
-    // x metallic, y roughness, zw unused
+    // x metallic, y roughness, z textured flag
     @location(3) material: vec4<f32>,
     @location(4) emissive: vec4<f32>,
+    @location(5) uv: vec2<f32>,
 };
 
 struct VertexOut {
@@ -40,6 +43,7 @@ struct VertexOut {
     @location(2) world: vec3<f32>,
     @location(3) material: vec4<f32>,
     @location(4) emissive: vec4<f32>,
+    @location(5) uv: vec2<f32>,
 };
 
 @vertex
@@ -51,6 +55,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.world = in.position;
     out.material = in.material;
     out.emissive = in.emissive;
+    out.uv = in.uv;
     return out;
 }
 
@@ -62,7 +67,11 @@ fn fs_solid(in: VertexOut) -> @location(0) vec4<f32> {
     let v = normalize(globals.camera.xyz - in.world);
     let metallic = clamp(in.material.x, 0.0, 1.0);
     let roughness = clamp(in.material.y, 0.02, 1.0);
-    let base = in.color.rgb;
+    var base = in.color.rgb;
+    if (in.material.z > 0.5) {
+        // The texture is sRGB-decoded by the sampler; v = 0 is the bottom row.
+        base = base * textureSample(base_tex, base_samp, vec2<f32>(in.uv.x, 1.0 - in.uv.y)).rgb;
+    }
     let diffuse_color = base * (1.0 - metallic * 0.85);
     let spec_color = mix(vec3<f32>(0.04), base, metallic);
     let shininess = mix(256.0, 4.0, roughness);

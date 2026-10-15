@@ -10,10 +10,29 @@ use std::borrow::Cow;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ShadingMode {
     Wireframe,
+    /// Blender's Solid: one studio grey for every surface, no materials.
     #[default]
     Solid,
     /// Solid with every edge drawn on top.
     SolidWire,
+    /// Blender's Material Preview: materials, image textures and the scene's lights.
+    MaterialPreview,
+}
+
+impl ShadingMode {
+    pub const ALL: [ShadingMode; 4] = [ShadingMode::Wireframe, ShadingMode::Solid, ShadingMode::SolidWire, ShadingMode::MaterialPreview];
+    pub fn name(self) -> &'static str {
+        match self {
+            ShadingMode::Wireframe => "Wireframe",
+            ShadingMode::Solid => "Solid",
+            ShadingMode::SolidWire => "Solid + Wireframe",
+            ShadingMode::MaterialPreview => "Material Preview",
+        }
+    }
+    /// Surfaces take their material colour (else Blender's solid grey).
+    pub fn uses_materials(self) -> bool {
+        self == ShadingMode::MaterialPreview
+    }
 }
 
 const GRID_HALF: i32 = 20;
@@ -82,23 +101,43 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
         let mesh = mesh.as_ref();
         let editing = scene.edit.as_ref().filter(|e| e.object == id);
         let material = match &object.data {
-            ObjectData::Mesh { material: Some(m), .. } => scene.material(*m),
+            ObjectData::Mesh { material: Some(m), .. } if options.shading.uses_materials() => scene.material(*m),
             _ => None,
         };
         let base = material.map(|m| m.base_color).unwrap_or(DEFAULT_SURFACE);
         let (metallic, roughness, emissive) = material.map(|m| (m.metallic, m.roughness, m.emissive)).unwrap_or((0.0, 0.5, [0.0; 3]));
+        // Image texture: only with UVs on the base mesh (modifiers drop them), in Material Preview.
+        let uvs = match (&object.data, material.and_then(|m| m.base_color_texture)) {
+            (ObjectData::Mesh { mesh: mid, modifiers, .. }, Some(tex)) if modifiers.iter().all(|m| !m.enabled()) => {
+                scene.mesh(*mid).and_then(|d| d.uvs.as_ref()).filter(|u| u.len() == mesh.face_count()).map(|u| (tex, u))
+            }
+            _ => None,
+        };
         let positions: Vec<Vec3> = mesh.positions().map(|p| world.transform_point(p)).collect();
         let active = scene.selection.active == Some(id);
 
         if options.shading != ShadingMode::Wireframe {
+            let mut textured_tris: Vec<Vertex> = Vec::new();
             for f in mesh.face_ids() {
                 let vs: Vec<usize> = mesh.face_vertices(f).map(|v| v.index()).collect();
                 let n = world.transform_vector(mesh.face_normal(f)).normalize_or_zero();
-                let color = if editing.is_some_and(|e| e.faces.contains(&f)) { SELECTED_FACE } else { base };
+                let selected_face = editing.is_some_and(|e| e.faces.contains(&f));
+                let color = if selected_face { SELECTED_FACE } else { base };
+                let face_uv = uvs.as_ref().map(|(_, u)| &u[f.index()]).filter(|u| u.len() == vs.len() && !selected_face);
                 for i in 1..vs.len() - 1 {
-                    for &k in &[vs[0], vs[i], vs[i + 1]] {
-                        out.triangles.push(Vertex::new(positions[k], n, color).with_material(metallic, roughness, emissive));
+                    for &c in &[0, i, i + 1] {
+                        let v = Vertex::new(positions[vs[c]], n, color).with_material(metallic, roughness, emissive);
+                        match face_uv {
+                            Some(u) => textured_tris.push(v.with_uv(u[c])),
+                            None => out.triangles.push(v),
+                        }
                     }
+                }
+            }
+            if let (Some((tex, _)), false) = (&uvs, textured_tris.is_empty()) {
+                match out.textured.iter_mut().find(|(t, _)| t == tex) {
+                    Some((_, list)) => list.extend(textured_tris),
+                    None => out.textured.push((*tex, textured_tris)),
                 }
             }
         }

@@ -26,7 +26,9 @@ pub use object_mode::SetOrigin;
 pub use render_panel::RenderPanel;
 pub use shape_agent::ControlServer;
 use shape_geom::primitives;
+pub use shape_gpu::ShadingMode;
 use shape_math::{Transform, Vec2};
+pub use shape_ops;
 use shape_scene::{EditSelection, Modifier, ObjectId, Scene};
 use shape_undo::{History, Snapshot};
 use std::path::PathBuf;
@@ -428,7 +430,8 @@ impl ShapeApp {
 
     pub fn open(&mut self, path: PathBuf) {
         match shape_format::import(&path) {
-            Ok(scene) => {
+            Ok(mut scene) => {
+                scene.reload_textures();
                 self.scene = scene;
                 self.history.clear();
                 self.modal = None;

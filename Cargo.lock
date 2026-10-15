@@ -2662,6 +2662,7 @@ dependencies = [
 name = "shape-scene"
 version = "0.3.0"
 dependencies = [
+ "image",
  "serde",
  "shape-geom",
  "shape-math",

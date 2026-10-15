@@ -139,7 +139,7 @@ impl ShapeApp {
 
     pub(crate) fn view_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("View", |ui| {
-            for (mode, label) in [(ShadingMode::Wireframe, "Wireframe"), (ShadingMode::Solid, "Solid"), (ShadingMode::SolidWire, "Solid + Wire")] {
+            for (mode, label) in ShadingMode::ALL.map(|m| (m, m.name())) {
                 if ui.radio(self.viewport.options.shading == mode, label).clicked() {
                     self.viewport.options.shading = mode;
                 }
@@ -264,6 +264,30 @@ impl ShapeApp {
         ui.horizontal(|ui| {
             ui.add(egui::DragValue::new(&mut m.metallic).speed(0.01).range(0.0..=1.0).prefix("metallic "));
             ui.add(egui::DragValue::new(&mut m.roughness).speed(0.01).range(0.0..=1.0).prefix("roughness "));
+        });
+        // Base Color image texture (Blender: Image Texture node into Base Color). Needs UVs on the mesh.
+        ui.horizontal(|ui| {
+            ui.label("Image");
+            let current = m.base_color_texture.and_then(|t| self.scene.texture(t)).map(|t| t.name.clone()).unwrap_or("none".into());
+            ui.label(RichText::new(current).weak());
+            if ui.button("Open…").clicked()
+                && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg"]).pick_file()
+            {
+                match shape_scene::Texture::load(&path) {
+                    Ok(tex) => {
+                        let tid = self.scene.add_texture(tex);
+                        m.base_color_texture = Some(tid);
+                        if self.scene.object_mesh(id).is_some_and(|(mid, _)| self.scene.mesh(mid).is_none_or(|d| d.uvs.is_none())) {
+                            self.generate_uvs("UV Box", shape_ops::uv_box);
+                            self.status = "Image texture set; box UVs generated (Data > UV Maps to change)".into();
+                        }
+                    }
+                    Err(e) => self.status = format!("Image failed: {e}"),
+                }
+            }
+            if m.base_color_texture.is_some() && ui.button("✕").clicked() {
+                m.base_color_texture = None;
+            }
         });
         if m != original {
             if self.property_before.is_none() {

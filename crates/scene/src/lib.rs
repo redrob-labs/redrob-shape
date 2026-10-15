@@ -28,6 +28,79 @@ id!(ObjectId);
 id!(MeshId);
 id!(MaterialId);
 id!(CollectionId);
+id!(TextureId);
+
+/// An image texture: the file it came from and its pixels (linear RGBA floats, decoded from the
+/// 8-bit sRGB file). Pixels are not saved with the scene; they reload from `path` on open.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Texture {
+    pub name: String,
+    pub path: String,
+    #[serde(skip)]
+    pub width: u32,
+    #[serde(skip)]
+    pub height: u32,
+    #[serde(skip)]
+    pub rgba: Vec<[f32; 4]>,
+}
+
+impl Texture {
+    /// Decode a PNG or JPEG file.
+    pub fn load(path: &std::path::Path) -> std::result::Result<Self, String> {
+        let img = image::open(path).map_err(|e| e.to_string())?.to_rgba8();
+        let (width, height) = img.dimensions();
+        let srgb = |c: u8| {
+            let c = c as f32 / 255.0;
+            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        };
+        let rgba = img.pixels().map(|p| [srgb(p[0]), srgb(p[1]), srgb(p[2]), p[3] as f32 / 255.0]).collect();
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or("Image".into());
+        Ok(Self { name, path: path.to_string_lossy().into_owned(), width, height, rgba })
+    }
+
+    /// A texture from pixels already in memory (tests, generated images).
+    pub fn from_rgba(name: impl Into<String>, width: u32, height: u32, rgba: Vec<[f32; 4]>) -> Self {
+        Self { name: name.into(), path: String::new(), width, height, rgba }
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        !self.rgba.is_empty() && self.width > 0 && self.height > 0
+    }
+
+    /// Reload the pixels from `path` (after a scene was opened).
+    pub fn reload(&mut self) {
+        if self.is_loaded() || self.path.is_empty() {
+            return;
+        }
+        if let Ok(t) = Self::load(std::path::Path::new(&self.path)) {
+            self.width = t.width;
+            self.height = t.height;
+            self.rgba = t.rgba;
+        }
+    }
+
+    /// Nearest-texel sample with wrap-around, v up (0 at the bottom row). White when not loaded.
+    pub fn sample(&self, uv: Vec2) -> [f32; 4] {
+        if !self.is_loaded() {
+            return [1.0; 4];
+        }
+        let u = uv.x.rem_euclid(1.0);
+        let v = (1.0 - uv.y).rem_euclid(1.0);
+        let x = ((u * self.width as f32) as u32).min(self.width - 1);
+        let y = ((v * self.height as f32) as u32).min(self.height - 1);
+        self.rgba[(y * self.width + x) as usize]
+    }
+
+    /// 8-bit sRGB pixels for the GPU (row-major, top row first).
+    pub fn to_srgb8(&self) -> Vec<u8> {
+        let enc = |c: f32| {
+            let c = c.clamp(0.0, 1.0);
+            let s = if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+            (s * 255.0 + 0.5) as u8
+        };
+        self.rgba.iter().flat_map(|p| [enc(p[0]), enc(p[1]), enc(p[2]), (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8]).collect()
+    }
+}
 
 /// A Blender collection: a named group in the outliner with its own visibility. Objects not in
 /// any collection sit directly in the Scene Collection.
@@ -47,11 +120,21 @@ pub struct Material {
     pub roughness: f32,
     /// Linear RGB, added to the shaded colour.
     pub emissive: [f32; 3],
+    /// Image multiplied into the base colour, sampled by the mesh's UVs.
+    #[serde(default)]
+    pub base_color_texture: Option<TextureId>,
 }
 
 impl Default for Material {
     fn default() -> Self {
-        Self { name: "Material".into(), base_color: [0.8, 0.8, 0.8, 1.0], metallic: 0.0, roughness: 0.5, emissive: [0.0; 3] }
+        Self {
+            name: "Material".into(),
+            base_color: [0.8, 0.8, 0.8, 1.0],
+            metallic: 0.0,
+            roughness: 0.5,
+            emissive: [0.0; 3],
+            base_color_texture: None,
+        }
     }
 }
 
@@ -496,6 +579,8 @@ pub struct Scene {
     objects: Vec<Option<Object>>,
     meshes: Vec<Option<MeshData>>,
     materials: Vec<Option<Material>>,
+    #[serde(default)]
+    textures: Vec<Option<Texture>>,
     pub selection: Selection,
     /// `Some` while in edit mode. Not saved: a file always opens in object mode.
     #[serde(skip)]
@@ -719,6 +804,25 @@ impl Scene {
         self.materials.iter().enumerate().filter_map(|(i, m)| m.as_ref().map(|m| (MaterialId(i as u32), m)))
     }
 
+    // ---- textures ----
+
+    pub fn add_texture(&mut self, texture: Texture) -> TextureId {
+        self.textures.push(Some(texture));
+        TextureId(self.textures.len() as u32 - 1)
+    }
+    pub fn texture(&self, id: TextureId) -> Option<&Texture> {
+        self.textures.get(id.index()).and_then(Option::as_ref)
+    }
+    pub fn textures(&self) -> impl Iterator<Item = (TextureId, &Texture)> {
+        self.textures.iter().enumerate().filter_map(|(i, t)| t.as_ref().map(|t| (TextureId(i as u32), t)))
+    }
+    /// Reload every texture's pixels from disk (after opening a scene file).
+    pub fn reload_textures(&mut self) {
+        for t in self.textures.iter_mut().flatten() {
+            t.reload();
+        }
+    }
+
     /// Centre of the selection's world bounds, or the origin.
     pub fn selection_center(&self) -> Vec3 {
         let mut b = Aabb::EMPTY;
@@ -801,5 +905,22 @@ mod tests {
         assert_eq!(s.prune_meshes(), 1);
         assert_eq!(s.meshes().count(), 1);
         assert!(s.object_mesh(o).is_some());
+    }
+}
+
+#[cfg(test)]
+mod texture_tests {
+    use super::*;
+
+    #[test]
+    fn texture_samples_wrap_and_flip_v() {
+        let t = Texture::from_rgba("t", 2, 2, vec![[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0]]);
+        // Row 0 of the data is the TOP of the image; v = 0 is the bottom row.
+        assert_eq!(t.sample(Vec2::new(0.25, 0.25)), [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(t.sample(Vec2::new(0.75, 0.25)), [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(t.sample(Vec2::new(0.25, 0.75)), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(t.sample(Vec2::new(1.25, 0.75)), [1.0, 0.0, 0.0, 1.0], "wraps");
+        assert_eq!(t.to_srgb8()[..4], [255, 0, 0, 255]);
+        assert_eq!(Texture::from_rgba("e", 0, 0, vec![]).sample(Vec2::ZERO), [1.0; 4], "unloaded samples white");
     }
 }
