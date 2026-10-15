@@ -4,6 +4,8 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-15
+
 ### Added
 - Windows: a branded setup (`redrob-shape-<version>-windows-<arch>-setup.exe`) next to the
   portable zip. Pure Rust (Win32 + GDI, `apps/redrob-shape-setup`), per-user with no
