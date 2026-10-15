@@ -277,6 +277,7 @@ impl ShapeApp {
                     Ok(tex) => {
                         let tid = self.scene.add_texture(tex);
                         m.base_color_texture = Some(tid);
+                        m.set_image_texture(Some(tid));
                         if self.scene.object_mesh(id).is_some_and(|(mid, _)| self.scene.mesh(mid).is_none_or(|d| d.uvs.is_none())) {
                             self.generate_uvs("UV Box", shape_ops::uv_box);
                             self.status = "Image texture set; box UVs generated (Data > UV Maps to change)".into();
@@ -287,9 +288,26 @@ impl ShapeApp {
             }
             if m.base_color_texture.is_some() && ui.button("✕").clicked() {
                 m.base_color_texture = None;
+                m.set_image_texture(None);
+            }
+        });
+        ui.horizontal(|ui| {
+            if m.nodes.is_none() {
+                if ui.button("Use Nodes").clicked() {
+                    m.nodes = Some(shape_scene::NodeTree::from_material(&m));
+                    self.set_workspace(crate::layout::Workspace::Shading);
+                }
+            } else {
+                ui.label(RichText::new("Nodes: edit in the Shading workspace").weak());
             }
         });
         if m != original {
+            // With nodes, the panel writes the BSDF's constants; linked inputs stay node-driven.
+            if let Some(mut t) = m.nodes.take() {
+                t.set_from_material(&m);
+                m.nodes = Some(t);
+                m.apply_nodes();
+            }
             if self.property_before.is_none() {
                 self.property_before = Some(self.scene.clone());
             }

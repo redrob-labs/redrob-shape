@@ -21,6 +21,7 @@ pub use agent::{AgentFactory, AgentPanel};
 pub use edit_mode::EditDelete;
 pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
+pub mod node_editor;
 pub use layout::{PropsTab, Regions, Workspace};
 pub use object_mode::SetOrigin;
 pub use render_panel::RenderPanel;
@@ -53,6 +54,8 @@ pub struct ShapeApp {
     file: Option<PathBuf>,
     /// Scene before the property drag in progress, turned into one undo step on release.
     property_before: Option<Scene>,
+    pub(crate) node_editor: node_editor::NodeEditor,
+    node_editor_origin: egui::Vec2,
     /// Pointer over the viewport last frame, in viewport pixels.
     last_pointer: Option<Vec2>,
     pub agent: AgentPanel,
@@ -140,6 +143,8 @@ impl ShapeApp {
             status: String::new(),
             file: None,
             property_before: None,
+            node_editor: Default::default(),
+            node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
             agent: AgentPanel::new(None),
             control: None,
@@ -691,8 +696,12 @@ impl ShapeApp {
             self.popup_pos = None;
         }
         let (enter, escape) = self.modal_keys(ui);
-        self.hotkeys(ui);
-        if self.popup.is_none() {
+        // Blender sends keys to the editor under the pointer: the Shader Editor takes its own.
+        let over_nodes = self.node_editor.hovered && self.modal.is_none();
+        if !over_nodes {
+            self.hotkeys(ui);
+        }
+        if self.popup.is_none() && !over_nodes {
             self.object_keys(ui);
             self.edit_keys(ui);
             self.edit_tool_keys(ui);
@@ -706,7 +715,12 @@ impl ShapeApp {
         if self.regions.right_column && !self.regions.maximized {
             self.right_column(ui);
         }
-        if self.regions.agent && !self.regions.maximized {
+        if self.regions.workspace == layout::Workspace::Shading && !self.regions.maximized {
+            self.node_editor_panel(ui);
+        } else {
+            self.node_editor.hovered = false;
+        }
+        if self.regions.workspace != layout::Workspace::Shading && self.regions.agent && !self.regions.maximized {
             egui::Panel::bottom("agent")
                 .default_size(200.0)
                 .resizable(true)
@@ -866,6 +880,44 @@ mod tests {
         harness.get_by_label("Item");
         drop(harness);
         assert!(!app.regions.toolbar && app.regions.sidebar && app.regions.maximized);
+    }
+
+    #[test]
+    fn shading_workspace_shows_the_shader_editor_and_use_nodes() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        let mat = app.scene.add_material(shape_scene::Material { base_color: [0.1, 0.2, 0.3, 1.0], ..Default::default() });
+        if let Some(shape_scene::ObjectData::Mesh { material, .. }) = app.scene.object_mut(a).map(|o| &mut o.data) {
+            *material = Some(mat);
+        }
+        app.scene.selection.set(a);
+        app.set_workspace(layout::Workspace::Shading);
+        assert_eq!(app.viewport.options.shading, ShadingMode::MaterialPreview, "Shading workspace previews materials");
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Shader Editor");
+        harness.get_by_label("Use Nodes").click();
+        harness.run();
+        harness.run();
+        drop(harness);
+        assert_eq!(app.status, "Use Nodes");
+        let m = app.scene.material(mat).unwrap();
+        let tree = m.nodes.as_ref().expect("Use Nodes made a tree");
+        assert_eq!(tree.nodes.len(), 2);
+        assert!(tree.surface_bsdf().is_some());
+        assert_eq!(m.base_color, [0.1, 0.2, 0.3, 1.0], "the flat colour survives evaluation");
+        // Shift+A over the editor offers the node categories; Escape closes.
+        app.node_editor.add_menu = Some(egui::pos2(300.0, 500.0));
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Principled BSDF");
+        harness.get_by_label("Image Texture").click();
+        harness.run();
+        harness.run();
+        drop(harness);
+        let tree = app.scene.material(mat).unwrap().nodes.as_ref().unwrap();
+        assert_eq!(tree.nodes.len(), 3, "a node was added at the pointer");
+        assert!(app.history.can_undo());
     }
 
     #[test]

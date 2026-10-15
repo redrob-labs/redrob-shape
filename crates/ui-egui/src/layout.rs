@@ -69,15 +69,17 @@ impl PropsTab {
 pub enum Workspace {
     Layout,
     Modeling,
+    Shading,
     Rendering,
 }
 
 impl Workspace {
-    pub const ALL: [Workspace; 3] = [Workspace::Layout, Workspace::Modeling, Workspace::Rendering];
+    pub const ALL: [Workspace; 4] = [Workspace::Layout, Workspace::Modeling, Workspace::Shading, Workspace::Rendering];
     pub fn name(self) -> &'static str {
         match self {
             Workspace::Layout => "Layout",
             Workspace::Modeling => "Modeling",
+            Workspace::Shading => "Shading",
             Workspace::Rendering => "Rendering",
         }
     }
@@ -131,8 +133,8 @@ impl ShapeApp {
         });
     }
 
-    /// Switch workspace: Modeling enters edit mode on the active mesh, Layout leaves it, Rendering
-    /// opens the Render window.
+    /// Switch workspace: Modeling enters edit mode on the active mesh, Layout leaves it, Shading
+    /// shows the Shader Editor below a Material Preview viewport, Rendering opens the Render window.
     pub fn set_workspace(&mut self, w: Workspace) {
         self.regions.workspace = w;
         match w {
@@ -145,6 +147,12 @@ impl ShapeApp {
                 if self.scene.edit.is_none() {
                     self.toggle_edit_mode();
                 }
+            }
+            Workspace::Shading => {
+                if self.scene.edit.is_some() {
+                    self.toggle_edit_mode();
+                }
+                self.viewport.options.shading = shape_gpu::ShadingMode::MaterialPreview;
             }
             Workspace::Rendering => self.render.open = true,
         }

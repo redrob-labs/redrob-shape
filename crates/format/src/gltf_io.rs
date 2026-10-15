@@ -25,6 +25,7 @@ pub fn load(path: &Path) -> Result<Scene> {
                 roughness: pbr.roughness_factor(),
                 emissive: e,
                 base_color_texture: None,
+                nodes: None,
             })
         })
         .collect();

@@ -32,6 +32,9 @@ id!(TextureId);
 
 /// An image texture: the file it came from and its pixels (linear RGBA floats, decoded from the
 /// 8-bit sRGB file). Pixels are not saved with the scene; they reload from `path` on open.
+pub mod nodes;
+pub use nodes::{NodeKind, NodeTree};
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Texture {
     pub name: String,
@@ -123,6 +126,9 @@ pub struct Material {
     /// Image multiplied into the base colour, sampled by the mesh's UVs.
     #[serde(default)]
     pub base_color_texture: Option<TextureId>,
+    /// Shader node tree ("Use Nodes"); evaluated into the fields above after each edit.
+    #[serde(default)]
+    pub nodes: Option<nodes::NodeTree>,
 }
 
 impl Default for Material {
@@ -134,6 +140,7 @@ impl Default for Material {
             roughness: 0.5,
             emissive: [0.0; 3],
             base_color_texture: None,
+            nodes: None,
         }
     }
 }

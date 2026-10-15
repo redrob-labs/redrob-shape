@@ -37,6 +37,14 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   generated when the mesh has none) that the viewport samples through the mesh UVs and the path
   tracer samples at the hit. Textures reload from their path when a scene is opened. The agent's
   `set_material` takes a `texture` path; `--shading wire|solid|material` picks the start mode.
+- Shader Editor in the new Shading workspace tab (Material Preview viewport above, node canvas
+  below): Use Nodes builds a Principled BSDF into a Material Output from the flat material; nodes
+  Principled BSDF, Image Texture, Mix Color, RGB and Value; drag headers to move, drag from an
+  output socket onto an input to link (same type only, no cycles; dragging off a linked input picks
+  the link up), Shift+A or right-click adds at the pointer, X / Delete removes, Home frames, middle
+  drag or scroll pans. Every change evaluates the tree back into the material the viewport and the
+  path tracer read; the material panel's fields write the BSDF constants and its Image button
+  adds the Image Texture node. Node trees are saved with the material.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

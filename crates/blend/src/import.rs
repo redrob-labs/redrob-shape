@@ -51,6 +51,7 @@ pub fn import_file(file: &BlendFile, name: &str) -> Result<Scene> {
             roughness: v.f32("roughness").unwrap_or(0.5),
             emissive: [0.0; 3],
             base_color_texture: None,
+            nodes: None,
         };
         materials.insert(b.old, scene.add_material(m));
     }
