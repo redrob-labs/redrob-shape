@@ -82,15 +82,20 @@ impl ShapeApp {
             return;
         }
         let Some(pointer) = self.last_pointer else { return };
-        let [g, r, alt_g, alt_r, a] = ui.input_mut(|i| {
+        let [g, r, alt_g, alt_r, a, key_i] = ui.input_mut(|i| {
             [
                 crate::key(i, egui::Modifiers::NONE, egui::Key::G),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::R),
                 crate::key(i, egui::Modifiers::ALT, egui::Key::G),
                 crate::key(i, egui::Modifiers::ALT, egui::Key::R),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::A),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::I),
             ]
         });
+        if key_i {
+            self.popup = Some(crate::Popup::InsertKeyframe);
+            return;
+        }
         let Some(pose) = self.pose.clone() else { return };
         if pose.drag.is_some() {
             return;
@@ -208,11 +213,14 @@ impl ShapeApp {
                 let ab = b - a;
                 let tt = if ab.length_squared() < 1e-6 { 0.0 } else { ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) };
                 let d = (a + ab * tt).distance(p);
-                if d < 14.0 && best.is_none_or(|(_, bd)| d < bd) {
+                // The octahedron is about a tenth of the bone wide; accept clicks on its body.
+                let tolerance = (ab.length() * 0.12 + 6.0).max(14.0);
+                if d < tolerance && best.is_none_or(|(_, bd)| d < bd) {
                     best = Some((i, d));
                 }
             }
             let shift = input.shift;
+            let mut picked = None;
             if let Some(arm) = self.armature_mut(id) {
                 match best {
                     Some((i, _)) => {
@@ -223,6 +231,7 @@ impl ShapeApp {
                             arm.selected.push(i);
                         }
                         arm.active = Some(i);
+                        picked = arm.bones.get(i).map(|b| b.name.clone());
                     }
                     None if !shift => {
                         arm.selected.clear();
@@ -231,6 +240,10 @@ impl ShapeApp {
                     None => {}
                 }
             }
+            self.status = match picked {
+                Some(name) => format!("Bone: {name}"),
+                None => "No bone under the pointer".into(),
+            };
             return true;
         }
         // Other pointer input (orbit etc.) passes through to the camera; nothing else to do.

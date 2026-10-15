@@ -433,13 +433,27 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
-        let (mode, escape) =
-            ui.input_mut(|i| (crate::key(i, egui::Modifiers::COMMAND, egui::Key::Tab), crate::key(i, egui::Modifiers::NONE, egui::Key::Escape)));
+        let (mode, escape, tab) = ui.input_mut(|i| {
+            (
+                crate::key(i, egui::Modifiers::COMMAND, egui::Key::Tab),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::Escape),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::Tab),
+            )
+        });
         if mode {
             self.popup = Some(Popup::Mode);
         }
         if escape {
             self.popup = None;
+        }
+        if tab {
+            // Blender's Tab: Pose <-> Edit on an armature, Sculpt -> Edit on a mesh.
+            if self.pose.is_some() {
+                self.pose = None;
+                self.toggle_bone_edit_mode();
+            } else if self.sculpt.is_some() {
+                self.toggle_edit_mode();
+            }
         }
     }
 

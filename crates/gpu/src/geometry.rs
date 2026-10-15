@@ -270,7 +270,7 @@ fn armature_gizmo(lines: &mut Vec<Vertex>, world: &shape_math::Transform, arm: &
     const BONE: [f32; 4] = [0.62, 0.62, 0.65, 1.0];
     const BONE_SELECTED: [f32; 4] = [0.35, 0.55, 0.85, 1.0];
     const BONE_ACTIVE: [f32; 4] = [0.55, 0.75, 1.0, 1.0];
-    for (i, (head, tail)) in arm.posed_segments().into_iter().enumerate() {
+    for (i, (head, tail)) in arm.display_segments().into_iter().enumerate() {
         let c = if arm.active == Some(i) {
             BONE_ACTIVE
         } else if arm.selected.contains(&i) || (object_selected && arm.selected.is_empty()) {

@@ -101,6 +101,21 @@ impl ShapeApp {
     /// `I` menu action: key the selected objects on `set` at the current frame, as one undo step.
     pub fn insert_keyframes(&mut self, set: KeyingSet) {
         let frame = self.scene.timeline.frame;
+        if let Some(pose) = self.pose.clone() {
+            // Pose Mode: key the selected bones instead of the object.
+            let bones = match self.scene.object(pose.object).map(|o| &o.data) {
+                Some(shape_scene::ObjectData::Armature(a)) => a.selected.clone(),
+                _ => Vec::new(),
+            };
+            if bones.is_empty() {
+                self.status = "No bones selected to key".into();
+                return;
+            }
+            self.edit(&format!("Insert Keyframe ({})", set.name()), |scene| {
+                scene.insert_bone_keyframes(pose.object, &bones, frame, set);
+            });
+            return;
+        }
         let targets: Vec<_> = self.scene.selection.objects.iter().copied().collect();
         if targets.is_empty() {
             self.status = "Nothing selected to key".into();

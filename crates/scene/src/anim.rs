@@ -23,6 +23,10 @@ pub enum Channel {
     /// Euler XYZ, radians.
     Rotation(u8),
     Scale(u8),
+    /// A bone's pose location (bone index, axis) — Pose Mode keys.
+    BoneLocation(u16, u8),
+    /// A bone's pose rotation, Euler XYZ radians (bone index, axis).
+    BoneRotation(u16, u8),
 }
 
 impl Channel {
@@ -43,7 +47,22 @@ impl Channel {
             Channel::Location(a) => format!("{} Location", axis(a)),
             Channel::Rotation(a) => format!("{} Euler Rotation", axis(a)),
             Channel::Scale(a) => format!("{} Scale", axis(a)),
+            Channel::BoneLocation(b, a) => format!("Bone {b} {} Location", axis(a)),
+            Channel::BoneRotation(b, a) => format!("Bone {b} {} Rotation", axis(a)),
         }
+    }
+
+    /// Pose-mode channels for one bone.
+    pub fn bone_channels(bone: usize, set: KeyingSet) -> Vec<Channel> {
+        let b = bone as u16;
+        let mut out = Vec::new();
+        if matches!(set, KeyingSet::Location | KeyingSet::LocRot | KeyingSet::LocRotScale) {
+            out.extend((0..3).map(|a| Channel::BoneLocation(b, a)));
+        }
+        if matches!(set, KeyingSet::Rotation | KeyingSet::LocRot | KeyingSet::LocRotScale) {
+            out.extend((0..3).map(|a| Channel::BoneRotation(b, a)));
+        }
+        out
     }
 }
 
@@ -218,8 +237,32 @@ impl Scene {
                 Channel::Location(a) => t.translation[a as usize],
                 Channel::Rotation(a) => [euler.0, euler.1, euler.2][a as usize],
                 Channel::Scale(a) => t.scale[a as usize],
+                Channel::BoneLocation(..) | Channel::BoneRotation(..) => continue,
             };
             action.curve_mut(ch).insert(frame as f32, value);
+        }
+        true
+    }
+
+    /// Key the pose of `bones` of an armature object at `frame` (Pose Mode `I`).
+    pub fn insert_bone_keyframes(&mut self, id: ObjectId, bones: &[usize], frame: i32, set: KeyingSet) -> bool {
+        let Some(o) = self.object_mut(id) else { return false };
+        let crate::ObjectData::Armature(arm) = &o.data else { return false };
+        let poses: Vec<(usize, crate::Transform)> = bones.iter().filter_map(|&b| arm.bones.get(b).map(|bone| (b, bone.pose))).collect();
+        if poses.is_empty() {
+            return false;
+        }
+        let action = o.action.get_or_insert_with(Action::default);
+        for (b, t) in poses {
+            let euler = t.rotation.to_euler(glam_euler());
+            for ch in Channel::bone_channels(b, set) {
+                let value = match ch {
+                    Channel::BoneLocation(_, a) => t.translation[a as usize],
+                    Channel::BoneRotation(_, a) => [euler.0, euler.1, euler.2][a as usize],
+                    _ => continue,
+                };
+                action.curve_mut(ch).insert(frame as f32, value);
+            }
         }
         true
     }
@@ -244,6 +287,9 @@ impl Scene {
             let mut t = o.transform;
             let mut euler = t.rotation.to_euler(glam_euler());
             let mut rotated = false;
+            // Bone channels: gathered per bone, then written into the armature's poses.
+            let mut bone_loc: std::collections::BTreeMap<u16, [Option<f32>; 3]> = Default::default();
+            let mut bone_rot: std::collections::BTreeMap<u16, [Option<f32>; 3]> = Default::default();
             for c in &action.curves {
                 let Some(v) = c.evaluate(frame) else { continue };
                 match c.channel {
@@ -257,12 +303,40 @@ impl Scene {
                             _ => euler.2 = v,
                         }
                     }
+                    Channel::BoneLocation(b, a) => bone_loc.entry(b).or_default()[a as usize % 3] = Some(v),
+                    Channel::BoneRotation(b, a) => bone_rot.entry(b).or_default()[a as usize % 3] = Some(v),
                 }
             }
             if rotated {
                 t.rotation = Quat::from_euler(glam_euler(), euler.0, euler.1, euler.2);
             }
             o.transform = t;
+            if let crate::ObjectData::Armature(arm) = &mut o.data {
+                for (b, loc) in &bone_loc {
+                    if let Some(bone) = arm.bones.get_mut(*b as usize) {
+                        for (i, v) in loc.iter().enumerate() {
+                            if let Some(v) = v {
+                                bone.pose.translation[i] = *v;
+                            }
+                        }
+                    }
+                }
+                for (b, rot) in &bone_rot {
+                    if let Some(bone) = arm.bones.get_mut(*b as usize) {
+                        let mut e = bone.pose.rotation.to_euler(glam_euler());
+                        if let Some(v) = rot[0] {
+                            e.0 = v;
+                        }
+                        if let Some(v) = rot[1] {
+                            e.1 = v;
+                        }
+                        if let Some(v) = rot[2] {
+                            e.2 = v;
+                        }
+                        bone.pose.rotation = Quat::from_euler(glam_euler(), e.0, e.1, e.2);
+                    }
+                }
+            }
         }
     }
 
@@ -322,6 +396,25 @@ mod tests {
         p.insert(10.0, 5.0);
         p.insert(20.0, 0.0);
         assert!(p.evaluate(9.0).unwrap() <= 5.0 + 1e-5 && p.evaluate(11.0).unwrap() <= 5.0 + 1e-5);
+    }
+
+    #[test]
+    fn bone_keyframes_drive_the_pose() {
+        let mut s = Scene::new("a");
+        let mut arm = crate::Armature::single_bone();
+        arm.add_child(0, Vec3::new(0.0, 2.0, 0.0), "B1");
+        let id = s.add_object(Object::new("Arm", ObjectData::Armature(arm)));
+        assert!(s.insert_bone_keyframes(id, &[1], 1, KeyingSet::Rotation));
+        if let ObjectData::Armature(a) = &mut s.object_mut(id).unwrap().data {
+            a.bones[1].pose.rotation = Quat::from_rotation_z(1.0);
+        }
+        s.insert_bone_keyframes(id, &[1], 11, KeyingSet::Rotation);
+        assert_eq!(s.keyed_frames(id), vec![1.0, 11.0]);
+        s.evaluate_animation(6.0);
+        let ObjectData::Armature(a) = &s.object(id).unwrap().data else { panic!() };
+        let angle = a.bones[1].pose.rotation.to_euler(glam_euler()).2;
+        assert!((angle - 0.5).abs() < 1e-3, "halfway: {angle}");
+        assert_eq!(a.bones[0].pose.rotation, Quat::IDENTITY, "unkeyed bone untouched");
     }
 
     #[test]

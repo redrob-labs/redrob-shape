@@ -78,6 +78,12 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   Armature Deform / With Automatic Weights, which parent the meshes, fill vertex groups from bone
   distance and add an Armature modifier that skins the mesh by those weights. Vertex groups and
   poses are saved. Fix: the outliner panicked on parented objects (indent inside a row).
+- Rigging (part 2): Tab on an armature enters Armature Edit Mode (rest bones drawn): click picks,
+  E extrudes a child bone from the active tail and the pointer places it, G moves the selected
+  bones, X deletes (children re-parent), A selects all; Tab from Pose Mode goes to Edit Mode. In
+  Pose Mode, I keys the selected bones (bone location / rotation F-curves, shown in the Timeline)
+  and playback poses them. Bone picking accepts clicks on the bone body, not only its axis.
+  `SHAPE_TRACE_STATUS=1` echoes the status line to stderr for scripted testing.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

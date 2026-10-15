@@ -49,12 +49,15 @@ pub struct Armature {
     pub selected: Vec<usize>,
     #[serde(skip)]
     pub active: Option<usize>,
+    /// Edit Mode: draw the rest bones instead of the pose. Not saved.
+    #[serde(skip)]
+    pub edit_rest: bool,
 }
 
 impl Armature {
     /// Blender's default: one bone from the origin, one unit long, pointing up.
     pub fn single_bone() -> Self {
-        Self { bones: vec![Bone::new("Bone", Vec3::ZERO, Vec3::Y)], selected: Vec::new(), active: None }
+        Self { bones: vec![Bone::new("Bone", Vec3::ZERO, Vec3::Y)], selected: Vec::new(), active: None, edit_rest: false }
     }
 
     /// Add a bone as the child of `parent`, starting at the parent's tail.
@@ -99,6 +102,11 @@ impl Armature {
             }
         }
         out
+    }
+
+    /// What the viewport draws: rest bones in Edit Mode, posed bones otherwise.
+    pub fn display_segments(&self) -> Vec<(Vec3, Vec3)> {
+        if self.edit_rest { self.bones.iter().map(|b| (b.head, b.tail)).collect() } else { self.posed_segments() }
     }
 
     /// Head and tail of every bone in the current pose, armature space.

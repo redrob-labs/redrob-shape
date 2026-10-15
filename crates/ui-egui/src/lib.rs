@@ -21,6 +21,7 @@ pub use agent::{AgentFactory, AgentPanel};
 pub use edit_mode::EditDelete;
 pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
+pub mod bone_edit;
 pub mod node_editor;
 pub mod pose_mode;
 pub use pose_mode::ParentKind;
@@ -63,11 +64,14 @@ pub struct ShapeApp {
     pub(crate) node_editor: node_editor::NodeEditor,
     pub sculpt: Option<sculpt_mode::SculptMode>,
     pub pose: Option<pose_mode::PoseMode>,
+    pub bone_edit: Option<bone_edit::BoneEditMode>,
     /// Fractional frames carried between playback ticks.
     pub(crate) play_accum: f32,
     node_editor_origin: egui::Vec2,
     /// Pointer over the viewport last frame, in viewport pixels.
     last_pointer: Option<Vec2>,
+    /// Last status line echoed to stderr (`SHAPE_TRACE_STATUS=1`), for driving the app from scripts.
+    traced_status: String,
     pub agent: AgentPanel,
     /// Tool calls from the MCP server, run on the scene each frame.
     control: Option<ControlServer>,
@@ -156,9 +160,11 @@ impl ShapeApp {
             node_editor: Default::default(),
             sculpt: None,
             pose: None,
+            bone_edit: None,
             play_accum: 0.0,
             node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
+            traced_status: String::new(),
             agent: AgentPanel::new(None),
             control: None,
             regions: Regions::default(),
@@ -489,6 +495,10 @@ impl ShapeApp {
     pub fn toggle_edit_mode(&mut self) {
         self.sculpt = None;
         self.pose = None;
+        if self.bone_edit.is_some() || (self.scene.edit.is_none() && self.active_is_armature()) {
+            self.toggle_bone_edit_mode();
+            return;
+        }
         if self.scene.edit.is_some() {
             self.scene.edit = None;
             self.status = "Object Mode".into();
@@ -554,8 +564,8 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return (false, false);
         }
-        if self.sculpt.is_some() || self.pose.is_some() {
-            // Sculpt / Pose Mode own G / R / S / I / X etc.; only confirm / cancel pass.
+        if self.sculpt.is_some() || self.pose.is_some() || self.bone_edit.is_some() {
+            // Sculpt / Pose / Armature Edit Mode own G / R / S / E / I / X etc.; only confirm / cancel pass.
             return ui.input_mut(|inp| {
                 (crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter), crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape))
             });
@@ -715,6 +725,12 @@ impl ShapeApp {
     /// Draw one frame. Split out of `eframe::App::ui` so `egui_kittest` can drive it.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.drain_control();
+        if self.status != self.traced_status {
+            self.traced_status = self.status.clone();
+            if std::env::var_os("SHAPE_TRACE_STATUS").is_some() {
+                eprintln!("[status] {}", self.status);
+            }
+        }
         if self.popup.is_some() && ui.input_mut(|i| key(i, egui::Modifiers::NONE, egui::Key::Escape)) {
             self.popup = None;
             self.popup_pos = None;
@@ -732,6 +748,9 @@ impl ShapeApp {
             self.mode_keys(ui);
         } else if self.pose.is_some() && self.popup.is_none() && !over_nodes {
             self.pose_keys(ui);
+            self.mode_keys(ui);
+        } else if self.bone_edit.is_some() && self.popup.is_none() && !over_nodes {
+            self.bone_edit_keys(ui);
             self.mode_keys(ui);
         } else if self.popup.is_none() && !over_nodes {
             self.object_keys(ui);
@@ -791,7 +810,8 @@ impl ShapeApp {
         }
         if self.popup.is_some() {
             self.popup_ui(ui);
-        } else if self.pose_input(&input, enter, escape)
+        } else if self.bone_edit_input(&input, enter, escape)
+            || self.pose_input(&input, enter, escape)
             || self.sculpt_input(&input, enter, escape)
             || self.circle_select_input(&input, escape)
             || self.knife_input(&input, escape)

@@ -150,3 +150,27 @@ fn solid_shading_popover_options_change_the_pixels() {
     let c = 60 * 160 + 80;
     assert!(xray[c][0] < studio[c][0], "x-ray {:?} opaque {:?}", xray[c], studio[c]);
 }
+
+#[test]
+fn project_agrees_with_the_rendered_image() {
+    let mut scene = Scene::new("t");
+    let id = scene.add_mesh_object("Cube", primitives::cube(0.6), None);
+    scene.object_mut(id).unwrap().transform = shape_math::Transform::from_translation(shape_math::Vec3::new(2.0, 0.0, 0.0));
+    let cam = OrbitCamera { yaw: 0.7, pitch: 0.4, distance: 8.0, ..Default::default() };
+    let opts = ViewOptions { show_grid: false, ..Default::default() };
+    let (w, h) = (320u32, 240u32);
+    let Some(px) = render(&scene, &cam, &opts, w, h) else { return };
+    let bg = px[0];
+    let (mut sx, mut sy, mut n) = (0.0, 0.0, 0usize);
+    for (i, p) in px.iter().enumerate() {
+        if (p[0] as i32 - bg[0] as i32).abs() > 20 || (p[1] as i32 - bg[1] as i32).abs() > 20 {
+            sx += (i as u32 % w) as f32;
+            sy += (i as u32 / w) as f32;
+            n += 1;
+        }
+    }
+    assert!(n > 50);
+    let centroid = shape_math::Vec2::new(sx / n as f32, sy / n as f32);
+    let projected = cam.project(shape_math::Vec3::new(2.0, 0.0, 0.0), shape_math::Vec2::new(w as f32, h as f32)).unwrap();
+    assert!(centroid.distance(projected) < 6.0, "render {centroid} vs project {projected}");
+}
