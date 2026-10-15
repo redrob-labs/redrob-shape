@@ -356,7 +356,7 @@ fn object_json(scene: &Scene, id: ObjectId) -> Value {
     let mut v = json!({
         "id": id.0,
         "name": o.name,
-        "type": match o.data { ObjectData::Mesh { .. } => "mesh", ObjectData::Light(_) => "light", ObjectData::Camera(_) => "camera", ObjectData::Empty => "empty", ObjectData::Armature(_) => "armature", ObjectData::Curve(_) => "curve" },
+        "type": match o.data { ObjectData::Mesh { .. } => "mesh", ObjectData::Light(_) => "light", ObjectData::Camera(_) => "camera", ObjectData::Empty => "empty", ObjectData::Armature(_) => "armature", ObjectData::Curve(_) => "curve", ObjectData::Text { .. } => "text", ObjectData::Metaball { .. } => "metaball" },
         "location": o.transform.translation.to_array(),
         "rotation_deg": [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()],
         "scale": o.transform.scale.to_array(),
@@ -381,6 +381,12 @@ fn object_json(scene: &Scene, id: ObjectId) -> Value {
         ObjectData::Empty => {}
         ObjectData::Armature(a) => {
             obj.insert("armature".into(), json!({"bones": a.bones.iter().map(|b| b.name.clone()).collect::<Vec<_>>()}));
+        }
+        ObjectData::Text { text, .. } => {
+            obj.insert("text".into(), json!({"body": text.body, "size": text.size, "extrude": text.extrude}));
+        }
+        ObjectData::Metaball { meta, .. } => {
+            obj.insert("metaball".into(), json!({"elements": meta.elements.len(), "threshold": meta.threshold}));
         }
         ObjectData::Curve(c) => {
             obj.insert(

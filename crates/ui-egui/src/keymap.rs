@@ -22,6 +22,9 @@ pub enum Op {
     AddArmature,
     AddBezier,
     AddCircleCurve,
+    AddText,
+    AddMetaball,
+    AddImagePlane,
     Delete,
     Duplicate,
     Hide,
@@ -67,6 +70,9 @@ impl Op {
         Op::AddArmature,
         Op::AddBezier,
         Op::AddCircleCurve,
+        Op::AddText,
+        Op::AddMetaball,
+        Op::AddImagePlane,
         Op::Delete,
         Op::Duplicate,
         Op::Hide,
@@ -117,6 +123,9 @@ impl Op {
             Op::AddArmature => "Add > Armature".into(),
             Op::AddBezier => "Add > Curve > Bezier".into(),
             Op::AddCircleCurve => "Add > Curve > Circle".into(),
+            Op::AddText => "Add > Text".into(),
+            Op::AddMetaball => "Add > Metaball > Ball".into(),
+            Op::AddImagePlane => "Add > Image > Image as Plane".into(),
             Op::Delete => "Object > Delete".into(),
             Op::Duplicate => "Object > Duplicate Objects".into(),
             Op::Hide => "Object > Show/Hide > Hide Selected".into(),
@@ -162,7 +171,10 @@ impl Op {
             | Op::AddEmpty
             | Op::AddArmature
             | Op::AddBezier
-            | Op::AddCircleCurve => "Shift+A",
+            | Op::AddCircleCurve
+            | Op::AddText
+            | Op::AddMetaball
+            | Op::AddImagePlane => "Shift+A",
             Op::Delete => "X / Delete",
             Op::Duplicate => "Shift+D",
             Op::Hide => "H",
@@ -272,6 +284,17 @@ impl ShapeApp {
             }
             Op::AddCircleCurve => {
                 self.add_curve(shape_scene::Curve::circle(1.0), "BezierCircle");
+            }
+            Op::AddText => {
+                self.add_text();
+            }
+            Op::AddMetaball => {
+                self.add_metaball();
+            }
+            Op::AddImagePlane => {
+                if let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg"]).pick_file() {
+                    self.add_image_plane(&path);
+                }
             }
             Op::Delete => self.delete_selected(),
             Op::Duplicate => self.duplicate_selected(),
@@ -596,6 +619,12 @@ impl ShapeApp {
                         ui.separator();
                         ui.label(RichText::new("Curve").color(crate::theme::TEXT_WEAK));
                         for (op, label) in [(Op::AddBezier, "Bezier"), (Op::AddCircleCurve, "Circle")] {
+                            if ui.button(label).clicked() {
+                                run = Some(op);
+                            }
+                        }
+                        ui.separator();
+                        for (op, label) in [(Op::AddText, "Text"), (Op::AddMetaball, "Metaball"), (Op::AddImagePlane, "Image as Plane…")] {
                             if ui.button(label).clicked() {
                                 run = Some(op);
                             }

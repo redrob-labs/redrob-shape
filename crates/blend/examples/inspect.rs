@@ -22,6 +22,8 @@ fn main() {
             shape_scene::ObjectData::Empty => "empty".into(),
             shape_scene::ObjectData::Armature(a) => format!("armature {} bones", a.bones.len()),
             shape_scene::ObjectData::Curve(c) => format!("curve {} splines", c.splines.len()),
+            shape_scene::ObjectData::Text { text, .. } => format!("text {:?}", text.body),
+            shape_scene::ObjectData::Metaball { meta, .. } => format!("metaball {} elements", meta.elements.len()),
         };
         println!("{:<24} at {:?}  {}", o.name, o.transform.translation, kind);
     }

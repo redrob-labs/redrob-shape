@@ -413,6 +413,52 @@ pub enum ObjectData {
     Camera(Camera),
     Armature(armature::Armature),
     Curve(curve::Curve),
+    /// Text set in the bundled font; `mesh` caches the generated geometry.
+    Text {
+        text: TextData,
+        mesh: MeshId,
+    },
+    /// Metaball elements; `mesh` caches the polygonised blob.
+    Metaball {
+        meta: MetaballData,
+        mesh: MeshId,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextData {
+    pub body: String,
+    /// World units per em.
+    pub size: f32,
+    /// Depth of the solid, both ways (0 = flat).
+    pub extrude: f32,
+}
+
+impl Default for TextData {
+    fn default() -> Self {
+        Self { body: "Text".into(), size: 1.0, extrude: 0.0 }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetaballElement {
+    pub position: Vec3,
+    pub radius: f32,
+    pub stiffness: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetaballData {
+    pub elements: Vec<MetaballElement>,
+    pub threshold: f32,
+    /// Grid cells across the blob (Blender's Resolution, inverted).
+    pub resolution: u32,
+}
+
+impl Default for MetaballData {
+    fn default() -> Self {
+        Self { elements: vec![MetaballElement { position: Vec3::ZERO, radius: 2.0, stiffness: 2.0 }], threshold: 0.6, resolution: 24 }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -194,6 +194,8 @@ impl ShapeApp {
             ObjectData::Empty => "○",
             ObjectData::Armature(_) => "🦴",
             ObjectData::Curve(_) => "∿",
+            ObjectData::Text { .. } => "A",
+            ObjectData::Metaball { .. } => "◍",
         };
         let eye = if object.visible { "" } else { "  (hidden)" };
         let text = format!("{icon} {}{eye}", object.name);

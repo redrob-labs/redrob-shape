@@ -188,6 +188,14 @@ impl ShapeApp {
                         self.curve_data_panel(ui, id);
                         return;
                     }
+                    ObjectData::Text { .. } => {
+                        self.text_data_panel(ui, id);
+                        return;
+                    }
+                    ObjectData::Metaball { .. } => {
+                        self.metaball_data_panel(ui, id);
+                        return;
+                    }
                     ObjectData::Camera(cam) => {
                         egui::CollapsingHeader::new("Lens").default_open(true).show(ui, |ui| {
                             let mut fov = cam.fov_y.to_degrees();

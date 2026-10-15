@@ -59,7 +59,17 @@ impl PropsTab {
             PropsTab::Render | PropsTab::Output | PropsTab::World => true,
             PropsTab::Object => data.is_some(),
             PropsTab::Modifiers | PropsTab::Material => matches!(data, Some(ObjectData::Mesh { .. })),
-            PropsTab::Data => matches!(data, Some(ObjectData::Mesh { .. } | ObjectData::Light(_) | ObjectData::Camera(_) | ObjectData::Curve(_))),
+            PropsTab::Data => matches!(
+                data,
+                Some(
+                    ObjectData::Mesh { .. }
+                        | ObjectData::Light(_)
+                        | ObjectData::Camera(_)
+                        | ObjectData::Curve(_)
+                        | ObjectData::Text { .. }
+                        | ObjectData::Metaball { .. }
+                )
+            ),
         }
     }
 }
@@ -451,7 +461,15 @@ impl ShapeApp {
                 self.delete_selected();
             }
             ui.separator();
-            if ui.add_enabled(self.active_is_curve(), egui::Button::new("Convert to Mesh")).clicked() {
+            let generated = self
+                .scene
+                .selection
+                .active
+                .and_then(|id| self.scene.object(id))
+                .is_some_and(|o| matches!(o.data, ObjectData::Text { .. } | ObjectData::Metaball { .. }));
+            if ui.add_enabled(self.active_is_curve() || generated, egui::Button::new("Convert to Mesh")).clicked()
+                && !self.convert_generated_to_mesh()
+            {
                 self.convert_to_mesh();
             }
             ui.separator();

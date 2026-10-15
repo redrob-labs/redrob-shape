@@ -100,6 +100,12 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   a control point (points and handles drawn), G moves, E extrudes from the end of the spline, X
   deletes, V sets the handle type, A selects all. Fix: pressing Tab no longer parks keyboard focus
   on a panel widget, so hotkeys keep working after a mode change.
+- Text objects (Shift+A > Text): the body is set in the bundled Ubuntu Light font, glyph outlines
+  are triangulated (holes kept) and optionally extruded into a solid; Data tab with Body, Size and
+  Extrude. Metaballs (Shift+A > Metaball): elements with radius and stiffness, polygonised at a
+  threshold with marching tetrahedra so nearby balls merge; Data tab edits elements, resolution and
+  threshold. Add > Image as Plane makes a textured quad with the image's aspect. Text and metaballs
+  convert to plain meshes (Object > Convert to Mesh).
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

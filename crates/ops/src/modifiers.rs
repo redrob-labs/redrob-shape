@@ -118,6 +118,8 @@ pub fn evaluated_mesh(scene: &Scene, id: ObjectId) -> Option<Cow<'_, Mesh>> {
         }
         // A bevelled curve shows (and exports) as its tube.
         ObjectData::Curve(c) if c.bevel_depth > 0.0 => Some(Cow::Owned(c.to_mesh())),
+        // Text and metaballs show their cached generated mesh.
+        ObjectData::Text { mesh, .. } | ObjectData::Metaball { mesh, .. } => scene.mesh(*mesh).map(|d| Cow::Borrowed(&d.mesh)),
         _ => None,
     }
 }

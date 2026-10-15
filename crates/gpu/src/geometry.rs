@@ -150,7 +150,7 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
                     continue;
                 }
             }
-            ObjectData::Mesh { .. } => {}
+            ObjectData::Mesh { .. } | ObjectData::Text { .. } | ObjectData::Metaball { .. } => {}
         }
         let Some(mesh) = display_mesh(scene, id) else { continue };
         let mesh = mesh.as_ref();

@@ -23,6 +23,7 @@ pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub mod bone_edit;
 pub mod curve_edit;
+pub mod generated;
 pub mod node_editor;
 pub mod pose_mode;
 pub use pose_mode::ParentKind;

@@ -11,6 +11,10 @@ repository.workspace = true
 shape-math.workspace = true
 shape-geom.workspace = true
 shape-scene.workspace = true
+# Text objects: glyph outlines and polygon triangulation; the UFL Ubuntu font egui already ships.
+ttf-parser = "=0.25.1"
+earcut = "=0.4.5"
+epaint_default_fonts = "=0.36.2"
 
 [lints]
 workspace = true
