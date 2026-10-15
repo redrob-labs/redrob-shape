@@ -15,6 +15,21 @@ Linux, macOS and Windows.
 Early. See [ROADMAP.md](ROADMAP.md) for the stage plan; the table there is the source of truth
 for what works today.
 
+## Screenshots
+
+
+| | |
+|---|---|
+| ![Layout workspace](docs/screenshots/layout.png)<br>Layout workspace | ![Add menu (Shift+A)](docs/screenshots/add-menu.png)<br>Add menu (Shift+A) |
+| ![Edit mode](docs/screenshots/edit-mode.png)<br>Edit mode | ![Modifiers](docs/screenshots/modifiers.png)<br>Modifiers |
+| ![Outliner](docs/screenshots/outliner.png)<br>Outliner | ![Shader editor](docs/screenshots/shader-editor.png)<br>Shader editor |
+| ![Shading popover](docs/screenshots/shading-popover.png)<br>Shading popover | ![Sculpt mode](docs/screenshots/sculpt.png)<br>Sculpt mode |
+| ![UV editing](docs/screenshots/uv-editing.png)<br>UV editing | ![Animation](docs/screenshots/animation.png)<br>Animation |
+| ![Pose mode](docs/screenshots/pose-mode.png)<br>Pose mode | ![Weight paint](docs/screenshots/weight-paint.png)<br>Weight paint |
+| ![Render (path tracer)](docs/screenshots/render.png)<br>Render (path tracer) | ![Curves](docs/screenshots/curves.png)<br>Curves |
+| ![COLLADA import](docs/screenshots/collada-import.png)<br>COLLADA import | ![Geometry Nodes](docs/screenshots/geometry-nodes.png)<br>Geometry Nodes |
+| ![Preferences / keymap](docs/screenshots/preferences.png)<br>Preferences / keymap | ![Scripting console](docs/screenshots/scripting-console.png)<br>Scripting console |
+
 ## Build
 
 ```
