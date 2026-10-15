@@ -13,7 +13,9 @@ $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $bin = Join-Path $root "target\$Target\release\redrob-shape.exe"
 if (-not (Test-Path $bin)) { throw "missing $bin" }
-$name = "redrob-shape-$Version-windows-$Arch"
+# "-portable.zip": the one zip name Redrob Launcher reads as an installable Windows build
+# (`<stem>-<version>-<os>-<arch>-portable.zip`, parse_asset_name in redrob-launcher).
+$name = "redrob-shape-$Version-windows-$Arch-portable"
 $stage = Join-Path $root "dist\stage\$name"
 $release = Join-Path $root 'dist\release'
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }

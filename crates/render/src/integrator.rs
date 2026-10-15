@@ -11,11 +11,13 @@ pub struct Settings {
     /// Radiance of a ray that leaves the scene.
     pub sky: Vec3,
     pub exposure: f32,
+    /// Run the edge-aware denoiser on the output image.
+    pub denoise: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { max_depth: 5, sky: Vec3::new(0.18, 0.21, 0.26), exposure: 1.0 }
+        Self { max_depth: 5, sky: Vec3::new(0.18, 0.21, 0.26), exposure: 1.0, denoise: false }
     }
 }
 
@@ -31,8 +33,12 @@ pub fn trace(scene: &RenderScene, mut ray: Ray, rng: &mut Pcg, settings: &Settin
             break;
         };
         let tri = &scene.bvh.tris[hit.tri];
-        let m = scene.materials[tri.material as usize];
+        let mut m = scene.materials[tri.material as usize];
         let p = ray.at(hit.t);
+        if let Some(Some(tex)) = scene.textures.get(tri.material as usize) {
+            let c = tex.sample(tri.uv_at(p));
+            m.base *= Vec3::new(c[0], c[1], c[2]);
+        }
         // Face the normal towards the incoming ray so back faces shade too.
         let mut n = tri.normal;
         if n.dot(ray.direction) > 0.0 {

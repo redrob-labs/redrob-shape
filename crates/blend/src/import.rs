@@ -50,6 +50,9 @@ pub fn import_file(file: &BlendFile, name: &str) -> Result<Scene> {
             metallic: v.f32("metallic").unwrap_or(0.0),
             roughness: v.f32("roughness").unwrap_or(0.5),
             emissive: [0.0; 3],
+            base_color_texture: None,
+            nodes: None,
+            viewport_color: [0.8, 0.8, 0.8, 1.0],
         };
         materials.insert(b.old, scene.add_material(m));
     }
@@ -331,6 +334,7 @@ fn read_camera(file: &BlendFile, ptr: u64) -> Camera {
         fov_y,
         near: v.f32("clip_start").or_else(|| v.f32("clipsta")).unwrap_or(0.1),
         far: v.f32("clip_end").or_else(|| v.f32("clipend")).unwrap_or(1000.0),
+        ..Camera::default()
     }
 }
 

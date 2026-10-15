@@ -5,22 +5,49 @@
 //! `viewport`.
 
 pub mod agent;
+pub mod edit_mode;
+pub mod edit_tools;
+pub mod keymap;
+pub mod layout;
+pub mod object_mode;
 mod panels;
+mod properties;
 pub mod render_panel;
+pub mod theme;
 pub mod tools;
 pub mod viewport;
 
 pub use agent::{AgentFactory, AgentPanel};
-use egui::RichText;
+pub use edit_mode::EditDelete;
+pub use edit_tools::{CircleSelect, Knife};
+pub use keymap::{BoxSelect, Op, Popup};
+pub mod bone_edit;
+pub mod console;
+pub mod curve_edit;
+pub mod generated;
+pub mod geo_node_editor;
+pub mod node_editor;
+pub mod pose_mode;
+pub mod prefs;
+pub use pose_mode::ParentKind;
+pub mod sculpt_mode;
+pub mod timeline;
+pub mod uv_editor;
+pub mod weight_paint;
+pub use layout::{PropsTab, Regions, Workspace};
+pub use object_mode::SetOrigin;
 pub use render_panel::RenderPanel;
 pub use shape_agent::ControlServer;
 use shape_geom::primitives;
-use shape_gpu::ShadingMode;
+pub use shape_gpu::ShadingMode;
 use shape_math::{Transform, Vec2};
+pub use shape_ops;
 use shape_scene::{EditSelection, Modifier, ObjectId, Scene};
 use shape_undo::{History, Snapshot};
 use std::path::PathBuf;
 pub use tools::{Modal, ModalEnd, ModalKind, Tool};
+pub use tools::{Orientation, PivotPoint, TransformSettings};
+pub use uv_editor::UvOp;
 pub use viewport::{GpuContext, ViewportInput, ViewportPanel};
 
 /// Crate name, used by the layering test in `apps/redrob-shape`.
@@ -40,13 +67,49 @@ pub struct ShapeApp {
     file: Option<PathBuf>,
     /// Scene before the property drag in progress, turned into one undo step on release.
     property_before: Option<Scene>,
+    pub(crate) node_editor: node_editor::NodeEditor,
+    pub(crate) geo_editor: geo_node_editor::GeoNodeEditor,
+    pub(crate) console: console::Console,
+    pub(crate) prefs: prefs::Prefs,
+    pub(crate) prefs_window: prefs::PrefsWindow,
+    pub sculpt: Option<sculpt_mode::SculptMode>,
+    pub pose: Option<pose_mode::PoseMode>,
+    pub bone_edit: Option<bone_edit::BoneEditMode>,
+    pub curve_edit: Option<curve_edit::CurveEditMode>,
+    pub weight_paint: Option<weight_paint::WeightPaint>,
+    /// Fractional frames carried between playback ticks.
+    pub(crate) play_accum: f32,
+    node_editor_origin: egui::Vec2,
     /// Pointer over the viewport last frame, in viewport pixels.
     last_pointer: Option<Vec2>,
+    /// Last status line echoed to stderr (`SHAPE_TRACE_STATUS=1`), for driving the app from scripts.
+    traced_status: String,
+    /// Whether some widget had keyboard focus when the previous frame ended.
+    focused_last_frame: bool,
     pub agent: AgentPanel,
     /// Tool calls from the MCP server, run on the scene each frame.
     control: Option<ControlServer>,
-    pub show_agent: bool,
+    pub regions: Regions,
     pub render: RenderPanel,
+    /// Popup open at the pointer (Shift+A, Z, X, F3) and where it opened.
+    pub popup: Option<Popup>,
+    popup_pos: Option<egui::Pos2>,
+    pub box_select: Option<BoxSelect>,
+    /// B was pressed: the next drag is a box whatever the tool.
+    pub box_pending: bool,
+    /// Set by `run_op(RenderImage)`; the frame starts the render where it has the context.
+    render_requested: bool,
+    pub circle: Option<CircleSelect>,
+    pub knife: Option<Knife>,
+    /// Pivot point, orientation and proportional editing for G/R/S.
+    pub xf: TransformSettings,
+}
+
+/// Consume a key press only when exactly these modifiers are held. egui's own `consume_key`
+/// treats an unmodified pattern as "any shift/alt state", which would let plain `A` swallow
+/// `Shift+A`.
+pub(crate) fn key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key) -> bool {
+    i.modifiers.matches_exact(mods) && i.consume_key(mods, key)
 }
 
 /// Primitives the Add menu offers.
@@ -94,7 +157,12 @@ impl ShapeApp {
     pub const WINDOW_TITLE: &str = "Redrob Shape";
 
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        Self::with_gpu(GpuContext::from_eframe(cc))
+        theme::apply(&cc.egui_ctx);
+        let mut app = Self::with_gpu(GpuContext::from_eframe(cc));
+        app.apply_prefs(&cc.egui_ctx);
+        app.prefs_window.addons = prefs::scan_addons();
+        app.prefs_window.scanned = true;
+        app
     }
 
     pub fn with_gpu(gpu: Option<GpuContext>) -> Self {
@@ -107,11 +175,33 @@ impl ShapeApp {
             status: String::new(),
             file: None,
             property_before: None,
+            node_editor: Default::default(),
+            geo_editor: Default::default(),
+            console: Default::default(),
+            prefs: prefs::Prefs::load(),
+            prefs_window: Default::default(),
+            sculpt: None,
+            pose: None,
+            bone_edit: None,
+            curve_edit: None,
+            weight_paint: None,
+            play_accum: 0.0,
+            node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
+            traced_status: String::new(),
+            focused_last_frame: false,
             agent: AgentPanel::new(None),
             control: None,
-            show_agent: true,
+            regions: Regions::default(),
             render: RenderPanel::new(),
+            popup: None,
+            popup_pos: None,
+            box_select: None,
+            box_pending: false,
+            render_requested: false,
+            circle: None,
+            knife: None,
+            xf: TransformSettings { proportional_size: 1.0, ..Default::default() },
         }
     }
 
@@ -128,6 +218,21 @@ impl ShapeApp {
         let camera = self.render_camera();
         self.render.start(&self.scene, camera, ctx.clone());
         self.status = "Rendering…".into();
+    }
+
+    /// Render > Render Animation (Ctrl+F12): every frame of the range to PNGs.
+    pub fn start_render_animation(&mut self, ctx: &egui::Context) {
+        if self.render.animation_progress().is_some() {
+            self.status = "An animation render is already running".into();
+            return;
+        }
+        let fallback = {
+            let c = &self.viewport.camera;
+            shape_render::RenderCamera::look_at(c.position(), c.target, c.fov_y)
+        };
+        self.render.start_animation(&self.scene, move |scene| shape_render::RenderScene::scene_camera(scene).unwrap_or(fallback), ctx.clone());
+        let (s, e) = (self.scene.timeline.start, self.scene.timeline.end);
+        self.status = format!("Rendering animation frames {s}..{e} to {}####.png", self.render.output_path);
     }
 
     /// Attach the agent process factory and the control channel its tools arrive on.
@@ -186,7 +291,7 @@ impl ShapeApp {
 
     pub fn add_primitive(&mut self, p: Primitive) -> ObjectId {
         let n = self.scene.object_count();
-        let at = self.scene.selection_center();
+        let at = self.scene.cursor;
         let mut id = ObjectId(0);
         self.edit(&format!("Add {}", p.name()), |scene| {
             let name = if n == 0 { p.name().to_owned() } else { format!("{}.{:03}", p.name(), n) };
@@ -284,9 +389,113 @@ impl ShapeApp {
         });
     }
 
+    pub fn select_none(&mut self) {
+        if let Some(edit) = &mut self.scene.edit {
+            edit.clear();
+        } else {
+            self.scene.selection.clear();
+        }
+    }
+
+    pub fn select_invert(&mut self) {
+        if let Some(object) = self.scene.edit.as_ref().map(|e| e.object) {
+            let Some((_, mesh)) = self.scene.object_mesh(object) else { return };
+            let mesh = mesh.clone();
+            let Some(edit) = &mut self.scene.edit else { return };
+            edit.invert(&mesh);
+        } else {
+            let all: Vec<ObjectId> = self.scene.objects().map(|(id, _)| id).collect();
+            let sel = &mut self.scene.selection;
+            let inverted: std::collections::BTreeSet<ObjectId> = all.into_iter().filter(|id| !sel.objects.contains(id)).collect();
+            sel.active = inverted.iter().next_back().copied();
+            sel.objects = inverted;
+        }
+    }
+
+    /// Shift+D: copy the selected objects, each with its own mesh data, and select the copies.
+    pub fn duplicate_selected(&mut self) {
+        if self.scene.selection.is_empty() || self.scene.edit.is_some() {
+            return;
+        }
+        self.edit("Duplicate", |scene| {
+            let ids: Vec<ObjectId> = scene.selection.objects.iter().copied().collect();
+            let mut copies = Vec::new();
+            for id in ids {
+                let Some(mut copy) = scene.object(id).cloned() else { continue };
+                let stem = copy
+                    .name
+                    .rsplit_once('.')
+                    .filter(|(_, n)| n.len() == 3 && n.chars().all(|c| c.is_ascii_digit()))
+                    .map(|(s, _)| s.to_owned())
+                    .unwrap_or(copy.name.clone());
+                copy.name = format!("{stem}.{:03}", scene.object_count());
+                if let shape_scene::ObjectData::Mesh { mesh, .. } = &mut copy.data
+                    && let Some(data) = scene.mesh(*mesh).cloned()
+                {
+                    *mesh = scene.add_mesh(data);
+                }
+                copies.push(scene.add_object(copy));
+            }
+            scene.selection.clear();
+            for id in &copies {
+                scene.selection.objects.insert(*id);
+            }
+            scene.selection.active = copies.last().copied();
+        });
+    }
+
+    /// H hides the selection (and deselects it); Alt+H shows everything again.
+    pub fn hide_selected(&mut self, hide: bool) {
+        if self.scene.selection.is_empty() {
+            return;
+        }
+        self.edit("Hide", |scene| {
+            let ids: Vec<ObjectId> = scene.selection.objects.iter().copied().collect();
+            for id in ids {
+                if let Some(o) = scene.object_mut(id) {
+                    o.visible = !hide;
+                }
+            }
+            scene.selection.clear();
+        });
+    }
+
+    pub fn reveal_all(&mut self) {
+        let hidden: Vec<ObjectId> = self.scene.objects().filter(|(_, o)| !o.visible).map(|(id, _)| id).collect();
+        if hidden.is_empty() {
+            return;
+        }
+        self.edit("Reveal Hidden", |scene| {
+            for id in hidden {
+                if let Some(o) = scene.object_mut(id) {
+                    o.visible = true;
+                }
+                scene.selection.objects.insert(id);
+                scene.selection.active = Some(id);
+            }
+        });
+    }
+
+    /// Start an edit-mode face modal from a menu (the pointer position is the last one seen).
+    pub fn start_face_modal(&mut self, kind: ModalKind) {
+        let pointer = self.last_pointer.unwrap_or(Vec2::ZERO);
+        self.modal = Modal::faces(kind, &self.scene, pointer);
+    }
+
+    /// Live edit from a property widget: one undo step is recorded when the drag/typing ends.
+    pub(crate) fn edit_object_live(&mut self, id: ObjectId, edited: shape_scene::Object) {
+        if self.property_before.is_none() {
+            self.property_before = Some(self.scene.clone());
+        }
+        if let Some(o) = self.scene.object_mut(id) {
+            *o = edited;
+        }
+    }
+
     pub fn open(&mut self, path: PathBuf) {
         match shape_format::import(&path) {
-            Ok(scene) => {
+            Ok(mut scene) => {
+                scene.reload_textures();
                 self.scene = scene;
                 self.history.clear();
                 self.modal = None;
@@ -324,6 +533,19 @@ impl ShapeApp {
 
     /// Enter edit mode on the active mesh object, or leave it.
     pub fn toggle_edit_mode(&mut self) {
+        self.sculpt = None;
+        self.pose = None;
+        if self.weight_paint.is_some() {
+            self.toggle_weight_paint();
+        }
+        if self.bone_edit.is_some() || (self.scene.edit.is_none() && self.active_is_armature()) {
+            self.toggle_bone_edit_mode();
+            return;
+        }
+        if self.curve_edit.is_some() || (self.scene.edit.is_none() && self.active_is_curve()) {
+            self.toggle_curve_edit_mode();
+            return;
+        }
         if self.scene.edit.is_some() {
             self.scene.edit = None;
             self.status = "Object Mode".into();
@@ -341,12 +563,12 @@ impl ShapeApp {
     pub fn select_all(&mut self) {
         if let Some(object) = self.scene.edit.as_ref().map(|e| e.object) {
             let Some((_, mesh)) = self.scene.object_mesh(object) else { return };
-            let all: std::collections::BTreeSet<_> = mesh.face_ids().collect();
+            let mesh = mesh.clone();
             let Some(edit) = &mut self.scene.edit else { return };
-            if edit.faces == all {
-                edit.faces.clear();
+            if edit.is_all(&mesh) {
+                edit.clear();
             } else {
-                edit.faces = all;
+                edit.select_all(&mesh);
             }
         } else {
             let all: Vec<ObjectId> = self.scene.objects().map(|(id, _)| id).collect();
@@ -376,7 +598,7 @@ impl ShapeApp {
                     data.set_mesh(new_mesh);
                 }
                 if let Some(e) = &mut scene.edit {
-                    e.faces.clear();
+                    e.clear();
                 }
             }),
             Err(e) => self.status = format!("Loop cut failed: {e}"),
@@ -389,22 +611,29 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return (false, false);
         }
+        if self.sculpt.is_some() || self.pose.is_some() || self.bone_edit.is_some() || self.weight_paint.is_some() || self.curve_edit.is_some() {
+            // Sculpt / Pose / Armature Edit Mode own G / R / S / E / I / X etc.; only confirm / cancel pass.
+            return ui.input_mut(|inp| {
+                (crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter), crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape))
+            });
+        }
         let modal_running = self.modal.is_some();
-        let (enter, escape, g, r, sc, e, i, loop_cut, tab, a, x, y, z) = ui.input_mut(|inp| {
+        let (enter, escape, g, r, sc, e, i, loop_cut, bevel, tab, a, x, y, z) = ui.input_mut(|inp| {
             (
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::G),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::R),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::S),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::E),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::I),
-                inp.consume_key(egui::Modifiers::COMMAND, egui::Key::R),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::A),
-                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::X),
-                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::Y),
-                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::Z),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::G),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::R),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::S),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::E),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::I),
+                crate::key(inp, egui::Modifiers::COMMAND, egui::Key::R),
+                crate::key(inp, egui::Modifiers::COMMAND, egui::Key::B),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::Tab),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::A),
+                modal_running && crate::key(inp, egui::Modifiers::NONE, egui::Key::X),
+                modal_running && crate::key(inp, egui::Modifiers::NONE, egui::Key::Y),
+                modal_running && crate::key(inp, egui::Modifiers::NONE, egui::Key::Z),
             )
         });
         if let Some(m) = &mut self.modal {
@@ -427,6 +656,18 @@ impl ShapeApp {
             self.select_all();
         }
         if self.scene.edit.is_some() {
+            let kind = if g {
+                Some(ModalKind::Move)
+            } else if r {
+                Some(ModalKind::Rotate)
+            } else if sc {
+                Some(ModalKind::Scale)
+            } else {
+                None
+            };
+            if let Some(kind) = kind {
+                self.modal = Modal::edit_transform(kind, &self.scene, pointer, self.xf, Some(&self.viewport.camera));
+            }
             if e {
                 self.modal = Modal::faces(ModalKind::Extrude, &self.scene, pointer);
             }
@@ -435,6 +676,9 @@ impl ShapeApp {
             }
             if loop_cut {
                 self.loop_cut_at_pointer();
+            }
+            if bevel {
+                self.modal = Modal::faces(ModalKind::Bevel, &self.scene, pointer);
             }
         } else {
             let kind = if g {
@@ -447,7 +691,10 @@ impl ShapeApp {
                 None
             };
             if let Some(kind) = kind {
-                self.modal = Modal::transform(kind, &self.scene, pointer, false);
+                self.modal = Modal::transform_with(kind, &self.scene, pointer, false, self.xf, Some(&self.viewport.camera));
+            }
+            if i && !modal_running && self.popup.is_none() {
+                self.popup = Some(Popup::InsertKeyframe);
             }
         }
         (enter, escape)
@@ -457,19 +704,57 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() || self.modal.is_some() {
             return;
         }
-        let f12 = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F12));
+        use prefs::Action as A;
+        let p = self.prefs.clone();
+        let (f12, ctrl_f12) = ui.input_mut(|i| (p.pressed(i, A::Render), p.pressed(i, A::RenderAnimation)));
         if f12 {
             self.start_render(ui.ctx());
         }
-        let (undo, redo, del, frame, wire, solid) = ui.input_mut(|i| {
+        if ctrl_f12 {
+            self.start_render_animation(ui.ctx());
+        }
+        let (toolbar, sidebar, maximize, dup, hide, reveal, none, invert) = ui.input_mut(|i| {
             (
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
-                i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
-                    || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::X),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Home),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Num1),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Num2),
+                p.pressed(i, A::ToggleToolbar),
+                p.pressed(i, A::ToggleSidebar),
+                p.pressed(i, A::MaximizeArea),
+                p.pressed(i, A::Duplicate),
+                p.pressed(i, A::Hide),
+                p.pressed(i, A::Reveal),
+                p.pressed(i, A::SelectNone),
+                p.pressed(i, A::SelectInvert),
+            )
+        });
+        if toolbar {
+            self.regions.toolbar = !self.regions.toolbar;
+        }
+        if sidebar {
+            self.regions.sidebar = !self.regions.sidebar;
+        }
+        if maximize {
+            self.regions.maximized = !self.regions.maximized;
+        }
+        if dup {
+            self.duplicate_selected();
+        }
+        if hide {
+            self.hide_selected(true);
+        }
+        if reveal {
+            self.reveal_all();
+        }
+        if none {
+            self.select_none();
+        }
+        if invert {
+            self.select_invert();
+        }
+        let (undo, redo, del, frame) = ui.input_mut(|i| {
+            (
+                p.pressed(i, A::Undo),
+                p.pressed(i, A::Redo) || crate::key(i, egui::Modifiers::COMMAND, egui::Key::Y),
+                p.pressed(i, A::Delete),
+                p.pressed(i, A::FrameAll),
             )
         });
         if redo {
@@ -480,41 +765,163 @@ impl ShapeApp {
         if del {
             self.delete_selected();
         }
+        if ui.input_mut(|i| p.pressed(i, A::DeleteConfirm)) && !self.scene.selection.is_empty() && self.scene.edit.is_none() {
+            self.popup = Some(Popup::DeleteConfirm);
+        }
         if frame {
             self.viewport.frame_scene(&self.scene);
-        }
-        if wire {
-            self.viewport.options.shading = ShadingMode::Wireframe;
-        }
-        if solid {
-            self.viewport.options.shading = ShadingMode::Solid;
         }
     }
 
     /// Draw one frame. Split out of `eframe::App::ui` so `egui_kittest` can drive it.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.drain_control();
+        // egui moves keyboard focus to the first widget on Tab before we see the key; Blender's
+        // Tab is a mode toggle, so give the focus back to the viewport or hotkeys die.
+        let tab_event = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Tab, pressed: true, .. })));
+        let drop_tab_focus = tab_event && !self.focused_last_frame;
+        if self.status != self.traced_status {
+            self.traced_status = self.status.clone();
+            if std::env::var_os("SHAPE_TRACE_STATUS").is_some() {
+                eprintln!("[status] {}", self.status);
+            }
+        }
+        if self.popup.is_some() && ui.input_mut(|i| key(i, egui::Modifiers::NONE, egui::Key::Escape)) {
+            self.popup = None;
+            self.popup_pos = None;
+        }
         let (enter, escape) = self.modal_keys(ui);
-        self.hotkeys(ui);
-        self.menu_bar(ui);
+        self.playback_keys(ui);
+        self.animation_tick(ui);
+        // Blender sends keys to the editor under the pointer: the Shader Editor takes its own.
+        let over_nodes = (self.node_editor.hovered || self.geo_editor.hovered || self.console.hovered) && self.modal.is_none();
+        if !over_nodes {
+            self.hotkeys(ui);
+        }
+        if self.sculpt.is_some() && self.popup.is_none() && !over_nodes {
+            self.sculpt_keys(ui);
+            self.mode_keys(ui);
+        } else if self.pose.is_some() && self.popup.is_none() && !over_nodes {
+            self.pose_keys(ui);
+            self.mode_keys(ui);
+        } else if self.bone_edit.is_some() && self.popup.is_none() && !over_nodes {
+            self.bone_edit_keys(ui);
+            self.mode_keys(ui);
+        } else if self.curve_edit.is_some() && self.popup.is_none() && !over_nodes {
+            self.curve_edit_keys(ui);
+            self.mode_keys(ui);
+        } else if self.weight_paint.is_some() && self.popup.is_none() && !over_nodes {
+            self.mode_keys(ui);
+        } else if self.popup.is_none() && !over_nodes {
+            self.object_keys(ui);
+            self.edit_keys(ui);
+            self.edit_tool_keys(ui);
+            self.object_mode_keys(ui);
+        }
+        if std::mem::take(&mut self.render_requested) {
+            self.start_render(ui.ctx());
+        }
+        self.top_bar(ui);
         self.status_bar(ui);
-        self.outliner(ui);
-        self.properties(ui);
-        if self.show_agent {
-            egui::Panel::bottom("agent").default_size(200.0).resizable(true).show(ui, |ui| self.agent.ui(ui));
+        if self.regions.right_column && !self.regions.maximized {
+            self.right_column(ui);
+        }
+        if self.regions.workspace == layout::Workspace::UvEditing && !self.regions.maximized {
+            self.uv_editor_panel(ui);
+        }
+        if self.regions.workspace == layout::Workspace::Animation && !self.regions.maximized {
+            self.timeline_panel(ui);
+        }
+        if self.regions.workspace == layout::Workspace::Shading && !self.regions.maximized {
+            self.node_editor_panel(ui);
+        } else {
+            self.node_editor.hovered = false;
+        }
+        if self.regions.workspace == layout::Workspace::GeometryNodes && !self.regions.maximized {
+            self.geo_node_editor_panel(ui);
+        } else {
+            self.geo_editor.hovered = false;
+        }
+        if self.regions.workspace == layout::Workspace::Scripting && !self.regions.maximized {
+            self.console_panel(ui);
+        } else {
+            self.console.hovered = false;
+        }
+        self.preferences_window(ui.ctx());
+        if !matches!(self.regions.workspace, layout::Workspace::Shading | layout::Workspace::GeometryNodes | layout::Workspace::Scripting)
+            && self.regions.agent
+            && !self.regions.maximized
+        {
+            egui::Panel::bottom("agent")
+                .default_size(200.0)
+                .resizable(true)
+                .frame(theme::region_frame(theme::TIMELINE))
+                .show(ui, |ui| self.agent.ui(ui));
         }
         self.viewport.camera_enabled = self.modal.is_none();
         let overlay = self.modal.as_ref().map(|m| m.status()).unwrap_or_default();
         let input = egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame::NONE.fill(theme::VIEWPORT_BG))
             .show(ui, |ui| {
-                self.tool_bar(ui);
-                self.viewport.ui(ui, &self.scene, &overlay)
+                self.viewport_header(ui);
+                if self.regions.toolbar {
+                    self.toolbar(ui);
+                }
+                if self.regions.sidebar {
+                    self.sidebar(ui);
+                }
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.viewport.ui(ui, &self.scene, &overlay)).inner
             })
             .inner;
         self.last_pointer = input.pointer.or(self.last_pointer);
-        self.handle_viewport_input(&input, enter, escape);
+        if input.primary_pressed {
+            // Clicking the viewport takes keyboard focus back from whatever widget had it.
+            ui.ctx().memory_mut(|m| {
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
+        }
+        if self.popup.is_some() {
+            self.popup_ui(ui);
+        } else if self.weight_paint_input(&input)
+            || self.curve_edit_input(&input, enter, escape)
+            || self.bone_edit_input(&input, enter, escape)
+            || self.pose_input(&input, enter, escape)
+            || self.sculpt_input(&input, enter, escape)
+            || self.circle_select_input(&input, escape)
+            || self.knife_input(&input, escape)
+            || self.place_cursor(&input)
+        {
+            // a paint/click tool owns the pointer
+        } else if !self.box_select_input(&input) {
+            self.handle_viewport_input(&input, enter, escape);
+        }
+        self.box_select_overlay(ui);
+        self.edit_tool_overlay(ui);
+        self.sculpt_overlay(ui);
+        self.cursor_overlay(ui);
+        if self.circle.is_some() || self.knife.is_some() {
+            ui.ctx().request_repaint();
+        }
+        if drop_tab_focus {
+            // The widgets of this frame took the focus egui handed out for Tab; give it back.
+            ui.ctx().memory_mut(|m| {
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
+        }
+        self.focused_last_frame = ui.ctx().memory(|m| m.focused().is_some());
+        if !self.render.compositor_dirty {
+            self.render.compositor = self.scene.compositor.clone();
+        }
         match self.render.ui(ui.ctx()) {
+            Some(render_panel::RenderAction::Compositor) => {
+                let tree = self.render.compositor.clone();
+                self.render.compositor_dirty = false;
+                self.edit("Edit Compositor", move |scene| scene.compositor = tree);
+            }
             Some(render_panel::RenderAction::Start) => self.start_render(ui.ctx()),
             Some(render_panel::RenderAction::Save) => {
                 if let Some(path) = rfd::FileDialog::new().add_filter("PNG", &["png"]).set_file_name("render.png").save_file() {
@@ -531,33 +938,16 @@ impl ShapeApp {
         }
     }
 
-    fn tool_bar(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("tools").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                for t in Tool::ALL {
-                    if ui.selectable_label(self.tool == t, t.name()).clicked() {
-                        self.tool = t;
-                    }
-                }
-                ui.separator();
-                let editing = self.scene.edit.is_some();
-                if ui.selectable_label(editing, "Edit Mode (Tab)").clicked() {
-                    self.toggle_edit_mode();
-                }
-                let hint = if editing {
-                    "click face · shift add · E extrude · I inset · Ctrl+R loop cut · A all"
-                } else {
-                    "G move · R rotate · S scale · X delete · Home frame"
-                };
-                ui.label(RichText::new(hint).weak());
-            });
-        });
-    }
-
     /// Run the modal, or pick, from this frame's viewport input.
     pub fn handle_viewport_input(&mut self, input: &ViewportInput, enter: bool, escape: bool) {
         let size = input.size.max(Vec2::ONE);
         if let Some(modal) = &mut self.modal {
+            modal.scroll(input.scroll);
+            modal.snap = input.ctrl;
+            if modal.edit_xf.is_some() && input.scroll != 0.0 {
+                modal.scroll_proportional(input.scroll, &self.scene);
+                self.xf.proportional_size = modal.settings.proportional_size;
+            }
             if let Some(p) = input.pointer {
                 modal.update(&mut self.scene, &self.viewport.camera, p, size);
             }
@@ -584,7 +974,7 @@ impl ShapeApp {
         {
             let over_selected = shape_gpu::pick(&self.scene, &self.viewport.camera, p, size).is_some_and(|(id, _)| self.scene.selection.contains(id));
             if over_selected {
-                self.modal = Modal::transform(kind, &self.scene, p, true);
+                self.modal = Modal::transform_with(kind, &self.scene, p, true, self.xf, Some(&self.viewport.camera));
                 return;
             }
         }
@@ -592,19 +982,8 @@ impl ShapeApp {
             && let Some(p) = input.pointer
         {
             let hit = shape_gpu::pick_detail(&self.scene, &self.viewport.camera, p, size);
-            if let Some(edit) = &mut self.scene.edit {
-                match hit {
-                    Some(h) if input.shift => {
-                        if !edit.faces.remove(&h.face) {
-                            edit.faces.insert(h.face);
-                        }
-                    }
-                    Some(h) => {
-                        edit.faces.clear();
-                        edit.faces.insert(h.face);
-                    }
-                    None => edit.faces.clear(),
-                }
+            if self.scene.edit.is_some() {
+                self.edit_click(hit, input.shift, input.alt);
             } else {
                 match hit {
                     Some(h) if input.shift => self.scene.selection.toggle(h.object),
@@ -645,9 +1024,178 @@ mod tests {
         let mut app = ShapeApp::default();
         let mut harness = Harness::new_ui(|ui| app.ui(ui));
         harness.run();
-        for label in ["Outliner", "Properties", "Ready", "File", "Add", "View", "Select", "Move", "Edit Mode (Tab)"] {
+        // Blender's default screen: top bar menus + workspace tabs, viewport header, right column.
+        for label in ["Outliner", "Sampling", "Ready", "File", "Edit", "Window", "Help", "Layout", "Modeling", "Add", "View", "Select"] {
             harness.get_by_label(label);
         }
+        // T hides the toolbar, N shows the sidebar, Ctrl+Space hides the right column.
+        harness.key_press(egui::Key::T);
+        harness.key_press(egui::Key::N);
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Space);
+        harness.run();
+        assert!(harness.query_by_label("Outliner").is_none(), "maximized viewport hides the right column");
+        harness.get_by_label("Item");
+        drop(harness);
+        assert!(!app.regions.toolbar && app.regions.sidebar && app.regions.maximized);
+    }
+
+    #[test]
+    fn preferences_window_geometry_nodes_and_scripting_workspaces() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        app.scene.selection.set(a);
+        // Edit > Preferences opens the window with its three tabs.
+        app.prefs_window.open = true;
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Preferences");
+        harness.get_by_label("Keymap").click();
+        harness.run();
+        harness.run();
+        harness.get_by_label("Duplicate Objects");
+        harness.get_by_label("Shift+D");
+        drop(harness);
+        // Geometry Nodes workspace: New adds the modifier with the default tree.
+        app.prefs_window.open = false;
+        app.set_workspace(layout::Workspace::GeometryNodes);
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Geometry Node Editor");
+        harness.get_by_label("New").click();
+        harness.run();
+        harness.run();
+        drop(harness);
+        assert!(matches!(app.scene.modifiers(a).first(), Some(shape_scene::Modifier::GeometryNodes { tree }) if tree.nodes.len() == 2));
+        // Scripting workspace: the console runs Shape Script.
+        app.set_workspace(layout::Workspace::Scripting);
+        let out = app.run_script("add_primitive kind=sphere name=Ball", "test");
+        assert!(out.iter().any(|l| l.contains("Ball")), "{out:?}");
+        assert_eq!(app.scene.object_count(), 2);
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Console");
+        drop(harness);
+    }
+
+    #[test]
+    fn shading_workspace_shows_the_shader_editor_and_use_nodes() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        let mat = app.scene.add_material(shape_scene::Material { base_color: [0.1, 0.2, 0.3, 1.0], ..Default::default() });
+        if let Some(shape_scene::ObjectData::Mesh { material, .. }) = app.scene.object_mut(a).map(|o| &mut o.data) {
+            *material = Some(mat);
+        }
+        app.scene.selection.set(a);
+        app.set_workspace(layout::Workspace::Shading);
+        assert_eq!(app.viewport.options.shading, ShadingMode::MaterialPreview, "Shading workspace previews materials");
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Shader Editor");
+        harness.get_by_label("Use Nodes").click();
+        harness.run();
+        harness.run();
+        drop(harness);
+        assert_eq!(app.status, "Use Nodes");
+        let m = app.scene.material(mat).unwrap();
+        let tree = m.nodes.as_ref().expect("Use Nodes made a tree");
+        assert_eq!(tree.nodes.len(), 2);
+        assert!(tree.surface_bsdf().is_some());
+        assert_eq!(m.base_color, [0.1, 0.2, 0.3, 1.0], "the flat colour survives evaluation");
+        // Shift+A over the editor offers the node categories; Escape closes.
+        app.node_editor.add_menu = Some(egui::pos2(300.0, 500.0));
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("Principled BSDF");
+        harness.get_by_label("Image Texture").click();
+        harness.run();
+        harness.run();
+        drop(harness);
+        let tree = app.scene.material(mat).unwrap().nodes.as_ref().unwrap();
+        assert_eq!(tree.nodes.len(), 3, "a node was added at the pointer");
+        assert!(app.history.can_undo());
+    }
+
+    #[test]
+    fn shading_popover_sets_solid_options() {
+        let mut app = ShapeApp::default();
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.get_by_label("▾").click();
+        harness.run();
+        harness.get_by_label("MatCap").click();
+        harness.run();
+        harness.run();
+        harness.get_by_label("Red Wax").click();
+        harness.run();
+        harness.run();
+        harness.get_by_label("Cavity").click();
+        harness.run();
+        drop(harness);
+        assert_eq!(app.viewport.options.solid.lighting, shape_gpu::Lighting::MatCap);
+        assert_eq!(app.viewport.options.solid.matcap, 2);
+        assert!(app.viewport.options.solid.cavity);
+        // Alt+Z toggles X-ray like Blender.
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.key_press_modifiers(egui::Modifiers::ALT, egui::Key::Z);
+        harness.run();
+        drop(harness);
+        assert!(app.viewport.options.solid.xray);
+    }
+
+    #[test]
+    fn popups_open_at_the_pointer_and_x_asks_before_deleting() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        app.scene.selection.set(a);
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::A);
+        harness.run();
+        harness.get_by_label("Torus");
+        harness.key_press(egui::Key::Escape);
+        harness.run();
+        assert!(harness.query_by_label("Torus").is_none(), "Esc closes the Add popup");
+        harness.key_press(egui::Key::X);
+        harness.run();
+        harness.get_by_label("Delete 1 object(s)");
+        harness.key_press(egui::Key::Escape);
+        harness.run();
+        harness.key_press(egui::Key::F3);
+        harness.run();
+        harness.get_by_label_contains("Frame All");
+        drop(harness);
+        assert_eq!(app.scene.object_count(), 1, "X alone deletes nothing");
+    }
+
+    #[test]
+    fn duplicate_hide_reveal_and_select_invert_are_undo_steps() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        let b = app.add_primitive(Primitive::Sphere);
+        app.scene.selection.set(a);
+        app.duplicate_selected();
+        assert_eq!(app.scene.object_count(), 3);
+        let copy = app.scene.selection.active.unwrap();
+        assert_ne!(copy, a);
+        assert_eq!(app.scene.object(copy).unwrap().name, "Cube.002");
+        let (ma, _) = app.scene.object_mesh(a).unwrap();
+        let (mc, _) = app.scene.object_mesh(copy).unwrap();
+        assert_ne!(ma, mc, "a duplicate owns its mesh data");
+        app.hide_selected(true);
+        assert!(!app.scene.object(copy).unwrap().visible);
+        assert!(app.scene.selection.is_empty());
+        app.reveal_all();
+        assert!(app.scene.object(copy).unwrap().visible);
+        app.scene.selection.set(b);
+        app.select_invert();
+        assert!(app.scene.selection.contains(a) && app.scene.selection.contains(copy) && !app.scene.selection.contains(b));
+        app.select_none();
+        assert!(app.scene.selection.is_empty());
+        for _ in 0..3 {
+            app.history.undo(&mut app.scene);
+        }
+        assert_eq!(app.scene.object_count(), 2, "Duplicate, Hide and Reveal were three undo steps");
     }
 
     #[test]
@@ -756,9 +1304,11 @@ mod tests {
         app.history.undo(&mut app.scene);
         app.history.undo(&mut app.scene);
         assert!(app.scene.object(sun).is_none());
+        app.scene.selection.set(cube);
+        app.regions.props_tab = PropsTab::Material;
         let mut harness = Harness::new_ui(|ui| app.ui(ui));
         harness.run();
-        harness.get_by_label("Material");
+        assert!(harness.query_all_by_label("Material").count() >= 1);
     }
 
     #[test]
@@ -787,6 +1337,10 @@ mod tests {
         harness.run();
         assert!(harness.query_all_by_label_contains("Torus").count() >= 2, "outliner row and status");
         harness.get_by_label("Location");
+        drop(harness);
+        app.regions.props_tab = PropsTab::Data;
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
         harness.get_by_label_contains("vertices");
     }
 }

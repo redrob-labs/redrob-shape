@@ -2,7 +2,7 @@
 //! and reports pointer state so the app can run tools and modals on top.
 
 use egui::{Color32, Sense};
-use shape_gpu::{OrbitCamera, ShadingMode, ViewOptions, Viewport};
+use shape_gpu::{OrbitCamera, ViewOptions, Viewport};
 use shape_math::Vec2;
 use shape_scene::Scene;
 use std::sync::Arc;
@@ -36,6 +36,9 @@ pub struct ViewportInput {
     pub secondary_clicked: bool,
     pub shift: bool,
     pub ctrl: bool,
+    pub alt: bool,
+    /// Wheel notches this frame (positive = up), when the camera does not use them.
+    pub scroll: f32,
     pub hovered: bool,
 }
 
@@ -103,7 +106,8 @@ impl ViewportPanel {
         let size_px = Vec2::new(rect.width() * ppp, rect.height() * ppp);
 
         let mods = ui.input(|i| i.modifiers);
-        let mut input = ViewportInput { size: size_px, shift: mods.shift, ctrl: mods.command, hovered: response.hovered(), ..Default::default() };
+        let mut input =
+            ViewportInput { size: size_px, shift: mods.shift, ctrl: mods.command, alt: mods.alt, hovered: response.hovered(), ..Default::default() };
         let (pointer_pos, primary_down, primary_pressed, primary_released) = ui.input(|i| {
             (
                 i.pointer.latest_pos(),
@@ -141,6 +145,17 @@ impl ViewportPanel {
                     self.camera.zoom(scroll / 50.0);
                 }
             }
+        } else if response.hovered() {
+            // Whole notches only, so a bevel's segment count moves by one per wheel click.
+            input.scroll = ui.input(|i| {
+                i.events
+                    .iter()
+                    .filter_map(|e| match e {
+                        egui::Event::MouseWheel { delta, .. } => Some(delta.y.signum()),
+                        _ => None,
+                    })
+                    .sum()
+            });
         }
 
         // ---- render ----
@@ -166,7 +181,7 @@ impl ViewportPanel {
                 ui.painter().image(id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
             }
             None => {
-                ui.painter().rect_filled(rect, 0.0, Color32::from_rgb(0x29, 0x2e, 0x37));
+                ui.painter().rect_filled(rect, 0.0, crate::theme::VIEWPORT_BG);
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
@@ -178,11 +193,7 @@ impl ViewportPanel {
         }
 
         // ---- overlay ----
-        let label = match self.options.shading {
-            ShadingMode::Wireframe => "Wireframe",
-            ShadingMode::Solid => "Solid",
-            ShadingMode::SolidWire => "Solid + Wire",
-        };
+        let label = self.options.shading.name();
         let mode = if scene.edit.is_some() { "Edit Mode" } else { "Object Mode" };
         ui.painter().text(
             rect.left_top() + egui::vec2(8.0, 6.0),

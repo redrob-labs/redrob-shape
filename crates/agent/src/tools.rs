@@ -21,11 +21,11 @@ pub fn tool_definitions() -> Value {
          "inputSchema": {"type": "object", "properties": {"object": object, "location": vec3("x y z"), "rotation": vec3("degrees about X Y Z"), "scale": vec3("sx sy sz")}, "required": ["object"]}},
         {"name": "rename_object", "description": "Rename an object.", "inputSchema": {"type": "object", "properties": {"object": object, "name": {"type": "string"}}, "required": ["object", "name"]}},
         {"name": "delete_object", "description": "Delete an object.", "inputSchema": {"type": "object", "properties": {"object": object}, "required": ["object"]}},
-        {"name": "set_material", "description": "Give a mesh object a material (created if it has none) and set its colour (linear RGBA 0..1), metallic, roughness and emissive.",
-         "inputSchema": {"type": "object", "properties": {"object": object, "color": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 4}, "metallic": {"type": "number"}, "roughness": {"type": "number"}, "emissive": vec3("linear RGB"), "name": {"type": "string"}}, "required": ["object"]}},
-        {"name": "mesh_op", "description": "Edit a mesh object's geometry destructively. op: subdivide (Catmull-Clark), subdivide_linear, smooth, extrude (all faces by amount), inset (all faces by amount), shrink_fatten (amount), triangulate, flip_normals.",
-         "inputSchema": {"type": "object", "properties": {"object": object, "op": {"type": "string", "enum": ["subdivide", "subdivide_linear", "smooth", "extrude", "inset", "shrink_fatten", "triangulate", "flip_normals"]}, "amount": {"type": "number"}}, "required": ["object", "op"]}},
-        {"name": "add_modifier", "description": "Add a non-destructive modifier to a mesh object. kind: mirror {axis: x|y|z}, array {count, offset:[x,y,z]}, subdivision {levels, smooth}, smooth {iterations, factor}.",
+        {"name": "set_material", "description": "Give a mesh object a material (created if it has none) and set its colour (linear RGBA 0..1), metallic, roughness, emissive and an image texture (PNG/JPEG path) for the base colour; box UVs are generated when the mesh has none.",
+         "inputSchema": {"type": "object", "properties": {"object": object, "color": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 4}, "metallic": {"type": "number"}, "roughness": {"type": "number"}, "emissive": vec3("linear RGB"), "name": {"type": "string"}, "texture": {"type": "string"}}, "required": ["object"]}},
+        {"name": "mesh_op", "description": "Edit a mesh object's geometry destructively. op: subdivide (Catmull-Clark), subdivide_linear, smooth, extrude (all faces by amount), inset (all faces by amount), bevel (all edges by amount), shrink_fatten (amount), triangulate, flip_normals.",
+         "inputSchema": {"type": "object", "properties": {"object": object, "op": {"type": "string", "enum": ["subdivide", "subdivide_linear", "smooth", "extrude", "inset", "bevel", "shrink_fatten", "triangulate", "flip_normals"]}, "amount": {"type": "number"}}, "required": ["object", "op"]}},
+        {"name": "add_modifier", "description": "Add a non-destructive modifier to a mesh object. kind: mirror {axis: x|y|z}, array {count, offset:[x,y,z]}, subdivision {levels, smooth}, smooth {iterations, factor}, bevel {offset, segments}, solidify {thickness, offset}, decimate {ratio}, wireframe {thickness}, triangulate, screw {axis, angle(deg), steps, screw}, simple_deform {mode: twist|bend|taper|stretch, axis, factor(radians for twist/bend)}, displace {strength, scale}, weld {distance}, boolean {operation: union|difference|intersect, target: object}, shrinkwrap {target: object, offset}.",
          "inputSchema": {"type": "object", "properties": {"object": object, "kind": {"type": "string", "enum": ["mirror", "array", "subdivision", "smooth"]}, "axis": {"type": "string"}, "count": {"type": "integer"}, "offset": vec3("x y z"), "levels": {"type": "integer"}, "smooth": {"type": "boolean"}, "iterations": {"type": "integer"}, "factor": {"type": "number"}}, "required": ["object", "kind"]}},
         {"name": "clear_modifiers", "description": "Remove every modifier from a mesh object (apply=true bakes them into the mesh first).",
          "inputSchema": {"type": "object", "properties": {"object": object, "apply": {"type": "boolean"}}, "required": ["object"]}},
@@ -129,7 +129,24 @@ pub fn execute(scene: &mut Scene, name: &str, args: &Value) -> Result<Value, Str
             if let Some(e) = vec3_arg(a, "emissive") {
                 m.emissive = e.to_array();
             }
-            Ok(json!({"object": id.0, "material": m.name, "base_color": m.base_color, "metallic": m.metallic, "roughness": m.roughness}))
+            let (name, base_color, metallic, roughness) = (m.name.clone(), m.base_color, m.metallic, m.roughness);
+            if let Some(path) = a.get("texture").and_then(Value::as_str) {
+                let tex = shape_scene::Texture::load(std::path::Path::new(path)).map_err(|e| format!("texture: {e}"))?;
+                let tid = scene.add_texture(tex);
+                if let Some(m) = scene.material_mut(mid) {
+                    m.base_color_texture = Some(tid);
+                }
+                // The texture needs UVs: box-project when the mesh has none.
+                if let Some((mesh_id, mesh)) = scene.object_mesh(id)
+                    && scene.mesh(mesh_id).is_some_and(|d| d.uvs.is_none())
+                {
+                    let uvs = shape_ops::uv_box(mesh);
+                    if let Some(d) = scene.mesh_mut(mesh_id) {
+                        d.uvs = Some(uvs);
+                    }
+                }
+            }
+            Ok(json!({"object": id.0, "material": name, "base_color": base_color, "metallic": metallic, "roughness": roughness}))
         }
         "mesh_op" => {
             let id = find(scene, a.get("object"))?;
@@ -142,6 +159,7 @@ pub fn execute(scene: &mut Scene, name: &str, args: &Value) -> Result<Value, Str
                 "smooth" => shape_ops::smooth(mesh, amount.map(|a| a.max(1.0) as u32).unwrap_or(2), 0.5),
                 "extrude" => shape_ops::extrude_faces(mesh, &shape_ops::all_faces(mesh), amount.unwrap_or(0.5)),
                 "inset" => shape_ops::inset_faces(mesh, &shape_ops::all_faces(mesh), amount.unwrap_or(0.2)),
+                "bevel" => shape_ops::bevel_all(mesh, amount.unwrap_or(0.1)),
                 "shrink_fatten" => shape_ops::shrink_fatten(mesh, amount.unwrap_or(0.1)),
                 "triangulate" => shape_ops::triangulate(mesh),
                 "flip_normals" => shape_ops::flip_normals(mesh),
@@ -176,6 +194,50 @@ pub fn execute(scene: &mut Scene, name: &str, args: &Value) -> Result<Value, Str
                 "smooth" => Modifier::Smooth {
                     iterations: a.get("iterations").and_then(Value::as_u64).unwrap_or(1).min(50) as u32,
                     factor: a.get("factor").and_then(Value::as_f64).unwrap_or(0.5).clamp(0.0, 1.0) as f32,
+                },
+                "bevel" => Modifier::Bevel {
+                    offset: a.get("offset").and_then(Value::as_f64).unwrap_or(0.1).clamp(0.0, 10.0) as f32,
+                    segments: a.get("segments").and_then(Value::as_u64).unwrap_or(1).clamp(1, 32) as u32,
+                },
+                "solidify" => Modifier::Solidify {
+                    thickness: a.get("thickness").and_then(Value::as_f64).unwrap_or(0.1) as f32,
+                    offset: a.get("offset").and_then(Value::as_f64).unwrap_or(-1.0).clamp(-1.0, 1.0) as f32,
+                },
+                "decimate" => Modifier::Decimate { ratio: a.get("ratio").and_then(Value::as_f64).unwrap_or(0.5).clamp(0.0, 1.0) as f32 },
+                "wireframe" => Modifier::Wireframe { thickness: a.get("thickness").and_then(Value::as_f64).unwrap_or(0.05).max(0.0) as f32 },
+                "triangulate" => Modifier::Triangulate,
+                "screw" => Modifier::Screw {
+                    axis: axis_arg(a),
+                    angle: (a.get("angle").and_then(Value::as_f64).unwrap_or(360.0) as f32).to_radians(),
+                    steps: a.get("steps").and_then(Value::as_u64).unwrap_or(16).clamp(1, 256) as u32,
+                    screw: a.get("screw").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                },
+                "simple_deform" => Modifier::SimpleDeform {
+                    mode: match a.get("mode").and_then(Value::as_str).unwrap_or("twist") {
+                        "bend" => shape_scene::DeformMode::Bend,
+                        "taper" => shape_scene::DeformMode::Taper,
+                        "stretch" => shape_scene::DeformMode::Stretch,
+                        _ => shape_scene::DeformMode::Twist,
+                    },
+                    axis: axis_arg(a),
+                    factor: a.get("factor").and_then(Value::as_f64).unwrap_or(0.785) as f32,
+                },
+                "displace" => Modifier::Displace {
+                    strength: a.get("strength").and_then(Value::as_f64).unwrap_or(0.1) as f32,
+                    scale: a.get("scale").and_then(Value::as_f64).unwrap_or(1.0).max(0.01) as f32,
+                },
+                "weld" => Modifier::Weld { distance: a.get("distance").and_then(Value::as_f64).unwrap_or(0.001).max(0.0) as f32 },
+                "boolean" => Modifier::Boolean {
+                    op: match a.get("operation").and_then(Value::as_str).unwrap_or("difference") {
+                        "union" => shape_scene::BooleanOp::Union,
+                        "intersect" => shape_scene::BooleanOp::Intersect,
+                        _ => shape_scene::BooleanOp::Difference,
+                    },
+                    target: Some(find(scene, a.get("target"))?),
+                },
+                "shrinkwrap" => Modifier::Shrinkwrap {
+                    target: Some(find(scene, a.get("target"))?),
+                    offset: a.get("offset").and_then(Value::as_f64).unwrap_or(0.0) as f32,
                 },
                 other => return Err(format!("unknown modifier `{other}`")),
             };
@@ -294,7 +356,7 @@ fn object_json(scene: &Scene, id: ObjectId) -> Value {
     let mut v = json!({
         "id": id.0,
         "name": o.name,
-        "type": match o.data { ObjectData::Mesh { .. } => "mesh", ObjectData::Light(_) => "light", ObjectData::Camera(_) => "camera", ObjectData::Empty => "empty" },
+        "type": match o.data { ObjectData::Mesh { .. } => "mesh", ObjectData::Light(_) => "light", ObjectData::Camera(_) => "camera", ObjectData::Empty => "empty", ObjectData::Armature(_) => "armature", ObjectData::Curve(_) => "curve", ObjectData::Text { .. } => "text", ObjectData::Metaball { .. } => "metaball" },
         "location": o.transform.translation.to_array(),
         "rotation_deg": [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()],
         "scale": o.transform.scale.to_array(),
@@ -317,6 +379,21 @@ fn object_json(scene: &Scene, id: ObjectId) -> Value {
             obj.insert("camera".into(), json!({"fov_y_deg": c.fov_y.to_degrees(), "near": c.near, "far": c.far}));
         }
         ObjectData::Empty => {}
+        ObjectData::Armature(a) => {
+            obj.insert("armature".into(), json!({"bones": a.bones.iter().map(|b| b.name.clone()).collect::<Vec<_>>()}));
+        }
+        ObjectData::Text { text, .. } => {
+            obj.insert("text".into(), json!({"body": text.body, "size": text.size, "extrude": text.extrude}));
+        }
+        ObjectData::Metaball { meta, .. } => {
+            obj.insert("metaball".into(), json!({"elements": meta.elements.len(), "threshold": meta.threshold}));
+        }
+        ObjectData::Curve(c) => {
+            obj.insert(
+                "curve".into(),
+                json!({"splines": c.splines.len(), "points": c.splines.iter().map(|s| s.points.len()).sum::<usize>(), "bevel_depth": c.bevel_depth}),
+            );
+        }
     }
     v
 }
@@ -347,6 +424,15 @@ pub fn find(scene: &Scene, key: Option<&Value>) -> Result<ObjectId, String> {
 
 fn str_arg<'a>(a: &'a Value, key: &str) -> Result<&'a str, String> {
     a.get(key).and_then(Value::as_str).ok_or_else(|| format!("missing `{key}`"))
+}
+
+/// `axis`: x | y | z (default y).
+fn axis_arg(a: &Value) -> u8 {
+    match a.get("axis").and_then(Value::as_str).unwrap_or("y") {
+        "x" | "X" => 0,
+        "z" | "Z" => 2,
+        _ => 1,
+    }
 }
 
 fn vec3_arg(a: &Value, key: &str) -> Option<Vec3> {

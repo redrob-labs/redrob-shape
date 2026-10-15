@@ -1,6 +1,6 @@
 //! CPU side of a frame: turn the scene into vertex lists, and pick objects with the BVH.
 
-use crate::{FrameGeometry, GpuLight, OrbitCamera, Vertex, ViewOptions};
+use crate::{ColorMode, FrameGeometry, GpuLight, OrbitCamera, SolidOptions, Vertex, ViewOptions};
 use shape_geom::FaceId;
 use shape_geom::bvh::Bvh;
 use shape_math::{Vec2, Vec3};
@@ -10,10 +10,72 @@ use std::borrow::Cow;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ShadingMode {
     Wireframe,
+    /// Blender's Solid: one studio grey for every surface, no materials.
     #[default]
     Solid,
     /// Solid with every edge drawn on top.
     SolidWire,
+    /// Blender's Material Preview: materials, image textures and the scene's lights.
+    MaterialPreview,
+}
+
+impl ShadingMode {
+    pub const ALL: [ShadingMode; 4] = [ShadingMode::Wireframe, ShadingMode::Solid, ShadingMode::SolidWire, ShadingMode::MaterialPreview];
+    pub fn name(self) -> &'static str {
+        match self {
+            ShadingMode::Wireframe => "Wireframe",
+            ShadingMode::Solid => "Solid",
+            ShadingMode::SolidWire => "Solid + Wireframe",
+            ShadingMode::MaterialPreview => "Material Preview",
+        }
+    }
+    /// Surfaces take their material colour (else Blender's solid grey).
+    pub fn uses_materials(self) -> bool {
+        self == ShadingMode::MaterialPreview
+    }
+}
+
+/// Blender's weight ramp: blue (0) -> cyan -> green (0.5) -> yellow -> red (1).
+pub fn weight_color(w: f32) -> [f32; 4] {
+    let w = w.clamp(0.0, 1.0);
+    let stops = [[0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [1.0, 0.0, 0.0]];
+    let t = w * 4.0;
+    let i = (t.floor() as usize).min(3);
+    let f = t - i as f32;
+    let (a, b) = (stops[i], stops[i + 1]);
+    [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, 1.0]
+}
+
+/// Solid-mode surface colour per Blender's shading popover "Color" setting.
+fn solid_color(scene: &Scene, id: ObjectId, data: &ObjectData, solid: &SolidOptions) -> [f32; 4] {
+    match solid.color {
+        ColorMode::Material => match data {
+            ObjectData::Mesh { material: Some(m), .. } => scene.material(*m).map(|m| m.viewport_color).unwrap_or(DEFAULT_SURFACE),
+            _ => DEFAULT_SURFACE,
+        },
+        ColorMode::Object => DEFAULT_SURFACE,
+        ColorMode::Random => {
+            // A stable pastel per object id (golden-ratio hue walk).
+            let hue = (id.0 as f32 * 0.618_034) % 1.0;
+            let (r, g, b) = hsv(hue, 0.45, 0.85);
+            [r, g, b, 1.0]
+        }
+        ColorMode::Single => solid.single_color,
+    }
+}
+
+fn hsv(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    let i = (h * 6.0).floor();
+    let f = h * 6.0 - i;
+    let (p, q, t) = (v * (1.0 - s), v * (1.0 - s * f), v * (1.0 - s * (1.0 - f)));
+    match i as i32 % 6 {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    }
 }
 
 const GRID_HALF: i32 = 20;
@@ -25,13 +87,19 @@ const WIRE: [f32; 4] = [0.05, 0.05, 0.06, 1.0];
 const SELECTED_WIRE: [f32; 4] = [1.0, 0.60, 0.15, 1.0];
 const ACTIVE_WIRE: [f32; 4] = [1.0, 0.80, 0.35, 1.0];
 const DEFAULT_SURFACE: [f32; 4] = [0.62, 0.63, 0.66, 1.0];
-const SELECTED_FACE: [f32; 4] = [0.95, 0.55, 0.20, 1.0];
+// Blender's selected face: the surface tinted orange (measured #9B7D66..#A58B77 lit in its theme).
+const SELECTED_FACE: [f32; 4] = [0.55, 0.33, 0.18, 1.0];
 const GIZMO: [f32; 4] = [0.95, 0.85, 0.40, 1.0];
 const CAMERA_GIZMO: [f32; 4] = [0.70, 0.75, 0.85, 1.0];
 /// Power at which a point light's uploaded radiance is 1 at one metre.
 const POINT_POWER_SCALE: f32 = 1.0 / 80.0;
 const SUN_SCALE: f32 = 0.35;
 const EDIT_WIRE: [f32; 4] = [0.10, 0.10, 0.12, 1.0];
+/// Blender's seam edge colour.
+const SEAM: [f32; 4] = [0.86, 0.16, 0.16, 1.0];
+/// Blender's edit-mode selection orange for edges and vertices, and its black vertex dots.
+const EDIT_SELECTED: [f32; 4] = [0.79, 0.29, 0.03, 1.0]; // #E89330 in Blender's dark theme
+const EDIT_VERTEX: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 /// The mesh an object is drawn with: the base mesh while it is being edited, otherwise the
 /// evaluated one.
@@ -51,7 +119,7 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
     }
     out.lights = scene_lights(scene);
     for (id, object) in scene.objects() {
-        if !object.visible {
+        if !scene.is_visible(id) {
             continue;
         }
         let world = scene.world_transform(id);
@@ -72,29 +140,82 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
                 axes_gizmo(&mut out.lines, world.translation, 0.3, c);
                 continue;
             }
-            ObjectData::Mesh { .. } => {}
+            ObjectData::Armature(arm) => {
+                armature_gizmo(&mut out.lines, &world, arm, selected);
+                continue;
+            }
+            ObjectData::Curve(curve) => {
+                curve_lines(&mut out, &world, curve, selected, scene.edit.as_ref().is_some_and(|e| e.object == id));
+                if curve.bevel_depth <= 0.0 {
+                    continue;
+                }
+            }
+            ObjectData::Mesh { .. } | ObjectData::Text { .. } | ObjectData::Metaball { .. } => {}
         }
         let Some(mesh) = display_mesh(scene, id) else { continue };
         let mesh = mesh.as_ref();
         let editing = scene.edit.as_ref().filter(|e| e.object == id);
         let material = match &object.data {
-            ObjectData::Mesh { material: Some(m), .. } => scene.material(*m),
+            ObjectData::Mesh { material: Some(m), .. } if options.shading.uses_materials() => scene.material(*m),
             _ => None,
         };
-        let base = material.map(|m| m.base_color).unwrap_or(DEFAULT_SURFACE);
+        let base = if options.shading.uses_materials() {
+            material.map(|m| m.base_color).unwrap_or(DEFAULT_SURFACE)
+        } else {
+            solid_color(scene, id, &object.data, &options.solid)
+        };
         let (metallic, roughness, emissive) = material.map(|m| (m.metallic, m.roughness, m.emissive)).unwrap_or((0.0, 0.5, [0.0; 3]));
+        // Weight Paint: per-vertex colours from the active group (only while the displayed mesh
+        // still has the base mesh's vertices).
+        let weights: Option<Vec<f32>> = match (&options.weight_paint, &object.data) {
+            (Some((wp_id, group)), ObjectData::Mesh { mesh: mid, .. }) if *wp_id == id => scene.mesh(*mid).and_then(|d| {
+                let g = d.vertex_groups.iter().find(|g| &g.name == group)?;
+                let mut w = vec![0.0; d.mesh.vertex_count()];
+                for &(v, weight) in &g.weights {
+                    if let Some(slot) = w.get_mut(v as usize) {
+                        *slot = weight;
+                    }
+                }
+                Some(w)
+            }),
+            _ => None,
+        };
+        // Image texture: only with UVs on the base mesh (modifiers drop them), in Material Preview.
+        let uvs = match (&object.data, material.and_then(|m| m.base_color_texture)) {
+            (ObjectData::Mesh { mesh: mid, modifiers, .. }, Some(tex)) if modifiers.iter().all(|m| !m.enabled()) => {
+                scene.mesh(*mid).and_then(|d| d.uvs.as_ref()).filter(|u| u.len() == mesh.face_count()).map(|u| (tex, u))
+            }
+            _ => None,
+        };
         let positions: Vec<Vec3> = mesh.positions().map(|p| world.transform_point(p)).collect();
         let active = scene.selection.active == Some(id);
 
         if options.shading != ShadingMode::Wireframe {
+            let mut textured_tris: Vec<Vertex> = Vec::new();
             for f in mesh.face_ids() {
                 let vs: Vec<usize> = mesh.face_vertices(f).map(|v| v.index()).collect();
                 let n = world.transform_vector(mesh.face_normal(f)).normalize_or_zero();
-                let color = if editing.is_some_and(|e| e.faces.contains(&f)) { SELECTED_FACE } else { base };
+                let selected_face = editing.is_some_and(|e| e.faces.contains(&f));
+                let color = if selected_face { SELECTED_FACE } else { base };
+                let face_uv = uvs.as_ref().map(|(_, u)| &u[f.index()]).filter(|u| u.len() == vs.len() && !selected_face);
                 for i in 1..vs.len() - 1 {
-                    for &k in &[vs[0], vs[i], vs[i + 1]] {
-                        out.triangles.push(Vertex::new(positions[k], n, color).with_material(metallic, roughness, emissive));
+                    for &c in &[0, i, i + 1] {
+                        let color = match &weights {
+                            Some(w) if w.len() == positions.len() => weight_color(w[vs[c]]),
+                            _ => color,
+                        };
+                        let v = Vertex::new(positions[vs[c]], n, color).with_material(metallic, roughness, emissive);
+                        match face_uv {
+                            Some(u) => textured_tris.push(v.with_uv(u[c])),
+                            None => out.triangles.push(v),
+                        }
                     }
+                }
+            }
+            if let (Some((tex, _)), false) = (&uvs, textured_tris.is_empty()) {
+                match out.textured.iter_mut().find(|(t, _)| t == tex) {
+                    Some((_, list)) => list.extend(textured_tris),
+                    None => out.textured.push((*tex, textured_tris)),
                 }
             }
         }
@@ -110,10 +231,31 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
             None
         };
         if let Some(c) = wire_color {
+            let seams = match &object.data {
+                ObjectData::Mesh { mesh: mid, .. } if editing.is_some() => scene.mesh(*mid).map(|d| &d.seams),
+                _ => None,
+            };
             for e in mesh.edge_ids() {
                 let (a, b) = mesh.edge_vertices(e);
+                let is_seam = seams.is_some_and(|s| s.contains(&shape_ops::unwrap::seam_key(a, b)));
+                let c = if editing.is_some_and(|ed| ed.edges.contains(&e)) {
+                    EDIT_SELECTED
+                } else if is_seam {
+                    SEAM
+                } else {
+                    c
+                };
                 out.lines.push(Vertex::new(positions[a.index()], Vec3::Y, c));
                 out.lines.push(Vertex::new(positions[b.index()], Vec3::Y, c));
+            }
+        }
+        // Vertex dots in vertex select mode, selected ones orange.
+        if let Some(ed) = editing
+            && ed.mode == shape_scene::SelectMode::Vertex
+        {
+            for v in mesh.vertex_ids() {
+                let c = if ed.verts.contains(&v) { EDIT_SELECTED } else { EDIT_VERTEX };
+                out.points.push(Vertex::new(positions[v.index()], Vec3::Y, c));
             }
         }
     }
@@ -125,7 +267,7 @@ pub fn scene_lights(scene: &Scene) -> Vec<GpuLight> {
     let mut out = Vec::new();
     for (id, object) in scene.objects() {
         let ObjectData::Light(light) = &object.data else { continue };
-        if !object.visible {
+        if !scene.is_visible(id) {
             continue;
         }
         let world = scene.world_transform(id);
@@ -155,6 +297,69 @@ fn seg(lines: &mut Vec<Vertex>, a: Vec3, b: Vec3, c: [f32; 4]) {
 fn axes_gizmo(lines: &mut Vec<Vertex>, at: Vec3, r: f32, c: [f32; 4]) {
     for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
         seg(lines, at - axis * r, at + axis * r, c);
+    }
+}
+
+/// A curve object: the evaluated polyline (black, orange when selected) and, in edit mode, its
+/// control points as dots with their handles as thin lines.
+fn curve_lines(out: &mut FrameGeometry, world: &shape_math::Transform, curve: &shape_scene::Curve, selected: bool, editing: bool) {
+    let c = if selected { SELECTED_WIRE } else { WIRE };
+    for (pts, cyclic) in curve.polylines() {
+        let n = pts.len();
+        if n < 2 {
+            continue;
+        }
+        let segs = if cyclic { n } else { n - 1 };
+        for i in 0..segs {
+            out.lines.push(Vertex::new(world.transform_point(pts[i]), Vec3::Y, c));
+            out.lines.push(Vertex::new(world.transform_point(pts[(i + 1) % n]), Vec3::Y, c));
+        }
+    }
+    if editing {
+        const HANDLE: [f32; 4] = [0.45, 0.45, 0.5, 1.0];
+        for s in &curve.splines {
+            for p in &s.points {
+                let col = if p.selected { EDIT_SELECTED } else { EDIT_WIRE };
+                for h in [p.handle_left, p.handle_right] {
+                    out.lines.push(Vertex::new(world.transform_point(p.co), Vec3::Y, HANDLE));
+                    out.lines.push(Vertex::new(world.transform_point(h), Vec3::Y, HANDLE));
+                    out.points.push(Vertex::new(world.transform_point(h), Vec3::Y, HANDLE));
+                }
+                out.points.push(Vertex::new(world.transform_point(p.co), Vec3::Y, col));
+            }
+        }
+    }
+}
+
+/// Blender's octahedral bones: a thin diamond from head to tail, selected bones in the pose-mode
+/// blue, the active one lighter.
+fn armature_gizmo(lines: &mut Vec<Vertex>, world: &shape_math::Transform, arm: &shape_scene::Armature, object_selected: bool) {
+    const BONE: [f32; 4] = [0.62, 0.62, 0.65, 1.0];
+    const BONE_SELECTED: [f32; 4] = [0.35, 0.55, 0.85, 1.0];
+    const BONE_ACTIVE: [f32; 4] = [0.55, 0.75, 1.0, 1.0];
+    for (i, (head, tail)) in arm.display_segments().into_iter().enumerate() {
+        let c = if arm.active == Some(i) {
+            BONE_ACTIVE
+        } else if arm.selected.contains(&i) || (object_selected && arm.selected.is_empty()) {
+            BONE_SELECTED
+        } else {
+            BONE
+        };
+        let axis = tail - head;
+        let len = axis.length().max(1e-6);
+        let dir = axis / len;
+        let side = dir.any_orthonormal_vector();
+        let up = dir.cross(side);
+        let mid = head + dir * (len * 0.1);
+        let r = len * 0.1;
+        let ring = [mid + side * r, mid + up * r, mid - side * r, mid - up * r].map(|p| world.transform_point(p));
+        let (h, t) = (world.transform_point(head), world.transform_point(tail));
+        for k in 0..4 {
+            for (a, b) in [(h, ring[k]), (ring[k], t), (ring[k], ring[(k + 1) % 4])] {
+                lines.push(Vertex::new(a, Vec3::Y, c));
+                lines.push(Vertex::new(b, Vec3::Y, c));
+            }
+        }
     }
 }
 
@@ -246,8 +451,8 @@ pub fn pick(scene: &Scene, camera: &OrbitCamera, pixel: Vec2, size: Vec2) -> Opt
 pub fn pick_detail(scene: &Scene, camera: &OrbitCamera, pixel: Vec2, size: Vec2) -> Option<PickHit> {
     let ray = camera.ray_pixel(pixel, size);
     let mut best: Option<PickHit> = None;
-    for (id, object) in scene.objects() {
-        if !object.visible {
+    for (id, _object) in scene.objects() {
+        if !scene.is_visible(id) {
             continue;
         }
         if let Some(e) = &scene.edit
@@ -272,6 +477,15 @@ pub fn pick_detail(scene: &Scene, camera: &OrbitCamera, pixel: Vec2, size: Vec2)
 }
 
 /// Edge of `face` nearest to a local-space point: for loop cut on the hovered edge.
+/// The vertex of `face` nearest to a local-space point (vertex picking).
+pub fn nearest_vertex(mesh: &shape_geom::Mesh, face: FaceId, local_point: Vec3) -> Option<shape_geom::VertexId> {
+    mesh.face_vertices(face).min_by(|&a, &b| {
+        let da = (mesh.position(a) - local_point).length_squared();
+        let db = (mesh.position(b) - local_point).length_squared();
+        da.total_cmp(&db)
+    })
+}
+
 pub fn nearest_edge(mesh: &shape_geom::Mesh, face: FaceId, local_point: Vec3) -> Option<shape_geom::EdgeId> {
     let mut best: Option<(f32, shape_geom::EdgeId)> = None;
     for h in mesh.face_halfedges(face) {
@@ -341,7 +555,7 @@ mod edit_tests {
         let cam = OrbitCamera { yaw: 0.0, pitch: 0.0, distance: 6.0, ..Default::default() };
         let size = Vec2::new(400.0, 300.0);
         let hit = pick_detail(&scene, &cam, size * 0.5, size).unwrap();
-        let mesh = scene.object_mesh(id).unwrap().1;
+        let mesh = &scene.object_mesh(id).unwrap().1.clone();
         assert!(mesh.face_normal(hit.face).z > 0.9, "front (+Z) face");
         assert!((hit.local_point.z - 1.0).abs() < 1e-4);
         let edge = nearest_edge(mesh, hit.face, Vec3::new(0.9, 0.0, 1.0)).unwrap();
@@ -355,6 +569,16 @@ mod edit_tests {
         let orange = frame.triangles.iter().filter(|v| v.color == SELECTED_FACE).count();
         assert_eq!(orange, 6, "two triangles of the selected quad");
         assert_eq!(frame.lines.len(), 24, "edit wire on every edge");
+        assert!(frame.points.is_empty(), "no vertex dots in face mode");
+        let mut e = scene.edit.take().unwrap();
+        e.flush(mesh);
+        e.set_mode(shape_scene::SelectMode::Vertex, mesh);
+        scene.edit = Some(e);
+        let frame = build_frame(&scene, &ViewOptions { show_grid: false, ..Default::default() });
+        assert_eq!(frame.points.len(), 8, "a dot per vertex in vertex mode");
+        assert_eq!(frame.points.iter().filter(|p| p.color == EDIT_SELECTED).count(), 4, "the four selected corners are orange");
+        assert_eq!(frame.lines.iter().filter(|p| p.color == EDIT_SELECTED).count(), 8, "the four selected edges, two ends each");
+        assert_eq!(crate::expand_points(&frame.points).len(), 48);
     }
 }
 

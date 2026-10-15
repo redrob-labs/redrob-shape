@@ -16,5 +16,10 @@ wgpu = { version = "30", default-features = false, features = ["wgsl"] }
 bytemuck = { version = "1", features = ["derive"] }
 log.workspace = true
 
+[dev-dependencies]
+# Headless render tests: any adapter (the software Vulkan driver on CI), blocked on with pollster.
+wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan", "gles"] }
+pollster = "0.4"
+
 [lints]
 workspace = true

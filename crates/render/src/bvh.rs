@@ -9,6 +9,27 @@ pub struct Tri {
     pub c: Vec3,
     pub normal: Vec3,
     pub material: u32,
+    /// Texture coordinates at a, b, c (zero when the mesh has none).
+    pub uv: [shape_math::Vec2; 3],
+}
+
+impl Tri {
+    /// Barycentric interpolation of the corner UVs at point `p` on the triangle.
+    pub fn uv_at(&self, p: Vec3) -> shape_math::Vec2 {
+        let v0 = self.b - self.a;
+        let v1 = self.c - self.a;
+        let v2 = p - self.a;
+        let d00 = v0.dot(v0);
+        let d01 = v0.dot(v1);
+        let d11 = v1.dot(v1);
+        let d20 = v2.dot(v0);
+        let d21 = v2.dot(v1);
+        let denom = (d00 * d11 - d01 * d01).max(1e-12);
+        let v = (d11 * d20 - d01 * d21) / denom;
+        let w = (d00 * d21 - d01 * d20) / denom;
+        let u = 1.0 - v - w;
+        self.uv[0] * u + self.uv[1] * v + self.uv[2] * w
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

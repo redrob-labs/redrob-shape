@@ -37,6 +37,8 @@ pub enum RenderLight {
 pub struct RenderScene {
     pub bvh: Bvh,
     pub materials: Vec<RenderMaterial>,
+    /// Image textures by material index (None = plain colour).
+    pub textures: Vec<Option<shape_scene::Texture>>,
     pub lights: Vec<RenderLight>,
     pub camera: RenderCamera,
     pub sky: Vec3,
@@ -51,9 +53,11 @@ fn point_intensity(power: f32, color: [f32; 3]) -> Vec3 {
 impl RenderScene {
     pub fn build(scene: &Scene, camera: RenderCamera, settings: &Settings) -> Self {
         let mut materials = vec![RenderMaterial { base: Vec3::splat(0.62), metallic: 0.0, roughness: 0.5, emissive: Vec3::ZERO }];
+        let mut textures: Vec<Option<shape_scene::Texture>> = vec![None];
         let mut material_index = std::collections::HashMap::new();
         for (id, m) in scene.materials() {
             material_index.insert(id, materials.len() as u32);
+            textures.push(m.base_color_texture.and_then(|t| scene.texture(t)).filter(|t| t.is_loaded()).cloned());
             materials.push(RenderMaterial {
                 base: Vec3::new(m.base_color[0], m.base_color[1], m.base_color[2]),
                 metallic: m.metallic.clamp(0.0, 1.0),
@@ -64,20 +68,31 @@ impl RenderScene {
         let mut tris = Vec::new();
         let mut lights = Vec::new();
         for (id, object) in scene.objects() {
-            if !object.visible {
+            if !scene.is_visible(id) {
                 continue;
             }
             let world = scene.world_transform(id);
             match &object.data {
-                ObjectData::Mesh { material, .. } => {
+                ObjectData::Mesh { material, mesh: mesh_id, modifiers } => {
                     let Some(mesh) = shape_ops::evaluated_mesh(scene, id) else { continue };
                     let mi = material.and_then(|m| material_index.get(&m).copied()).unwrap_or(0);
+                    // UVs follow the base mesh only; an enabled modifier rebuilds it without them.
+                    let uvs = if modifiers.iter().all(|m| !m.enabled()) {
+                        scene.mesh(*mesh_id).and_then(|d| d.uvs.as_ref()).filter(|u| u.len() == mesh.face_count())
+                    } else {
+                        None
+                    };
                     let positions: Vec<Vec3> = mesh.positions().map(|p| world.transform_point(p)).collect();
                     for f in mesh.face_ids() {
                         let vs: Vec<usize> = mesh.face_vertices(f).map(|v| v.index()).collect();
                         let n = world.transform_vector(mesh.face_normal(f)).normalize_or_zero();
+                        let face_uv = uvs.map(|u| &u[f.index()]).filter(|u| u.len() == vs.len());
                         for i in 1..vs.len() - 1 {
-                            tris.push(Tri { a: positions[vs[0]], b: positions[vs[i]], c: positions[vs[i + 1]], normal: n, material: mi });
+                            let uv = match face_uv {
+                                Some(u) => [u[0], u[i], u[i + 1]],
+                                None => [shape_math::Vec2::ZERO; 3],
+                            };
+                            tris.push(Tri { a: positions[vs[0]], b: positions[vs[i]], c: positions[vs[i + 1]], normal: n, material: mi, uv });
                         }
                     }
                 }
@@ -98,13 +113,16 @@ impl RenderScene {
                 _ => {}
             }
         }
-        Self { bvh: Bvh::build(tris), materials, lights, camera, sky: settings.sky }
+        Self { bvh: Bvh::build(tris), materials, textures, lights, camera, sky: settings.sky }
     }
 
     /// The scene's first camera object, as a render camera, if any.
     pub fn scene_camera(scene: &Scene) -> Option<RenderCamera> {
         scene.objects().find_map(|(id, o)| match &o.data {
-            ObjectData::Camera(c) if o.visible => Some(RenderCamera::from_matrix(scene.world_transform(id).to_matrix(), c.fov_y)),
+            ObjectData::Camera(c) if o.visible => {
+                let cam = RenderCamera::from_matrix(scene.world_transform(id).to_matrix(), c.fov_y);
+                Some(if c.use_dof { cam.with_dof(c.fstop, c.focus_distance) } else { cam })
+            }
             _ => None,
         })
     }

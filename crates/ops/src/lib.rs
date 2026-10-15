@@ -6,10 +6,48 @@
 //!
 //! Non-destructive edits live in the scene as [`Modifier`] values; [`evaluate`] applies a stack.
 
+pub mod bevel;
+pub mod boolean;
+pub mod edit;
+pub mod edit2;
+pub mod generate;
+pub mod geonodes;
+pub mod metaball;
 pub mod modifiers;
+pub mod sculpt;
 pub mod subdivide;
+pub mod text;
+pub mod unwrap;
 pub mod uv;
 
+pub use bevel::bevel_edges_segments;
+pub use bevel::{bevel_all, bevel_edges};
+pub use boolean::{BooleanOp, boolean, shrinkwrap};
+
+/// Regenerate the cached mesh of a Text or Metaball object from its data (after an edit).
+pub fn regenerate_generated(scene: &mut shape_scene::Scene, id: shape_scene::ObjectId) {
+    use shape_scene::ObjectData;
+    let built = match scene.object(id).map(|o| &o.data) {
+        Some(ObjectData::Text { text, mesh }) => Some((*mesh, text::text_mesh(&text.body, text.size, text.extrude))),
+        Some(ObjectData::Metaball { meta, mesh }) => {
+            let elements: Vec<metaball::MetaElement> =
+                meta.elements.iter().map(|e| metaball::MetaElement { position: e.position, radius: e.radius, stiffness: e.stiffness }).collect();
+            Some((*mesh, metaball::polygonise(&elements, meta.threshold, meta.resolution)))
+        }
+        _ => None,
+    };
+    if let Some((mid, m)) = built
+        && let Some(d) = scene.mesh_mut(mid)
+    {
+        d.set_mesh(m);
+    }
+}
+pub use edit::{
+    MergeAt, delete_edges, delete_faces, delete_vertices, dissolve_edges, dissolve_faces, edge_loop, face_loop, fill, grow_vertices, linked_faces,
+    merge_vertices, shrink_vertices,
+};
+pub use edit2::{EdgePoint, bridge_edge_loops, edge_loops, knife_cut, shrink_fatten_vertices, spin};
+pub use generate::{DeformMode, decimate, displace, screw, simple_deform, solidify, weld, wireframe};
 pub use modifiers::{evaluate, evaluated_mesh, scene_mesh};
 pub use subdivide::{catmull_clark, subdivide_linear};
 pub use uv::{uv_box, uv_planar, uv_sphere};
@@ -99,6 +137,12 @@ impl PolyMesh {
 /// Every face of a mesh, for operators that take a face set.
 pub fn all_faces(mesh: &Mesh) -> Vec<FaceId> {
     mesh.face_ids().collect()
+}
+
+/// Every edge of the given faces, each once.
+pub fn face_edges(mesh: &Mesh, faces: &[FaceId]) -> Vec<EdgeId> {
+    let set: BTreeSet<EdgeId> = faces.iter().flat_map(|&f| mesh.face_halfedges(f).map(|h| mesh.halfedge(h).edge)).collect();
+    set.into_iter().collect()
 }
 
 /// Extrude a region of faces along their averaged normals by `distance`.

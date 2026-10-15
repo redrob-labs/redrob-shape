@@ -9,6 +9,9 @@ pub struct RenderCamera {
     pub right: Vec3,
     pub up: Vec3,
     pub fov_y: f32,
+    /// Thin-lens radius in world units (0 = pinhole) and the distance of the sharp plane.
+    pub lens_radius: f32,
+    pub focus_distance: f32,
 }
 
 impl RenderCamera {
@@ -17,7 +20,16 @@ impl RenderCamera {
         let world_up = if forward.y.abs() > 0.999 { Vec3::Z } else { Vec3::Y };
         let right = forward.cross(world_up).normalize_or_zero();
         let up = right.cross(forward);
-        Self { position, forward, right, up, fov_y }
+        Self { position, forward, right, up, fov_y, lens_radius: 0.0, focus_distance: 10.0 }
+    }
+
+    /// Blender's camera DOF: the aperture from the f-stop and a 50 mm-equivalent sensor scale.
+    pub fn with_dof(mut self, fstop: f32, focus_distance: f32) -> Self {
+        // Lens radius = focal length / (2 f). With a 36 mm sensor the focal length follows the fov.
+        let focal_length_m = 0.036 / (2.0 * (self.fov_y * 0.5).tan());
+        self.lens_radius = if fstop > 0.0 { focal_length_m / (2.0 * fstop) } else { 0.0 };
+        self.focus_distance = focus_distance.max(0.01);
+        self
     }
 
     /// From an object transform: the camera looks along its local -Z with +Y up.
@@ -26,7 +38,7 @@ impl RenderCamera {
         let forward = m.transform_vector3(-Vec3::Z).normalize_or_zero();
         let up = m.transform_vector3(Vec3::Y).normalize_or_zero();
         let right = forward.cross(up).normalize_or_zero();
-        Self { position, forward, right, up: right.cross(forward), fov_y }
+        Self { position, forward, right, up: right.cross(forward), fov_y, lens_radius: 0.0, focus_distance: 10.0 }
     }
 
     /// Ray through pixel coordinates (`px`, `py`, y down, fractional for jitter).
@@ -37,6 +49,21 @@ impl RenderCamera {
         let ndc_y = 1.0 - (py / height) * 2.0;
         let dir = self.forward + self.right * (ndc_x * tan_half * aspect) + self.up * (ndc_y * tan_half);
         Ray::new(self.position, dir.normalize())
+    }
+
+    /// Thin-lens ray: the pinhole ray's point on the focus plane stays sharp while the origin
+    /// moves across the lens disc (`u`, `v` uniform in 0..1).
+    pub fn ray_dof(&self, px: f32, py: f32, width: f32, height: f32, u: f32, v: f32) -> Ray {
+        let pin = self.ray(px, py, width, height);
+        if self.lens_radius <= 0.0 {
+            return pin;
+        }
+        let t = self.focus_distance / pin.direction.dot(self.forward).max(1e-4);
+        let focus = pin.origin + pin.direction * t;
+        let r = self.lens_radius * u.sqrt();
+        let a = v * std::f32::consts::TAU;
+        let origin = self.position + self.right * (r * a.cos()) + self.up * (r * a.sin());
+        Ray::new(origin, (focus - origin).normalize())
     }
 }
 
