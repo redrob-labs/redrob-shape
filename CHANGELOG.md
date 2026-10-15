@@ -106,6 +106,10 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   threshold with marching tetrahedra so nearby balls merge; Data tab edits elements, resolution and
   threshold. Add > Image as Plane makes a textured quad with the image's aspect. Text and metaballs
   convert to plain meshes (Object > Convert to Mesh).
+- Interchange formats: COLLADA (`.dae`) import/export with materials, node transforms and Z_UP
+  conversion; ASCII USD (`.usda`) import/export (Xform + Mesh prims, displayColor, upAxis Z
+  conversion; binary usdc/usdz not read); ASCII FBX 7.4 export and import (Geometry/Model/Material
+  with OO connections, unit scale; binary FBX is refused with a message). Alembic is not supported.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

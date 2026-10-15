@@ -41,7 +41,7 @@ same window size, Blender left and Shape right, and a keymap table checked again
 | P10 | rigging | armatures, bones, parenting with automatic weights, weight paint | deformed golden mesh |
 | P11 | render | Cycles-like features: GPU path tracer (wgpu compute), denoise, camera DOF, render/output properties; Eevee-like realtime view | reference PSNR |
 | P12 | objects | curves (Bezier/NURBS), text, metaballs, lattice, empties, image planes | import/export round trips |
-| P13 | formats | FBX, USD, Alembic, Collada import/export | round trips against Blender's output |
+| P13 | formats | FBX (ASCII), USD (usda), Collada import/export; Alembic deferred (needs an Ogawa reader) | round trips against Blender's output |
 | P14 | nodes | geometry nodes, compositor | node graph golden outputs |
 | P15 | platform | Preferences, keymap editor, scripting (no Python: embedded Rhai), add-on model | scripted smoke test |
 

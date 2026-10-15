@@ -1,15 +1,21 @@
-//! Native `.rshape` files plus OBJ, STL, glTF and PLY, and read-only `.blend` through `shape-blend`.
+//! Native `.rshape` files plus OBJ, STL, glTF, PLY, COLLADA, ASCII USD and ASCII FBX, and read-only
+//! `.blend` through `shape-blend`. Alembic is not supported (its Ogawa container has no
+//! dependency-free reader here).
 //!
 //! Every importer produces a [`Scene`]; every exporter takes one. Importers that only carry
 //! geometry (OBJ, STL, PLY) build one mesh object per group. Triangle soups (STL) are welded by
 //! exact position, and if the welded result is not a manifold polygon mesh the triangles are kept
 //! unwelded so the file still opens.
 
+pub mod collada;
+pub mod fbx;
 pub mod gltf_io;
+pub(crate) mod interchange;
 pub mod obj;
 pub mod ply;
 pub mod rshape;
 pub mod stl;
+pub mod usd;
 
 use shape_geom::{Mesh, MeshError};
 use shape_math::Vec3;
@@ -55,6 +61,12 @@ pub enum Format {
     Stl,
     Ply,
     Gltf,
+    /// COLLADA `.dae`.
+    Collada,
+    /// ASCII USD `.usda`.
+    Usd,
+    /// ASCII FBX `.fbx` (binary files are refused).
+    Fbx,
     /// Import only.
     Blend,
 }
@@ -68,12 +80,15 @@ impl Format {
             "stl" => Format::Stl,
             "ply" => Format::Ply,
             "gltf" | "glb" => Format::Gltf,
+            "dae" => Format::Collada,
+            "usda" | "usd" => Format::Usd,
+            "fbx" => Format::Fbx,
             "blend" => Format::Blend,
             _ => return Err(FormatError::UnknownExtension(ext)),
         })
     }
 
-    pub const ALL: [Format; 6] = [Format::Rshape, Format::Obj, Format::Stl, Format::Ply, Format::Gltf, Format::Blend];
+    pub const ALL: [Format; 9] = [Format::Rshape, Format::Obj, Format::Stl, Format::Ply, Format::Gltf, Format::Collada, Format::Usd, Format::Fbx, Format::Blend];
 
     pub fn can_export(self) -> bool {
         self != Format::Blend
@@ -86,6 +101,9 @@ impl Format {
             Format::Stl => &["stl"],
             Format::Ply => &["ply"],
             Format::Gltf => &["gltf", "glb"],
+            Format::Collada => &["dae"],
+            Format::Usd => &["usda", "usd"],
+            Format::Fbx => &["fbx"],
             Format::Blend => &["blend"],
         }
     }
@@ -99,6 +117,9 @@ pub fn import(path: &Path) -> Result<Scene> {
         Format::Stl => stl::load(path),
         Format::Ply => ply::load(path),
         Format::Gltf => gltf_io::load(path),
+        Format::Collada => collada::load(path),
+        Format::Usd => usd::load(path),
+        Format::Fbx => fbx::load(path),
         Format::Blend => Ok(shape_blend::import(path)?),
     }
 }
@@ -111,6 +132,9 @@ pub fn export(scene: &Scene, path: &Path) -> Result<()> {
         Format::Stl => stl::save(scene, path),
         Format::Ply => ply::save(scene, path),
         Format::Gltf => gltf_io::save(scene, path),
+        Format::Collada => collada::save(scene, path),
+        Format::Usd => usd::save(scene, path),
+        Format::Fbx => fbx::save(scene, path),
         Format::Blend => Err(FormatError::ExportUnsupported("blend")),
     }
 }
