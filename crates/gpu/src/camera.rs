@@ -13,11 +13,50 @@ pub struct OrbitCamera {
     pub fov_y: f32,
     pub near: f32,
     pub far: f32,
+    /// Orthographic projection (Blender's numpad 5). Axis views switch it on; orbiting switches it
+    /// back off, as Blender's "auto perspective" does.
+    pub ortho: bool,
+}
+
+/// The axis-aligned views of Blender's numpad, in Shape's Y-up world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AxisView {
+    Front,
+    Back,
+    Right,
+    Left,
+    Top,
+    Bottom,
+}
+
+impl AxisView {
+    /// Blender's numpad key for the view ("Ctrl+" for the opposite side).
+    pub fn key(self) -> &'static str {
+        match self {
+            AxisView::Front => "Numpad 1",
+            AxisView::Back => "Ctrl+Numpad 1",
+            AxisView::Right => "Numpad 3",
+            AxisView::Left => "Ctrl+Numpad 3",
+            AxisView::Top => "Numpad 7",
+            AxisView::Bottom => "Ctrl+Numpad 7",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            AxisView::Front => "Front",
+            AxisView::Back => "Back",
+            AxisView::Right => "Right",
+            AxisView::Left => "Left",
+            AxisView::Top => "Top",
+            AxisView::Bottom => "Bottom",
+        }
+    }
 }
 
 impl Default for OrbitCamera {
     fn default() -> Self {
-        Self { target: Vec3::ZERO, yaw: 0.6, pitch: 0.5, distance: 8.0, fov_y: 50f32.to_radians(), near: 0.05, far: 2000.0 }
+        Self { target: Vec3::ZERO, yaw: 0.6, pitch: 0.5, distance: 8.0, fov_y: 50f32.to_radians(), near: 0.05, far: 2000.0, ortho: false }
     }
 }
 
@@ -47,7 +86,59 @@ impl OrbitCamera {
     }
 
     pub fn projection(&self, aspect: f32) -> Mat4 {
-        Mat4::perspective_rh(self.fov_y, aspect.max(1e-3), self.near, self.far)
+        let aspect = aspect.max(1e-3);
+        if self.ortho {
+            // Same framing as the perspective view at the target distance.
+            let half_h = self.distance * (self.fov_y * 0.5).tan();
+            let half_w = half_h * aspect;
+            Mat4::orthographic_rh(-half_w, half_w, -half_h, half_h, self.near, self.far)
+        } else {
+            Mat4::perspective_rh(self.fov_y, aspect, self.near, self.far)
+        }
+    }
+
+    /// Snap to an axis view and go orthographic (Blender numpad 1/3/7 with auto perspective).
+    pub fn set_axis_view(&mut self, view: AxisView) {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let (yaw, pitch) = match view {
+            AxisView::Front => (0.0, 0.0),
+            AxisView::Back => (PI, 0.0),
+            AxisView::Right => (FRAC_PI_2, 0.0),
+            AxisView::Left => (-FRAC_PI_2, 0.0),
+            AxisView::Top => (0.0, Self::MAX_PITCH),
+            AxisView::Bottom => (0.0, -Self::MAX_PITCH),
+        };
+        self.yaw = yaw;
+        self.pitch = pitch;
+        self.ortho = true;
+    }
+
+    /// The axis view the camera is exactly on, if any.
+    pub fn axis_view(&self) -> Option<AxisView> {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let eps = 1e-4;
+        let near = |a: f32, b: f32| (a - b).abs() < eps;
+        if near(self.pitch, Self::MAX_PITCH) {
+            return Some(AxisView::Top);
+        }
+        if near(self.pitch, -Self::MAX_PITCH) {
+            return Some(AxisView::Bottom);
+        }
+        if !near(self.pitch, 0.0) {
+            return None;
+        }
+        let yaw = self.yaw.rem_euclid(2.0 * PI);
+        if near(yaw, 0.0) || near(yaw, 2.0 * PI) {
+            Some(AxisView::Front)
+        } else if near(yaw, PI) {
+            Some(AxisView::Back)
+        } else if near(yaw, FRAC_PI_2) {
+            Some(AxisView::Right)
+        } else if near(yaw, 3.0 * FRAC_PI_2) {
+            Some(AxisView::Left)
+        } else {
+            None
+        }
     }
 
     pub fn view_projection(&self, aspect: f32) -> Mat4 {
@@ -56,6 +147,9 @@ impl OrbitCamera {
 
     /// Turn by screen-space drag deltas (radians per pixel baked in).
     pub fn orbit(&mut self, delta: Vec2) {
+        if delta != Vec2::ZERO {
+            self.ortho = false;
+        }
         self.yaw -= delta.x * 0.01;
         self.pitch = (self.pitch + delta.y * 0.01).clamp(-Self::MAX_PITCH, Self::MAX_PITCH);
     }
@@ -109,6 +203,28 @@ impl OrbitCamera {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn axis_views_look_down_the_axes_in_ortho_and_orbit_restores_perspective() {
+        let mut cam = OrbitCamera::default();
+        cam.set_axis_view(AxisView::Front);
+        assert!(cam.ortho);
+        assert!((cam.forward() - -Vec3::Z).length() < 1e-4, "front looks along -Z: {:?}", cam.forward());
+        assert_eq!(cam.axis_view(), Some(AxisView::Front));
+        cam.set_axis_view(AxisView::Right);
+        assert!((cam.forward() - -Vec3::X).length() < 1e-4, "right looks along -X: {:?}", cam.forward());
+        cam.set_axis_view(AxisView::Top);
+        assert!(cam.forward().y < -0.99, "top looks down: {:?}", cam.forward());
+        assert_eq!(cam.axis_view(), Some(AxisView::Top));
+        // Ortho rays are parallel: two pixels give the same direction.
+        let size = Vec2::new(800.0, 600.0);
+        let a = cam.ray_pixel(Vec2::new(100.0, 100.0), size);
+        let b = cam.ray_pixel(Vec2::new(700.0, 500.0), size);
+        assert!((a.direction - b.direction).length() < 1e-4);
+        cam.orbit(Vec2::new(5.0, -20.0));
+        assert!(!cam.ortho);
+        assert_eq!(cam.axis_view(), None);
+    }
 
     #[test]
     fn centre_ray_passes_through_target() {

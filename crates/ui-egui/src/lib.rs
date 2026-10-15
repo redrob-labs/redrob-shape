@@ -5,6 +5,7 @@
 //! `viewport`.
 
 pub mod agent;
+pub mod keymap;
 pub mod layout;
 mod panels;
 mod properties;
@@ -14,6 +15,7 @@ pub mod tools;
 pub mod viewport;
 
 pub use agent::{AgentFactory, AgentPanel};
+pub use keymap::{BoxSelect, Op, Popup};
 pub use layout::{PropsTab, Regions, Workspace};
 pub use render_panel::RenderPanel;
 pub use shape_agent::ControlServer;
@@ -50,6 +52,21 @@ pub struct ShapeApp {
     control: Option<ControlServer>,
     pub regions: Regions,
     pub render: RenderPanel,
+    /// Popup open at the pointer (Shift+A, Z, X, F3) and where it opened.
+    pub popup: Option<Popup>,
+    popup_pos: Option<egui::Pos2>,
+    pub box_select: Option<BoxSelect>,
+    /// B was pressed: the next drag is a box whatever the tool.
+    pub box_pending: bool,
+    /// Set by `run_op(RenderImage)`; the frame starts the render where it has the context.
+    render_requested: bool,
+}
+
+/// Consume a key press only when exactly these modifiers are held. egui's own `consume_key`
+/// treats an unmodified pattern as "any shift/alt state", which would let plain `A` swallow
+/// `Shift+A`.
+pub(crate) fn key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key) -> bool {
+    i.modifiers.matches_exact(mods) && i.consume_key(mods, key)
 }
 
 /// Primitives the Add menu offers.
@@ -116,6 +133,11 @@ impl ShapeApp {
             control: None,
             regions: Regions::default(),
             render: RenderPanel::new(),
+            popup: None,
+            popup_pos: None,
+            box_select: None,
+            box_pending: false,
+            render_requested: false,
         }
     }
 
@@ -499,20 +521,20 @@ impl ShapeApp {
         let modal_running = self.modal.is_some();
         let (enter, escape, g, r, sc, e, i, loop_cut, bevel, tab, a, x, y, z) = ui.input_mut(|inp| {
             (
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::G),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::R),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::S),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::E),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::I),
-                inp.consume_key(egui::Modifiers::COMMAND, egui::Key::R),
-                inp.consume_key(egui::Modifiers::COMMAND, egui::Key::B),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
-                inp.consume_key(egui::Modifiers::NONE, egui::Key::A),
-                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::X),
-                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::Y),
-                modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::Z),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::G),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::R),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::S),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::E),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::I),
+                crate::key(inp, egui::Modifiers::COMMAND, egui::Key::R),
+                crate::key(inp, egui::Modifiers::COMMAND, egui::Key::B),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::Tab),
+                crate::key(inp, egui::Modifiers::NONE, egui::Key::A),
+                modal_running && crate::key(inp, egui::Modifiers::NONE, egui::Key::X),
+                modal_running && crate::key(inp, egui::Modifiers::NONE, egui::Key::Y),
+                modal_running && crate::key(inp, egui::Modifiers::NONE, egui::Key::Z),
             )
         });
         if let Some(m) = &mut self.modal {
@@ -568,20 +590,20 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() || self.modal.is_some() {
             return;
         }
-        let f12 = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F12));
+        let f12 = ui.input_mut(|i| crate::key(i, egui::Modifiers::NONE, egui::Key::F12));
         if f12 {
             self.start_render(ui.ctx());
         }
         let (toolbar, sidebar, maximize, dup, hide, reveal, none, invert) = ui.input_mut(|i| {
             (
-                i.consume_key(egui::Modifiers::NONE, egui::Key::T),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::N),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space),
-                i.consume_key(egui::Modifiers::SHIFT, egui::Key::D),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::H),
-                i.consume_key(egui::Modifiers::ALT, egui::Key::H),
-                i.consume_key(egui::Modifiers::ALT, egui::Key::A),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::I),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::T),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::N),
+                crate::key(i, egui::Modifiers::COMMAND, egui::Key::Space),
+                crate::key(i, egui::Modifiers::SHIFT, egui::Key::D),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::H),
+                crate::key(i, egui::Modifiers::ALT, egui::Key::H),
+                crate::key(i, egui::Modifiers::ALT, egui::Key::A),
+                crate::key(i, egui::Modifiers::COMMAND, egui::Key::I),
             )
         });
         if toolbar {
@@ -610,13 +632,13 @@ impl ShapeApp {
         }
         let (undo, redo, del, frame, wire, solid) = ui.input_mut(|i| {
             (
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
-                i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
-                    || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::X),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Home),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Num1),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Num2),
+                crate::key(i, egui::Modifiers::COMMAND, egui::Key::Z),
+                crate::key(i, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
+                    || crate::key(i, egui::Modifiers::COMMAND, egui::Key::Y),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::Delete),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::Home),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::Num1),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::Num2),
             )
         });
         if redo {
@@ -626,6 +648,9 @@ impl ShapeApp {
         }
         if del {
             self.delete_selected();
+        }
+        if ui.input_mut(|i| crate::key(i, egui::Modifiers::NONE, egui::Key::X)) && !self.scene.selection.is_empty() && self.scene.edit.is_none() {
+            self.popup = Some(Popup::DeleteConfirm);
         }
         if frame {
             self.viewport.frame_scene(&self.scene);
@@ -641,8 +666,18 @@ impl ShapeApp {
     /// Draw one frame. Split out of `eframe::App::ui` so `egui_kittest` can drive it.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.drain_control();
+        if self.popup.is_some() && ui.input_mut(|i| key(i, egui::Modifiers::NONE, egui::Key::Escape)) {
+            self.popup = None;
+            self.popup_pos = None;
+        }
         let (enter, escape) = self.modal_keys(ui);
         self.hotkeys(ui);
+        if self.popup.is_none() {
+            self.object_keys(ui);
+        }
+        if std::mem::take(&mut self.render_requested) {
+            self.start_render(ui.ctx());
+        }
         self.top_bar(ui);
         self.status_bar(ui);
         if self.regions.right_column && !self.regions.maximized {
@@ -671,7 +706,12 @@ impl ShapeApp {
             })
             .inner;
         self.last_pointer = input.pointer.or(self.last_pointer);
-        self.handle_viewport_input(&input, enter, escape);
+        if self.popup.is_some() {
+            self.popup_ui(ui);
+        } else if !self.box_select_input(&input) {
+            self.handle_viewport_input(&input, enter, escape);
+        }
+        self.box_select_overlay(ui);
         match self.render.ui(ui.ctx()) {
             Some(render_panel::RenderAction::Start) => self.start_render(ui.ctx()),
             Some(render_panel::RenderAction::Save) => {
@@ -793,6 +833,31 @@ mod tests {
         harness.get_by_label("Item");
         drop(harness);
         assert!(!app.regions.toolbar && app.regions.sidebar && app.regions.maximized);
+    }
+
+    #[test]
+    fn popups_open_at_the_pointer_and_x_asks_before_deleting() {
+        let mut app = ShapeApp::default();
+        let a = app.add_primitive(Primitive::Cube);
+        app.scene.selection.set(a);
+        let mut harness = Harness::new_ui(|ui| app.ui(ui));
+        harness.run();
+        harness.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::A);
+        harness.run();
+        harness.get_by_label("Torus");
+        harness.key_press(egui::Key::Escape);
+        harness.run();
+        assert!(harness.query_by_label("Torus").is_none(), "Esc closes the Add popup");
+        harness.key_press(egui::Key::X);
+        harness.run();
+        harness.get_by_label("Delete 1 object(s)");
+        harness.key_press(egui::Key::Escape);
+        harness.run();
+        harness.key_press(egui::Key::F3);
+        harness.run();
+        harness.get_by_label_contains("Frame All");
+        drop(harness);
+        assert_eq!(app.scene.object_count(), 1, "X alone deletes nothing");
     }
 
     #[test]

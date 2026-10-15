@@ -10,7 +10,7 @@
 pub mod camera;
 mod geometry;
 
-pub use camera::OrbitCamera;
+pub use camera::{AxisView, OrbitCamera};
 pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, pick, pick_detail, scene_lights};
 
 use bytemuck::{Pod, Zeroable};

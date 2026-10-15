@@ -46,6 +46,10 @@ impl ShapeApp {
 
     pub(crate) fn edit_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Edit", |ui| {
+            if ui.button("Operator Search…    F3").clicked() {
+                self.popup = Some(crate::Popup::Search { query: String::new() });
+            }
+            ui.separator();
             let undo_label = self.history.undo_name().map(|n| format!("Undo {n}")).unwrap_or("Undo".into());
             if ui.add_enabled(self.history.can_undo(), egui::Button::new(undo_label)).clicked() {
                 self.undo();

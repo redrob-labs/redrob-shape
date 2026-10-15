@@ -13,6 +13,11 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 - Keys: T toolbar, N sidebar, Ctrl+Space maximize viewport, Shift+D duplicate, H / Alt+H hide and
   reveal, Alt+A select none, Ctrl+I invert selection.
 - Viewport background is Blender's #3f3f3f.
+- Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
+  Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
+  search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the
+  Select tool, numpad 1/3/7 (+Ctrl) axis views in orthographic with auto-perspective, numpad 5
+  perspective toggle, numpad . frame selected, Shift+C frame all, Ctrl+J join, P separate.
 
 ## [0.3.0] - 2026-10-15
 
