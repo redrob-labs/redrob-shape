@@ -10,6 +10,7 @@
 
 mod bvh;
 mod camera;
+pub mod composite;
 pub mod denoise;
 mod integrator;
 mod rng;

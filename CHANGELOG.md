@@ -110,6 +110,14 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   conversion; ASCII USD (`.usda`) import/export (Xform + Mesh prims, displayColor, upAxis Z
   conversion; binary usdc/usdz not read); ASCII FBX 7.4 export and import (Geometry/Model/Material
   with OO connections, unit scale; binary FBX is refused with a message). Alembic is not supported.
+- Geometry Nodes: a `Geometry Nodes` modifier holding a node tree (Group Input/Output, Transform
+  Geometry, Join Geometry, Subdivide Mesh, Subdivision Surface, Set Position, Cube / UV Sphere /
+  Cylinder / Grid primitives, Instance on Points, Mesh Boolean), evaluated in the modifier stack,
+  edited in the new Geometry Nodes workspace (same canvas keys as the Shader Editor: Shift+A, X,
+  Home, MMB pan, drag links; `New` creates the default Input -> Output tree).
+- Compositor: Use Nodes plus a chain of Blur, Bright/Contrast, Glare, Gamma, Hue/Saturation/Value,
+  Mix Color and Invert nodes between Render Layers and Composite, applied to the Render window
+  image and to Render Animation frames; saved with the scene.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

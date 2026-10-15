@@ -24,6 +24,7 @@ pub use keymap::{BoxSelect, Op, Popup};
 pub mod bone_edit;
 pub mod curve_edit;
 pub mod generated;
+pub mod geo_node_editor;
 pub mod node_editor;
 pub mod pose_mode;
 pub use pose_mode::ParentKind;
@@ -65,6 +66,7 @@ pub struct ShapeApp {
     /// Scene before the property drag in progress, turned into one undo step on release.
     property_before: Option<Scene>,
     pub(crate) node_editor: node_editor::NodeEditor,
+    pub(crate) geo_editor: geo_node_editor::GeoNodeEditor,
     pub sculpt: Option<sculpt_mode::SculptMode>,
     pub pose: Option<pose_mode::PoseMode>,
     pub bone_edit: Option<bone_edit::BoneEditMode>,
@@ -165,6 +167,7 @@ impl ShapeApp {
             file: None,
             property_before: None,
             node_editor: Default::default(),
+            geo_editor: Default::default(),
             sculpt: None,
             pose: None,
             bone_edit: None,
@@ -779,7 +782,7 @@ impl ShapeApp {
         self.playback_keys(ui);
         self.animation_tick(ui);
         // Blender sends keys to the editor under the pointer: the Shader Editor takes its own.
-        let over_nodes = self.node_editor.hovered && self.modal.is_none();
+        let over_nodes = (self.node_editor.hovered || self.geo_editor.hovered) && self.modal.is_none();
         if !over_nodes {
             self.hotkeys(ui);
         }
@@ -822,7 +825,12 @@ impl ShapeApp {
         } else {
             self.node_editor.hovered = false;
         }
-        if self.regions.workspace != layout::Workspace::Shading && self.regions.agent && !self.regions.maximized {
+        if self.regions.workspace == layout::Workspace::GeometryNodes && !self.regions.maximized {
+            self.geo_node_editor_panel(ui);
+        } else {
+            self.geo_editor.hovered = false;
+        }
+        if !matches!(self.regions.workspace, layout::Workspace::Shading | layout::Workspace::GeometryNodes) && self.regions.agent && !self.regions.maximized {
             egui::Panel::bottom("agent")
                 .default_size(200.0)
                 .resizable(true)
@@ -884,7 +892,15 @@ impl ShapeApp {
             });
         }
         self.focused_last_frame = ui.ctx().memory(|m| m.focused().is_some());
+        if !self.render.compositor_dirty {
+            self.render.compositor = self.scene.compositor.clone();
+        }
         match self.render.ui(ui.ctx()) {
+            Some(render_panel::RenderAction::Compositor) => {
+                let tree = self.render.compositor.clone();
+                self.render.compositor_dirty = false;
+                self.edit("Edit Compositor", move |scene| scene.compositor = tree);
+            }
             Some(render_panel::RenderAction::Start) => self.start_render(ui.ctx()),
             Some(render_panel::RenderAction::Save) => {
                 if let Some(path) = rfd::FileDialog::new().add_filter("PNG", &["png"]).set_file_name("render.png").save_file() {

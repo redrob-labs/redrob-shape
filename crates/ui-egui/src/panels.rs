@@ -393,6 +393,10 @@ impl ShapeApp {
                 if ui.button("Armature").clicked() {
                     self.add_modifier(Modifier::Armature { object: None });
                 }
+                ui.separator();
+                if ui.button("Geometry Nodes").clicked() {
+                    self.add_modifier(Modifier::GeometryNodes { tree: shape_scene::GeoNodeTree::default_tree() });
+                }
             });
         });
         let mut stack = self.scene.modifiers(id).to_vec();
@@ -530,6 +534,9 @@ impl ShapeApp {
                     Modifier::Shrinkwrap { target, offset } => {
                         target_picker(ui, "shrinkwrap-target", target);
                         ui.add(egui::DragValue::new(offset).range(-10.0..=10.0).speed(0.005).prefix("Offset "));
+                    }
+                    Modifier::GeometryNodes { tree } => {
+                        ui.label(RichText::new(format!("{} nodes · edit in the Geometry Nodes workspace", tree.nodes.len())).weak());
                     }
                     Modifier::Armature { object } => {
                         let current =

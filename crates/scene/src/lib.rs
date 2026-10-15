@@ -40,6 +40,10 @@ pub use armature::{Armature, Bone, VertexGroup};
 pub use curve::{Curve, HandleType};
 pub mod nodes;
 pub use nodes::{NodeKind, NodeTree};
+pub mod compositor;
+pub mod geonodes;
+pub use compositor::{CompositorNode, CompositorTree};
+pub use geonodes::{GeoLink, GeoNode, GeoNodeKind, GeoNodeTree};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Texture {
@@ -312,6 +316,10 @@ pub enum Modifier {
     Armature {
         object: Option<ObjectId>,
     },
+    /// Rebuild the geometry through a node tree (Blender's Geometry Nodes modifier).
+    GeometryNodes {
+        tree: GeoNodeTree,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -376,6 +384,7 @@ impl Modifier {
             Modifier::Boolean { .. } => "Boolean",
             Modifier::Shrinkwrap { .. } => "Shrinkwrap",
             Modifier::Armature { .. } => "Armature",
+            Modifier::GeometryNodes { .. } => "Geometry Nodes",
         }
     }
 
@@ -394,6 +403,7 @@ impl Modifier {
             Modifier::Weld { distance } => *distance > 0.0,
             Modifier::Boolean { target, .. } | Modifier::Shrinkwrap { target, .. } => target.is_some(),
             Modifier::Armature { object } => object.is_some(),
+            Modifier::GeometryNodes { tree } => tree.output_node().is_some(),
             Modifier::Mirror { .. } | Modifier::Triangulate | Modifier::SimpleDeform { .. } => true,
         }
     }
@@ -693,6 +703,9 @@ pub struct Scene {
     /// Current frame, range and fps.
     #[serde(default)]
     pub timeline: anim::Timeline,
+    /// Post-processing applied to the render result.
+    #[serde(default)]
+    pub compositor: CompositorTree,
 }
 
 impl Scene {

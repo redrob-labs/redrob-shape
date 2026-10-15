@@ -63,6 +63,7 @@ pub fn apply_in(context: Option<(&Scene, ObjectId)>, modifier: &Modifier, mesh: 
         Modifier::SimpleDeform { mode, axis, factor } => crate::simple_deform(mesh, deform_mode(*mode), (*axis).min(2) as usize, *factor),
         Modifier::Displace { strength, scale } => crate::displace(mesh, *strength, *scale),
         Modifier::Weld { distance } => crate::weld(mesh, *distance),
+        Modifier::GeometryNodes { tree } => crate::geonodes::evaluate(tree, mesh),
     }
 }
 

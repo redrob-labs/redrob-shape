@@ -11,6 +11,7 @@ pub mod boolean;
 pub mod edit;
 pub mod edit2;
 pub mod generate;
+pub mod geonodes;
 pub mod metaball;
 pub mod modifiers;
 pub mod sculpt;

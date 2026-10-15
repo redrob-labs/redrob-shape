@@ -6,6 +6,7 @@ use shape_scene::Scene;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
 /// Snapshot the worker publishes after each pass.
 pub struct Frame {
     pub width: u32,
@@ -37,6 +38,12 @@ pub struct RenderPanel {
     pub output_path: String,
     /// A running Render Animation job: frames done and total.
     animation: Option<Arc<Mutex<(u32, u32)>>>,
+    /// The compositor chain (a copy of the scene's; the app writes edits back).
+    pub compositor: shape_scene::CompositorTree,
+    /// Edited in the window this frame and not yet written to the scene.
+    pub compositor_dirty: bool,
+    /// The last frame before compositing, so a compositor edit can re-run on it.
+    raw: Option<Frame>,
 }
 
 impl RenderPanel {
@@ -78,6 +85,7 @@ impl RenderPanel {
         let progress = Arc::new(Mutex::new((0u32, total)));
         self.animation = Some(progress.clone());
         let mut scene = scene.clone();
+        let compositor = scene.compositor.clone();
         std::thread::spawn(move || {
             if let Some(parent) = std::path::Path::new(&path).parent() {
                 let _ = std::fs::create_dir_all(parent);
@@ -89,7 +97,11 @@ impl RenderPanel {
                 for _ in 0..target {
                     r.pass(&rs);
                 }
-                let _ = r.save_png(std::path::Path::new(&format!("{path}{frame:04}.png")));
+                // Composited frames, like Blender writing the Composite output.
+                let rgba = shape_render::composite::apply(&compositor, w, h, &r.to_rgba8());
+                if let Some(img) = image::RgbaImage::from_raw(w, h, rgba) {
+                    let _ = img.save(format!("{path}{frame:04}.png"));
+                }
                 if let Ok(mut p) = progress.lock() {
                     p.0 += 1;
                 }
@@ -139,6 +151,79 @@ impl RenderPanel {
         self.job = None;
     }
 
+    /// Run the compositor on `raw` into `last` and the texture.
+    fn composite(&mut self, ctx: &egui::Context) {
+        let Some(raw) = self.raw.clone() else { return };
+        let rgba = shape_render::composite::apply(&self.compositor, raw.width, raw.height, &raw.rgba);
+        let image = ColorImage::from_rgba_unmultiplied([raw.width as usize, raw.height as usize], &rgba);
+        match &mut self.texture {
+            Some(t) => t.set(image, TextureOptions::LINEAR),
+            None => self.texture = Some(ctx.load_texture("render", image, TextureOptions::LINEAR)),
+        }
+        self.last = Some(Frame { rgba, ..raw });
+    }
+
+    /// Blender's compositor sidebar, reduced to the chain Render Layers -> nodes -> Composite.
+    fn compositor_ui(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            changed |= ui.checkbox(&mut self.compositor.enabled, "Use Nodes").changed();
+            ui.menu_button("Add", |ui| {
+                for category in ["Filter", "Color"] {
+                    ui.label(RichText::new(category).weak());
+                    for node in shape_scene::CompositorNode::ALL {
+                        if node.category() == category && ui.button(node.name()).clicked() {
+                            self.compositor.nodes.push(node);
+                            changed = true;
+                            ui.close();
+                        }
+                    }
+                }
+            });
+        });
+        ui.label(RichText::new("Render Layers").weak());
+        let mut remove = None;
+        for i in 0..self.compositor.nodes.len() {
+            let name = self.compositor.nodes[i].name();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("↓ {name}")).strong());
+                if ui.small_button("×").clicked() {
+                    remove = Some(i);
+                }
+            });
+            use shape_scene::CompositorNode as C;
+            ui.indent(("comp", i), |ui| match &mut self.compositor.nodes[i] {
+                C::Blur { size } => changed |= ui.add(egui::DragValue::new(size).range(0..=64).prefix("Size ")).changed(),
+                C::BrightContrast { bright, contrast } => {
+                    changed |= ui.add(egui::DragValue::new(bright).range(-100.0..=100.0).prefix("Bright ")).changed();
+                    changed |= ui.add(egui::DragValue::new(contrast).range(-100.0..=100.0).prefix("Contrast ")).changed();
+                }
+                C::Glare { threshold, mix, size } => {
+                    changed |= ui.add(egui::DragValue::new(threshold).speed(0.01).range(0.0..=10.0).prefix("Threshold ")).changed();
+                    changed |= ui.add(egui::DragValue::new(mix).speed(0.01).range(0.0..=1.0).prefix("Mix ")).changed();
+                    changed |= ui.add(egui::DragValue::new(size).range(1..=64).prefix("Size ")).changed();
+                }
+                C::Gamma { gamma } => changed |= ui.add(egui::DragValue::new(gamma).speed(0.01).range(0.01..=10.0).prefix("Gamma ")).changed(),
+                C::HueSaturation { hue, saturation, value } => {
+                    changed |= ui.add(egui::DragValue::new(hue).speed(0.005).range(0.0..=1.0).prefix("Hue ")).changed();
+                    changed |= ui.add(egui::DragValue::new(saturation).speed(0.01).range(0.0..=2.0).prefix("Saturation ")).changed();
+                    changed |= ui.add(egui::DragValue::new(value).speed(0.01).range(0.0..=2.0).prefix("Value ")).changed();
+                }
+                C::MixColor { color, factor } => {
+                    changed |= ui.color_edit_button_rgb(color).changed();
+                    changed |= ui.add(egui::DragValue::new(factor).speed(0.01).range(0.0..=1.0).prefix("Factor ")).changed();
+                }
+                C::Invert => {}
+            });
+        }
+        if let Some(i) = remove {
+            self.compositor.nodes.remove(i);
+            changed = true;
+        }
+        ui.label(RichText::new("↓ Composite").weak());
+        changed
+    }
+
     /// Save the latest image as PNG.
     pub fn save_png(&self, path: &std::path::Path) -> Result<(), String> {
         let frame = self.last.as_ref().ok_or("nothing rendered yet")?;
@@ -150,12 +235,8 @@ impl RenderPanel {
         let Some(job) = &self.job else { return };
         let frame = job.latest.lock().ok().and_then(|mut l| l.take());
         if let Some(frame) = frame {
-            let image = ColorImage::from_rgba_unmultiplied([frame.width as usize, frame.height as usize], &frame.rgba);
-            match &mut self.texture {
-                Some(t) => t.set(image, TextureOptions::LINEAR),
-                None => self.texture = Some(ctx.load_texture("render", image, TextureOptions::LINEAR)),
-            }
-            self.last = Some(frame);
+            self.raw = Some(frame);
+            self.composite(ctx);
         }
         if job.stop.load(Ordering::Relaxed) && job.renderer.lock().ok().is_some_and(|r| r.is_some()) {
             // worker finished
@@ -191,6 +272,17 @@ impl RenderPanel {
             if let Some(f) = &self.last {
                 ui.label(RichText::new(format!("{} × {}  ·  {} samples  ·  {:.1}s", f.width, f.height, f.samples, f.seconds)).weak());
             }
+            let mut recomposite = false;
+            egui::CollapsingHeader::new("Compositor").default_open(false).show(ui, |ui| {
+                if self.compositor_ui(ui) {
+                    self.compositor_dirty = true;
+                    recomposite = true;
+                }
+            });
+            if recomposite {
+                self.composite(ui.ctx());
+                action = Some(RenderAction::Compositor);
+            }
             if let Some(t) = &self.texture {
                 let avail = ui.available_size();
                 let (w, h) = (t.size()[0] as f32, t.size()[1] as f32);
@@ -210,6 +302,8 @@ impl RenderPanel {
 pub enum RenderAction {
     Start,
     Save,
+    /// The compositor chain was edited; the app writes `compositor` back into the scene.
+    Compositor,
 }
 
 #[cfg(test)]
