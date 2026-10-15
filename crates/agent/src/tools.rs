@@ -23,9 +23,9 @@ pub fn tool_definitions() -> Value {
         {"name": "delete_object", "description": "Delete an object.", "inputSchema": {"type": "object", "properties": {"object": object}, "required": ["object"]}},
         {"name": "set_material", "description": "Give a mesh object a material (created if it has none) and set its colour (linear RGBA 0..1), metallic, roughness and emissive.",
          "inputSchema": {"type": "object", "properties": {"object": object, "color": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 4}, "metallic": {"type": "number"}, "roughness": {"type": "number"}, "emissive": vec3("linear RGB"), "name": {"type": "string"}}, "required": ["object"]}},
-        {"name": "mesh_op", "description": "Edit a mesh object's geometry destructively. op: subdivide (Catmull-Clark), subdivide_linear, smooth, extrude (all faces by amount), inset (all faces by amount), shrink_fatten (amount), triangulate, flip_normals.",
-         "inputSchema": {"type": "object", "properties": {"object": object, "op": {"type": "string", "enum": ["subdivide", "subdivide_linear", "smooth", "extrude", "inset", "shrink_fatten", "triangulate", "flip_normals"]}, "amount": {"type": "number"}}, "required": ["object", "op"]}},
-        {"name": "add_modifier", "description": "Add a non-destructive modifier to a mesh object. kind: mirror {axis: x|y|z}, array {count, offset:[x,y,z]}, subdivision {levels, smooth}, smooth {iterations, factor}.",
+        {"name": "mesh_op", "description": "Edit a mesh object's geometry destructively. op: subdivide (Catmull-Clark), subdivide_linear, smooth, extrude (all faces by amount), inset (all faces by amount), bevel (all edges by amount), shrink_fatten (amount), triangulate, flip_normals.",
+         "inputSchema": {"type": "object", "properties": {"object": object, "op": {"type": "string", "enum": ["subdivide", "subdivide_linear", "smooth", "extrude", "inset", "bevel", "shrink_fatten", "triangulate", "flip_normals"]}, "amount": {"type": "number"}}, "required": ["object", "op"]}},
+        {"name": "add_modifier", "description": "Add a non-destructive modifier to a mesh object. kind: mirror {axis: x|y|z}, array {count, offset:[x,y,z]}, subdivision {levels, smooth}, smooth {iterations, factor}, bevel {offset}.",
          "inputSchema": {"type": "object", "properties": {"object": object, "kind": {"type": "string", "enum": ["mirror", "array", "subdivision", "smooth"]}, "axis": {"type": "string"}, "count": {"type": "integer"}, "offset": vec3("x y z"), "levels": {"type": "integer"}, "smooth": {"type": "boolean"}, "iterations": {"type": "integer"}, "factor": {"type": "number"}}, "required": ["object", "kind"]}},
         {"name": "clear_modifiers", "description": "Remove every modifier from a mesh object (apply=true bakes them into the mesh first).",
          "inputSchema": {"type": "object", "properties": {"object": object, "apply": {"type": "boolean"}}, "required": ["object"]}},
@@ -142,6 +142,7 @@ pub fn execute(scene: &mut Scene, name: &str, args: &Value) -> Result<Value, Str
                 "smooth" => shape_ops::smooth(mesh, amount.map(|a| a.max(1.0) as u32).unwrap_or(2), 0.5),
                 "extrude" => shape_ops::extrude_faces(mesh, &shape_ops::all_faces(mesh), amount.unwrap_or(0.5)),
                 "inset" => shape_ops::inset_faces(mesh, &shape_ops::all_faces(mesh), amount.unwrap_or(0.2)),
+                "bevel" => shape_ops::bevel_all(mesh, amount.unwrap_or(0.1)),
                 "shrink_fatten" => shape_ops::shrink_fatten(mesh, amount.unwrap_or(0.1)),
                 "triangulate" => shape_ops::triangulate(mesh),
                 "flip_normals" => shape_ops::flip_normals(mesh),
@@ -177,6 +178,7 @@ pub fn execute(scene: &mut Scene, name: &str, args: &Value) -> Result<Value, Str
                     iterations: a.get("iterations").and_then(Value::as_u64).unwrap_or(1).min(50) as u32,
                     factor: a.get("factor").and_then(Value::as_f64).unwrap_or(0.5).clamp(0.0, 1.0) as f32,
                 },
+                "bevel" => Modifier::Bevel { offset: a.get("offset").and_then(Value::as_f64).unwrap_or(0.1).clamp(0.0, 10.0) as f32 },
                 other => return Err(format!("unknown modifier `{other}`")),
             };
             let stack = scene.modifiers_mut(id).ok_or("not a mesh object")?;

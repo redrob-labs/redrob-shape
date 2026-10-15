@@ -390,7 +390,7 @@ impl ShapeApp {
             return (false, false);
         }
         let modal_running = self.modal.is_some();
-        let (enter, escape, g, r, sc, e, i, loop_cut, tab, a, x, y, z) = ui.input_mut(|inp| {
+        let (enter, escape, g, r, sc, e, i, loop_cut, bevel, tab, a, x, y, z) = ui.input_mut(|inp| {
             (
                 inp.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
                 inp.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
@@ -400,6 +400,7 @@ impl ShapeApp {
                 inp.consume_key(egui::Modifiers::NONE, egui::Key::E),
                 inp.consume_key(egui::Modifiers::NONE, egui::Key::I),
                 inp.consume_key(egui::Modifiers::COMMAND, egui::Key::R),
+                inp.consume_key(egui::Modifiers::COMMAND, egui::Key::B),
                 inp.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
                 inp.consume_key(egui::Modifiers::NONE, egui::Key::A),
                 modal_running && inp.consume_key(egui::Modifiers::NONE, egui::Key::X),
@@ -435,6 +436,9 @@ impl ShapeApp {
             }
             if loop_cut {
                 self.loop_cut_at_pointer();
+            }
+            if bevel {
+                self.modal = Modal::faces(ModalKind::Bevel, &self.scene, pointer);
             }
         } else {
             let kind = if g {
@@ -545,7 +549,7 @@ impl ShapeApp {
                     self.toggle_edit_mode();
                 }
                 let hint = if editing {
-                    "click face · shift add · E extrude · I inset · Ctrl+R loop cut · A all"
+                    "click face · shift add · E extrude · I inset · Ctrl+B bevel · Ctrl+R loop cut · A all"
                 } else {
                     "G move · R rotate · S scale · X delete · Home frame"
                 };

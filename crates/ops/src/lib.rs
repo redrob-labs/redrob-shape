@@ -6,10 +6,12 @@
 //!
 //! Non-destructive edits live in the scene as [`Modifier`] values; [`evaluate`] applies a stack.
 
+pub mod bevel;
 pub mod modifiers;
 pub mod subdivide;
 pub mod uv;
 
+pub use bevel::{bevel_all, bevel_edges};
 pub use modifiers::{evaluate, evaluated_mesh, scene_mesh};
 pub use subdivide::{catmull_clark, subdivide_linear};
 pub use uv::{uv_box, uv_planar, uv_sphere};
@@ -99,6 +101,12 @@ impl PolyMesh {
 /// Every face of a mesh, for operators that take a face set.
 pub fn all_faces(mesh: &Mesh) -> Vec<FaceId> {
     mesh.face_ids().collect()
+}
+
+/// Every edge of the given faces, each once.
+pub fn face_edges(mesh: &Mesh, faces: &[FaceId]) -> Vec<EdgeId> {
+    let set: BTreeSet<EdgeId> = faces.iter().flat_map(|&f| mesh.face_halfedges(f).map(|h| mesh.halfedge(h).edge)).collect();
+    set.into_iter().collect()
 }
 
 /// Extrude a region of faces along their averaged normals by `distance`.

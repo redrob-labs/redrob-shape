@@ -18,6 +18,7 @@ pub fn apply(modifier: &Modifier, mesh: &Mesh) -> Result<Mesh> {
             Ok(m)
         }
         Modifier::Smooth { iterations, factor } => crate::smooth(mesh, *iterations, *factor),
+        Modifier::Bevel { offset } => crate::bevel_all(mesh, *offset),
     }
 }
 

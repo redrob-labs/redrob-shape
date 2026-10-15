@@ -115,6 +115,8 @@ pub enum Modifier {
     Subdivision { levels: u32, smooth: bool },
     /// Laplacian smoothing.
     Smooth { iterations: u32, factor: f32 },
+    /// Chamfer every edge by `offset` (one segment).
+    Bevel { offset: f32 },
 }
 
 impl Modifier {
@@ -124,6 +126,7 @@ impl Modifier {
             Modifier::Array { .. } => "Array",
             Modifier::Subdivision { .. } => "Subdivision",
             Modifier::Smooth { .. } => "Smooth",
+            Modifier::Bevel { .. } => "Bevel",
         }
     }
 
@@ -133,6 +136,7 @@ impl Modifier {
             Modifier::Array { count, .. } => *count > 1,
             Modifier::Subdivision { levels, .. } => *levels > 0,
             Modifier::Smooth { iterations, .. } => *iterations > 0,
+            Modifier::Bevel { offset } => *offset > 0.0,
             Modifier::Mirror { .. } => true,
         }
     }

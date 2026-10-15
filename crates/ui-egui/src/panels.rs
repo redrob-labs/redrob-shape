@@ -74,6 +74,9 @@ impl ShapeApp {
                             if ui.button("Inset All Faces 0.2").clicked() {
                                 self.apply_mesh_op("Inset", |m| shape_ops::inset_faces(m, &shape_ops::all_faces(m), 0.2));
                             }
+                            if ui.button("Bevel All Edges 0.1").clicked() {
+                                self.apply_mesh_op("Bevel", |m| shape_ops::bevel_all(m, 0.1));
+                            }
                             if ui.button("Smooth").clicked() {
                                 self.apply_mesh_op("Smooth", |m| shape_ops::smooth(m, 2, 0.5));
                             }
@@ -396,6 +399,9 @@ impl ShapeApp {
                 if ui.button("Smooth").clicked() {
                     self.add_modifier(Modifier::Smooth { iterations: 1, factor: 0.5 });
                 }
+                if ui.button("Bevel").clicked() {
+                    self.add_modifier(Modifier::Bevel { offset: 0.05 });
+                }
             });
         });
         let mut stack = self.scene.modifiers(id).to_vec();
@@ -435,6 +441,9 @@ impl ShapeApp {
                             ui.add(egui::DragValue::new(iterations).range(0..=50).prefix("iterations "));
                             ui.add(egui::DragValue::new(factor).range(0.0..=1.0).speed(0.01).prefix("factor "));
                         });
+                    }
+                    Modifier::Bevel { offset } => {
+                        ui.add(egui::DragValue::new(offset).range(0.0..=10.0).speed(0.005).prefix("offset "));
                     }
                 }
             });

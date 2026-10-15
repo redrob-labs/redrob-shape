@@ -4,6 +4,10 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Bevel: chamfer every edge (Edit > Mesh > Bevel, agent `mesh_op` bevel), the edges of the selected
+  faces in edit mode (Ctrl+B, pointer-driven offset), and a Bevel modifier.
+
 ### Changed
 - macOS: signed with the Developer ID certificate, notarized and stapled; ships as a
   drag-to-Applications disk image (`redrob-shape-<version>-macos-universal.dmg`).

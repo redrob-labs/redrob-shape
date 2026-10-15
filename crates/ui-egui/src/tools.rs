@@ -51,6 +51,8 @@ pub enum ModalKind {
     Extrude,
     /// Edit mode: inset the selected faces by a pointer-driven thickness.
     Inset,
+    /// Edit mode: bevel the edges of the selected faces by a pointer-driven offset.
+    Bevel,
 }
 
 impl ModalKind {
@@ -61,6 +63,7 @@ impl ModalKind {
             ModalKind::Scale => "Scale",
             ModalKind::Extrude => "Extrude",
             ModalKind::Inset => "Inset",
+            ModalKind::Bevel => "Bevel",
         }
     }
 }
@@ -187,12 +190,13 @@ impl Modal {
                     }
                 }
             }
-            ModalKind::Extrude | ModalKind::Inset => {
+            ModalKind::Extrude | ModalKind::Inset | ModalKind::Bevel => {
                 let Some((mesh_id, base, faces)) = &self.edit else { return };
                 let amount = -delta.y * world_per_pixel;
                 self.amount = amount;
                 let result = match self.kind {
                     ModalKind::Extrude => shape_ops::extrude_faces(base, faces, amount),
+                    ModalKind::Bevel => shape_ops::bevel_edges(base, &shape_ops::face_edges(base, faces), amount.max(0.0)),
                     _ => shape_ops::inset_faces(base, faces, amount.max(0.0)),
                 };
                 if let Ok(m) = result
@@ -222,6 +226,7 @@ impl Modal {
             ModalKind::Scale => format!("Scale{axis}  ×{:.3}  ·  click/Enter confirm, Esc cancel, X/Y/Z axis", self.amount),
             ModalKind::Extrude => format!("Extrude  {:.3}  ·  move pointer up/down, click/Enter confirm, Esc cancel", self.amount),
             ModalKind::Inset => format!("Inset  {:.3}  ·  move pointer up/down, click/Enter confirm, Esc cancel", self.amount),
+            ModalKind::Bevel => format!("Bevel  {:.3}  ·  move pointer up/down, click/Enter confirm, Esc cancel", self.amount),
         }
     }
 
