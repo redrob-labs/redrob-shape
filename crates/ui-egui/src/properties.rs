@@ -25,12 +25,16 @@ impl ShapeApp {
         egui::CollapsingHeader::new("Sampling").default_open(true).show(ui, |ui| {
             ui.add(egui::DragValue::new(&mut self.render.target_samples).range(1..=4096).prefix("Samples "));
             ui.add(egui::DragValue::new(&mut self.render.settings.max_depth).range(1..=32).prefix("Max Bounces "));
+            ui.checkbox(&mut self.render.settings.denoise, "Denoise").on_hover_text("Edge-aware filter on the final image");
         });
         egui::CollapsingHeader::new("Color Management").default_open(true).show(ui, |ui| {
             ui.add(egui::DragValue::new(&mut self.render.settings.exposure).range(0.01..=16.0).speed(0.02).prefix("Exposure "));
         });
         if ui.button("Render Image (F12)").clicked() {
             self.start_render(ui.ctx());
+        }
+        if ui.button("Render Animation (Ctrl+F12)").clicked() {
+            self.start_render_animation(ui.ctx());
         }
     }
 
@@ -40,7 +44,31 @@ impl ShapeApp {
                 ui.add(egui::DragValue::new(&mut self.render.width).range(16..=8192).prefix("X "));
                 ui.add(egui::DragValue::new(&mut self.render.height).range(16..=8192).prefix("Y "));
             });
+            ui.add(egui::DragValue::new(&mut self.render.resolution_percent).range(1..=200).prefix("Resolution ").suffix(" %"));
             ui.label(RichText::new("PNG, 8-bit RGBA, sRGB").weak());
+        });
+        egui::CollapsingHeader::new("Frame Range").default_open(true).show(ui, |ui| {
+            let t = &mut self.scene.timeline;
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(&mut t.start).prefix("Start ").range(0..=t.end));
+                ui.add(egui::DragValue::new(&mut t.end).prefix("End ").range(t.start..=1_000_000));
+            });
+            ui.add(egui::DragValue::new(&mut t.fps).prefix("Frame Rate ").range(1.0..=240.0));
+        });
+        egui::CollapsingHeader::new("Output").default_open(true).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Path");
+                ui.text_edit_singleline(&mut self.render.output_path);
+                if ui.button("…").clicked()
+                    && let Some(dir) = rfd::FileDialog::new().pick_folder()
+                {
+                    self.render.output_path = format!("{}/frame_", dir.display());
+                }
+            });
+            ui.label(RichText::new("Frames are written as <path>####.png").weak());
+            if let Some((done, total)) = self.render.animation_progress() {
+                ui.label(format!("Rendering animation: {done}/{total} frames"));
+            }
         });
     }
 
@@ -164,6 +192,19 @@ impl ShapeApp {
                             ui.horizontal(|ui| {
                                 ui.add(egui::DragValue::new(&mut cam.near).speed(0.01).range(0.001..=100.0).prefix("Clip Start "));
                                 ui.add(egui::DragValue::new(&mut cam.far).speed(1.0).range(1.0..=1.0e5).prefix("End "));
+                            });
+                        });
+                        egui::CollapsingHeader::new("Depth of Field").default_open(true).show(ui, |ui| {
+                            ui.checkbox(&mut cam.use_dof, "Depth of Field");
+                            ui.add_enabled_ui(cam.use_dof, |ui| {
+                                ui.add(
+                                    egui::DragValue::new(&mut cam.focus_distance)
+                                        .speed(0.05)
+                                        .range(0.01..=1000.0)
+                                        .prefix("Focus Distance ")
+                                        .suffix(" m"),
+                                );
+                                ui.add(egui::DragValue::new(&mut cam.fstop).speed(0.05).range(0.1..=128.0).prefix("F-Stop "));
                             });
                         });
                     }

@@ -10,6 +10,7 @@
 
 mod bvh;
 mod camera;
+pub mod denoise;
 mod integrator;
 mod rng;
 mod scene;
@@ -47,7 +48,8 @@ impl Renderer {
             for (x, px) in row.iter_mut().enumerate() {
                 let mut rng = rng::Pcg::new(((y as u64) << 32) | x as u64, s as u64 + 1);
                 let jitter = shape_math::Vec2::new(rng.next_f32(), rng.next_f32());
-                let ray = scene.camera.ray(x as f32 + jitter.x, y as f32 + jitter.y, w as f32, h as f32);
+                let (lu, lv) = (rng.next_f32(), rng.next_f32());
+                let ray = scene.camera.ray_dof(x as f32 + jitter.x, y as f32 + jitter.y, w as f32, h as f32, lu, lv);
                 let c = integrator::trace(scene, ray, &mut rng, &settings);
                 *px += c;
             }
@@ -63,12 +65,18 @@ impl Renderer {
         self.film[(y * self.width + x) as usize] / self.samples as f32
     }
 
+    /// Mean linear radiance of every pixel, denoised when the settings ask for it.
+    pub fn linear(&self) -> Vec<Vec3> {
+        let inv = if self.samples == 0 { 0.0 } else { 1.0 / self.samples as f32 };
+        let mean: Vec<Vec3> = self.film.iter().map(|p| *p * inv).collect();
+        if self.settings.denoise { denoise::bilateral(&mean, self.width as usize, self.height as usize) } else { mean }
+    }
+
     /// Tone-mapped 8-bit sRGB RGBA, top row first.
     pub fn to_rgba8(&self) -> Vec<u8> {
-        let inv = if self.samples == 0 { 0.0 } else { 1.0 / self.samples as f32 };
         let mut out = Vec::with_capacity(self.film.len() * 4);
-        for p in &self.film {
-            let c = tonemap(*p * inv * self.settings.exposure);
+        for p in self.linear() {
+            let c = tonemap(p * self.settings.exposure);
             out.extend_from_slice(&[to_srgb8(c.x), to_srgb8(c.y), to_srgb8(c.z), 255]);
         }
         out
@@ -138,6 +146,60 @@ mod tests {
         let right = r.pixel(13, 8);
         assert!(left.x > left.z * 4.0 || right.x > right.z * 4.0, "one side is red: {left} {right}");
         assert!(left.z > left.x * 4.0 || right.z > right.x * 4.0, "the other is blue: {left} {right}");
+    }
+
+    #[test]
+    fn depth_of_field_blurs_an_edge_off_the_focus_plane() {
+        // A sharp edge: a dark cube in front of a bright floor, seen from above.
+        let mut scene = Scene::new("t");
+        let bright = scene.add_material(Material { base_color: [0.9, 0.9, 0.9, 1.0], roughness: 1.0, ..Default::default() });
+        let dark = scene.add_material(Material { base_color: [0.02, 0.02, 0.02, 1.0], roughness: 1.0, ..Default::default() });
+        scene.add_mesh_object("Floor", plane(100.0, 1, 1), Some(bright));
+        let c = scene.add_mesh_object("Cube", cube(2.0), Some(dark));
+        scene.object_mut(c).unwrap().transform = Transform::from_translation(Vec3::new(0.0, 1.0, 0.0));
+        scene.add_object(sun_from_above(3.0));
+        let settings = Settings { sky: Vec3::ZERO, max_depth: 1, ..Default::default() };
+        let edge_contrast = |cam: RenderCamera| {
+            let rs = RenderScene::build(&scene, cam, &settings);
+            let mut r = Renderer::new(64, 64, settings);
+            for _ in 0..32 {
+                r.pass(&rs);
+            }
+            // Max horizontal gradient along the middle row: a sharp edge gives a big jump.
+            (1..64).map(|x| (r.pixel(x, 32).x - r.pixel(x - 1, 32).x).abs()).fold(0.0f32, f32::max)
+        };
+        let pin = top_camera(6.0);
+        // Focus far behind the cube top (on the floor is 6 m away; focus at 1.5 m) with a wide lens.
+        let dof = top_camera(6.0).with_dof(0.05, 1.5);
+        let (sharp, blurred) = (edge_contrast(pin), edge_contrast(dof));
+        assert!(blurred < sharp * 0.6, "dof softened the edge: {blurred} vs {sharp}");
+    }
+
+    #[test]
+    fn denoising_a_low_sample_render_raises_its_psnr() {
+        let mut scene = Scene::new("t");
+        let mat = scene.add_material(Material { base_color: [0.6, 0.5, 0.4, 1.0], roughness: 0.7, ..Default::default() });
+        scene.add_mesh_object("Floor", plane(100.0, 1, 1), Some(mat));
+        let s = scene.add_mesh_object("Ball", shape_geom::primitives::uv_sphere(1.0, 24, 12), Some(mat));
+        scene.object_mut(s).unwrap().transform = Transform::from_translation(Vec3::new(0.5, 1.0, 0.0));
+        scene.add_object(sun_from_above(2.0));
+        let mut sun2 = Object::new("Lamp", ObjectData::Light(Light::point(300.0)));
+        sun2.transform = Transform::from_translation(Vec3::new(-3.0, 3.0, 2.0));
+        scene.add_object(sun2);
+        let settings = Settings { max_depth: 4, ..Default::default() };
+        let rs = RenderScene::build(&scene, top_camera(5.0), &settings);
+        let render = |spp: u32, denoise: bool| {
+            let mut r = Renderer::new(48, 48, Settings { denoise, ..settings });
+            for _ in 0..spp {
+                r.pass(&rs);
+            }
+            r.linear()
+        };
+        let reference = render(256, false);
+        let noisy = render(2, false);
+        let clean = render(2, true);
+        let (p_noisy, p_clean) = (denoise::psnr(&noisy, &reference), denoise::psnr(&clean, &reference));
+        assert!(p_clean > p_noisy + 0.5, "denoised {p_clean} dB vs noisy {p_noisy} dB");
     }
 
     #[test]

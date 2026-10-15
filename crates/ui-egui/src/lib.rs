@@ -198,6 +198,21 @@ impl ShapeApp {
         self.status = "Rendering…".into();
     }
 
+    /// Render > Render Animation (Ctrl+F12): every frame of the range to PNGs.
+    pub fn start_render_animation(&mut self, ctx: &egui::Context) {
+        if self.render.animation_progress().is_some() {
+            self.status = "An animation render is already running".into();
+            return;
+        }
+        let fallback = {
+            let c = &self.viewport.camera;
+            shape_render::RenderCamera::look_at(c.position(), c.target, c.fov_y)
+        };
+        self.render.start_animation(&self.scene, move |scene| shape_render::RenderScene::scene_camera(scene).unwrap_or(fallback), ctx.clone());
+        let (s, e) = (self.scene.timeline.start, self.scene.timeline.end);
+        self.status = format!("Rendering animation frames {s}..{e} to {}####.png", self.render.output_path);
+    }
+
     /// Attach the agent process factory and the control channel its tools arrive on.
     pub fn with_agent(mut self, factory: Option<AgentFactory>, control: Option<ControlServer>) -> Self {
         self.agent = AgentPanel::new(factory);
@@ -663,9 +678,13 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() || self.modal.is_some() {
             return;
         }
-        let f12 = ui.input_mut(|i| crate::key(i, egui::Modifiers::NONE, egui::Key::F12));
+        let (f12, ctrl_f12) =
+            ui.input_mut(|i| (crate::key(i, egui::Modifiers::NONE, egui::Key::F12), crate::key(i, egui::Modifiers::COMMAND, egui::Key::F12)));
         if f12 {
             self.start_render(ui.ctx());
+        }
+        if ctrl_f12 {
+            self.start_render_animation(ui.ctx());
         }
         let (toolbar, sidebar, maximize, dup, hide, reveal, none, invert) = ui.input_mut(|i| {
             (

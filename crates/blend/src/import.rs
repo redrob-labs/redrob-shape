@@ -334,6 +334,7 @@ fn read_camera(file: &BlendFile, ptr: u64) -> Camera {
         fov_y,
         near: v.f32("clip_start").or_else(|| v.f32("clipsta")).unwrap_or(0.1),
         far: v.f32("clip_end").or_else(|| v.f32("clipend")).unwrap_or(1000.0),
+        ..Camera::default()
     }
 }
 

@@ -88,6 +88,11 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   colours the vertices of the active group with Blender's blue-cyan-green-yellow-red ramp, LMB
   strokes add weight under the brush on the deformed mesh (Ctrl subtracts; Radius / Weight in the
   header), the group is picked from a header dropdown, one stroke is one undo step.
+- Rendering: cameras gain Depth of Field (F-Stop, Focus Distance; thin-lens sampling in the path
+  tracer), the Render tab gains a Denoise toggle (edge-aware bilateral filter tuned to the image's
+  noise level, used for the window and saved PNGs), Output gains Resolution %, the frame range and
+  an output path, and Render > Render Animation (Ctrl+F12) renders every frame of the range to
+  `<path>####.png` on a worker thread with progress in the Output tab.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

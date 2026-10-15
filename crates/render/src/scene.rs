@@ -119,7 +119,10 @@ impl RenderScene {
     /// The scene's first camera object, as a render camera, if any.
     pub fn scene_camera(scene: &Scene) -> Option<RenderCamera> {
         scene.objects().find_map(|(id, o)| match &o.data {
-            ObjectData::Camera(c) if o.visible => Some(RenderCamera::from_matrix(scene.world_transform(id).to_matrix(), c.fov_y)),
+            ObjectData::Camera(c) if o.visible => {
+                let cam = RenderCamera::from_matrix(scene.world_transform(id).to_matrix(), c.fov_y);
+                Some(if c.use_dof { cam.with_dof(c.fstop, c.focus_distance) } else { cam })
+            }
             _ => None,
         })
     }

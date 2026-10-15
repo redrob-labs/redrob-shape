@@ -207,11 +207,26 @@ pub struct Camera {
     pub fov_y: f32,
     pub near: f32,
     pub far: f32,
+    /// Depth of field, Blender-style: off unless `use_dof`; `fstop` sets the blur (smaller =
+    /// more), `focus_distance` the sharp plane, in metres.
+    #[serde(default)]
+    pub use_dof: bool,
+    #[serde(default = "default_fstop")]
+    pub fstop: f32,
+    #[serde(default = "default_focus")]
+    pub focus_distance: f32,
+}
+
+fn default_fstop() -> f32 {
+    2.8
+}
+fn default_focus() -> f32 {
+    10.0
 }
 
 impl Default for Camera {
     fn default() -> Self {
-        Self { fov_y: 50f32.to_radians(), near: 0.1, far: 1000.0 }
+        Self { fov_y: 50f32.to_radians(), near: 0.1, far: 1000.0, use_dof: false, fstop: 2.8, focus_distance: 10.0 }
     }
 }
 

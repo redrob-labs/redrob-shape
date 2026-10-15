@@ -11,11 +11,13 @@ pub struct Settings {
     /// Radiance of a ray that leaves the scene.
     pub sky: Vec3,
     pub exposure: f32,
+    /// Run the edge-aware denoiser on the output image.
+    pub denoise: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { max_depth: 5, sky: Vec3::new(0.18, 0.21, 0.26), exposure: 1.0 }
+        Self { max_depth: 5, sky: Vec3::new(0.18, 0.21, 0.26), exposure: 1.0, denoise: false }
     }
 }
 

@@ -158,6 +158,9 @@ impl ShapeApp {
             if ui.button("Render Image (F12)").clicked() {
                 self.start_render(ui.ctx());
             }
+            if ui.button("Render Animation (Ctrl+F12)").clicked() {
+                self.start_render_animation(ui.ctx());
+            }
             if ui.button("Show Render Window").clicked() {
                 self.render.open = true;
             }
