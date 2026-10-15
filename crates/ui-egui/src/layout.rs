@@ -166,7 +166,7 @@ impl ShapeApp {
                 let hint = if self.modal.is_some() {
                     ""
                 } else if self.scene.edit.is_some() {
-                    "click face · shift add · E extrude · I inset · Ctrl+B bevel · Ctrl+R loop cut · A all"
+                    "1/2/3 vert·edge·face · click · shift add · alt loop · L linked · E I F M X · Ctrl+B Ctrl+R"
                 } else {
                     "G move · R rotate · S scale · X delete · Home frame"
                 };
@@ -246,6 +246,20 @@ impl ShapeApp {
                     }
                 });
                 ui.separator();
+                if editing {
+                    // Blender's vertex / edge / face select-mode buttons (1 / 2 / 3).
+                    let current = self.scene.edit.as_ref().map(|e| e.mode).unwrap_or_default();
+                    for (mode, glyph, tip) in [
+                        (shape_scene::SelectMode::Vertex, "·", "Vertex select (1)"),
+                        (shape_scene::SelectMode::Edge, "╱", "Edge select (2)"),
+                        (shape_scene::SelectMode::Face, "▰", "Face select (3)"),
+                    ] {
+                        if ui.selectable_label(current == mode, glyph).on_hover_text(tip).clicked() {
+                            self.set_select_mode(mode);
+                        }
+                    }
+                    ui.separator();
+                }
                 self.view_menu(ui);
                 self.select_menu(ui);
                 self.add_menu(ui);

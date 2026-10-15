@@ -2621,6 +2621,7 @@ version = "0.3.0"
 dependencies = [
  "bytemuck",
  "log",
+ "pollster 0.4.0",
  "shape-geom",
  "shape-math",
  "shape-ops",

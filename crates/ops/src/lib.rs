@@ -7,11 +7,16 @@
 //! Non-destructive edits live in the scene as [`Modifier`] values; [`evaluate`] applies a stack.
 
 pub mod bevel;
+pub mod edit;
 pub mod modifiers;
 pub mod subdivide;
 pub mod uv;
 
 pub use bevel::{bevel_all, bevel_edges};
+pub use edit::{
+    MergeAt, delete_edges, delete_faces, delete_vertices, dissolve_edges, dissolve_faces, edge_loop, face_loop, fill, grow_vertices, linked_faces,
+    merge_vertices, shrink_vertices,
+};
 pub use modifiers::{evaluate, evaluated_mesh, scene_mesh};
 pub use subdivide::{catmull_clark, subdivide_linear};
 pub use uv::{uv_box, uv_planar, uv_sphere};

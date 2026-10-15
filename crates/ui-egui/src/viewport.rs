@@ -36,6 +36,7 @@ pub struct ViewportInput {
     pub secondary_clicked: bool,
     pub shift: bool,
     pub ctrl: bool,
+    pub alt: bool,
     pub hovered: bool,
 }
 
@@ -103,7 +104,8 @@ impl ViewportPanel {
         let size_px = Vec2::new(rect.width() * ppp, rect.height() * ppp);
 
         let mods = ui.input(|i| i.modifiers);
-        let mut input = ViewportInput { size: size_px, shift: mods.shift, ctrl: mods.command, hovered: response.hovered(), ..Default::default() };
+        let mut input =
+            ViewportInput { size: size_px, shift: mods.shift, ctrl: mods.command, alt: mods.alt, hovered: response.hovered(), ..Default::default() };
         let (pointer_pos, primary_down, primary_pressed, primary_released) = ui.input(|i| {
             (
                 i.pointer.latest_pos(),

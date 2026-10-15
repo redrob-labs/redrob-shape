@@ -11,7 +11,7 @@ pub mod camera;
 mod geometry;
 
 pub use camera::{AxisView, OrbitCamera};
-pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, pick, pick_detail, scene_lights};
+pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, nearest_vertex, pick, pick_detail, scene_lights};
 
 use bytemuck::{Pod, Zeroable};
 use shape_math::Vec3;
@@ -86,9 +86,23 @@ impl LineVertex {
     }
 }
 
+impl LineVertex {
+    /// Six corners of a screen-space square around a point (kind 2; the shader sizes it).
+    pub fn point(p: &Vertex) -> [LineVertex; 6] {
+        let corner = |end: f32, side: f32| LineVertex { a: p.position, b: p.position, color: p.color, params: [end, side, 2.0] };
+        let (a0, a1, b0, b1) = (corner(0.0, -1.0), corner(0.0, 1.0), corner(1.0, -1.0), corner(1.0, 1.0));
+        [a0, b0, b1, a0, b1, a1]
+    }
+}
+
 /// Expand a line list (vertex pairs) into quad corners.
 pub fn expand_lines(lines: &[Vertex]) -> Vec<LineVertex> {
     lines.as_chunks::<2>().0.iter().flat_map(|[a, b]| LineVertex::quad(a, b)).collect()
+}
+
+/// Expand points into screen-space squares.
+pub fn expand_points(points: &[Vertex]) -> Vec<LineVertex> {
+    points.iter().flat_map(LineVertex::point).collect()
 }
 
 /// One scene light as the shader sees it.
@@ -151,6 +165,8 @@ impl Default for ViewOptions {
 pub struct FrameGeometry {
     pub triangles: Vec<Vertex>,
     pub lines: Vec<Vertex>,
+    /// Edit-mode vertex dots, drawn as screen-space squares after the lines.
+    pub points: Vec<Vertex>,
     /// Scene lights, at most [`MAX_LIGHTS`] are uploaded.
     pub lights: Vec<GpuLight>,
 }
@@ -349,7 +365,8 @@ impl Viewport {
         let mut tri = self.tri_buffer.take();
         let mut line = self.line_buffer.take();
         self.upload(&mut tri, &geometry.triangles, "triangles");
-        let quads = expand_lines(&geometry.lines);
+        let mut quads = expand_lines(&geometry.lines);
+        quads.extend(expand_points(&geometry.points));
         self.upload(&mut line, &quads, "lines");
         self.tri_buffer = tri;
         self.line_buffer = line;

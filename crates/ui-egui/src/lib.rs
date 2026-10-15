@@ -5,6 +5,7 @@
 //! `viewport`.
 
 pub mod agent;
+pub mod edit_mode;
 pub mod keymap;
 pub mod layout;
 mod panels;
@@ -15,12 +16,12 @@ pub mod tools;
 pub mod viewport;
 
 pub use agent::{AgentFactory, AgentPanel};
+pub use edit_mode::EditDelete;
 pub use keymap::{BoxSelect, Op, Popup};
 pub use layout::{PropsTab, Regions, Workspace};
 pub use render_panel::RenderPanel;
 pub use shape_agent::ControlServer;
 use shape_geom::primitives;
-use shape_gpu::ShadingMode;
 use shape_math::{Transform, Vec2};
 use shape_scene::{EditSelection, Modifier, ObjectId, Scene};
 use shape_undo::{History, Snapshot};
@@ -312,7 +313,7 @@ impl ShapeApp {
 
     pub fn select_none(&mut self) {
         if let Some(edit) = &mut self.scene.edit {
-            edit.faces.clear();
+            edit.clear();
         } else {
             self.scene.selection.clear();
         }
@@ -321,9 +322,9 @@ impl ShapeApp {
     pub fn select_invert(&mut self) {
         if let Some(object) = self.scene.edit.as_ref().map(|e| e.object) {
             let Some((_, mesh)) = self.scene.object_mesh(object) else { return };
-            let all: std::collections::BTreeSet<_> = mesh.face_ids().collect();
+            let mesh = mesh.clone();
             let Some(edit) = &mut self.scene.edit else { return };
-            edit.faces = all.difference(&edit.faces).copied().collect();
+            edit.invert(&mesh);
         } else {
             let all: Vec<ObjectId> = self.scene.objects().map(|(id, _)| id).collect();
             let sel = &mut self.scene.selection;
@@ -470,12 +471,12 @@ impl ShapeApp {
     pub fn select_all(&mut self) {
         if let Some(object) = self.scene.edit.as_ref().map(|e| e.object) {
             let Some((_, mesh)) = self.scene.object_mesh(object) else { return };
-            let all: std::collections::BTreeSet<_> = mesh.face_ids().collect();
+            let mesh = mesh.clone();
             let Some(edit) = &mut self.scene.edit else { return };
-            if edit.faces == all {
-                edit.faces.clear();
+            if edit.is_all(&mesh) {
+                edit.clear();
             } else {
-                edit.faces = all;
+                edit.select_all(&mesh);
             }
         } else {
             let all: Vec<ObjectId> = self.scene.objects().map(|(id, _)| id).collect();
@@ -505,7 +506,7 @@ impl ShapeApp {
                     data.set_mesh(new_mesh);
                 }
                 if let Some(e) = &mut scene.edit {
-                    e.faces.clear();
+                    e.clear();
                 }
             }),
             Err(e) => self.status = format!("Loop cut failed: {e}"),
@@ -630,15 +631,13 @@ impl ShapeApp {
         if invert {
             self.select_invert();
         }
-        let (undo, redo, del, frame, wire, solid) = ui.input_mut(|i| {
+        let (undo, redo, del, frame) = ui.input_mut(|i| {
             (
                 crate::key(i, egui::Modifiers::COMMAND, egui::Key::Z),
                 crate::key(i, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
                     || crate::key(i, egui::Modifiers::COMMAND, egui::Key::Y),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::Delete),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::Home),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::Num1),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::Num2),
             )
         });
         if redo {
@@ -655,12 +654,6 @@ impl ShapeApp {
         if frame {
             self.viewport.frame_scene(&self.scene);
         }
-        if wire {
-            self.viewport.options.shading = ShadingMode::Wireframe;
-        }
-        if solid {
-            self.viewport.options.shading = ShadingMode::Solid;
-        }
     }
 
     /// Draw one frame. Split out of `eframe::App::ui` so `egui_kittest` can drive it.
@@ -674,6 +667,7 @@ impl ShapeApp {
         self.hotkeys(ui);
         if self.popup.is_none() {
             self.object_keys(ui);
+            self.edit_keys(ui);
         }
         if std::mem::take(&mut self.render_requested) {
             self.start_render(ui.ctx());
@@ -706,6 +700,14 @@ impl ShapeApp {
             })
             .inner;
         self.last_pointer = input.pointer.or(self.last_pointer);
+        if input.primary_pressed {
+            // Clicking the viewport takes keyboard focus back from whatever widget had it.
+            ui.ctx().memory_mut(|m| {
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
+        }
         if self.popup.is_some() {
             self.popup_ui(ui);
         } else if !self.box_select_input(&input) {
@@ -767,19 +769,8 @@ impl ShapeApp {
             && let Some(p) = input.pointer
         {
             let hit = shape_gpu::pick_detail(&self.scene, &self.viewport.camera, p, size);
-            if let Some(edit) = &mut self.scene.edit {
-                match hit {
-                    Some(h) if input.shift => {
-                        if !edit.faces.remove(&h.face) {
-                            edit.faces.insert(h.face);
-                        }
-                    }
-                    Some(h) => {
-                        edit.faces.clear();
-                        edit.faces.insert(h.face);
-                    }
-                    None => edit.faces.clear(),
-                }
+            if self.scene.edit.is_some() {
+                self.edit_click(hit, input.shift, input.alt);
             } else {
                 match hit {
                     Some(h) if input.shift => self.scene.selection.toggle(h.object),

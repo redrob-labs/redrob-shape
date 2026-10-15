@@ -173,7 +173,13 @@ pub enum Popup {
     Add,
     Shading,
     DeleteConfirm,
-    Search { query: String },
+    Search {
+        query: String,
+    },
+    /// Edit mode M: where to merge.
+    Merge,
+    /// Edit mode X: what to delete or dissolve.
+    EditDelete,
 }
 
 /// Box select in progress: start pixel, current pixel (viewport pixels).
@@ -399,9 +405,9 @@ impl ShapeApp {
                 crate::key(i, egui::Modifiers::NONE, egui::Key::P),
                 crate::key(i, egui::Modifiers::SHIFT, egui::Key::C),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::B),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::Num1),
+                !editing && crate::key(i, egui::Modifiers::NONE, egui::Key::Num1),
                 crate::key(i, egui::Modifiers::COMMAND, egui::Key::Num1),
-                crate::key(i, egui::Modifiers::NONE, egui::Key::Num3),
+                !editing && crate::key(i, egui::Modifiers::NONE, egui::Key::Num3),
                 crate::key(i, egui::Modifiers::COMMAND, egui::Key::Num3),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::Num7),
                 crate::key(i, egui::Modifiers::COMMAND, egui::Key::Num7),
@@ -443,6 +449,8 @@ impl ShapeApp {
             self.box_pending = true;
             self.status = "Box select: drag in the viewport".into();
         }
+        // egui cannot tell the numpad from the digit row, and in edit mode 1 / 2 / 3 are Blender's
+        // select modes; the plain-digit views are object mode only (Ctrl+digit works in both).
         for (hit, view) in
             [(n1, AxisView::Front), (c1, AxisView::Back), (n3, AxisView::Right), (c3, AxisView::Left), (n7, AxisView::Top), (c7, AxisView::Bottom)]
         {
@@ -466,6 +474,8 @@ impl ShapeApp {
         self.popup_pos = Some(pos);
         let mut close = false;
         let mut run: Option<Op> = None;
+        let mut merge: Option<shape_ops::MergeAt> = None;
+        let mut edit_delete: Option<crate::EditDelete> = None;
         let area = egui::Area::new(egui::Id::new("blender-popup")).fixed_pos(pos).order(egui::Order::Foreground);
         let response = area.show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -512,6 +522,28 @@ impl ShapeApp {
                             run = Some(Op::Delete);
                         }
                     }
+                    Popup::Merge => {
+                        ui.label(RichText::new("Merge").strong());
+                        ui.separator();
+                        for (at, label) in [
+                            (shape_ops::MergeAt::Center, "At Center"),
+                            (shape_ops::MergeAt::First, "At First"),
+                            (shape_ops::MergeAt::Last, "At Last"),
+                        ] {
+                            if ui.button(label).clicked() {
+                                merge = Some(at);
+                            }
+                        }
+                    }
+                    Popup::EditDelete => {
+                        ui.label(RichText::new("Delete").strong());
+                        ui.separator();
+                        for what in crate::EditDelete::ALL {
+                            if ui.button(what.name()).clicked() {
+                                edit_delete = Some(what);
+                            }
+                        }
+                    }
                     Popup::Search { query } => {
                         let mut q = query.clone();
                         let edit = ui.add(egui::TextEdit::singleline(&mut q).hint_text("Search operators…").desired_width(260.0));
@@ -551,9 +583,23 @@ impl ShapeApp {
             self.run_op(op);
             close = true;
         }
+        if let Some(at) = merge {
+            self.merge_selected(at);
+            close = true;
+        }
+        if let Some(what) = edit_delete {
+            self.edit_delete(what);
+            close = true;
+        }
         if close {
             self.popup = None;
             self.popup_pos = None;
+            // A clicked button keeps keyboard focus, which would swallow every hotkey afterwards.
+            ui.ctx().memory_mut(|m| {
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
         }
     }
 
@@ -577,18 +623,8 @@ impl ShapeApp {
                 }
                 let inside = |p: Vec2| p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y;
                 let cam = self.viewport.camera.clone();
-                if let Some(edit) = self.scene.edit.clone() {
-                    if let Some((_, mesh)) = self.scene.object_mesh(edit.object) {
-                        let t = self.scene.world_transform(edit.object);
-                        let hits: Vec<_> =
-                            mesh.face_ids().filter(|&f| cam.project(t.transform_point(mesh.face_centroid(f)), size).is_some_and(inside)).collect();
-                        if let Some(e) = &mut self.scene.edit {
-                            if !input.shift {
-                                e.faces.clear();
-                            }
-                            e.faces.extend(hits);
-                        }
-                    }
+                if self.scene.edit.is_some() {
+                    self.edit_box_select(inside, size, input.shift);
                 } else {
                     let hits: Vec<ObjectId> = self
                         .scene

@@ -25,13 +25,17 @@ const WIRE: [f32; 4] = [0.05, 0.05, 0.06, 1.0];
 const SELECTED_WIRE: [f32; 4] = [1.0, 0.60, 0.15, 1.0];
 const ACTIVE_WIRE: [f32; 4] = [1.0, 0.80, 0.35, 1.0];
 const DEFAULT_SURFACE: [f32; 4] = [0.62, 0.63, 0.66, 1.0];
-const SELECTED_FACE: [f32; 4] = [0.95, 0.55, 0.20, 1.0];
+// Blender's selected face: the surface tinted orange (measured #9B7D66..#A58B77 lit in its theme).
+const SELECTED_FACE: [f32; 4] = [0.55, 0.33, 0.18, 1.0];
 const GIZMO: [f32; 4] = [0.95, 0.85, 0.40, 1.0];
 const CAMERA_GIZMO: [f32; 4] = [0.70, 0.75, 0.85, 1.0];
 /// Power at which a point light's uploaded radiance is 1 at one metre.
 const POINT_POWER_SCALE: f32 = 1.0 / 80.0;
 const SUN_SCALE: f32 = 0.35;
 const EDIT_WIRE: [f32; 4] = [0.10, 0.10, 0.12, 1.0];
+/// Blender's edit-mode selection orange for edges and vertices, and its black vertex dots.
+const EDIT_SELECTED: [f32; 4] = [0.79, 0.29, 0.03, 1.0]; // #E89330 in Blender's dark theme
+const EDIT_VERTEX: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 /// The mesh an object is drawn with: the base mesh while it is being edited, otherwise the
 /// evaluated one.
@@ -112,8 +116,18 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
         if let Some(c) = wire_color {
             for e in mesh.edge_ids() {
                 let (a, b) = mesh.edge_vertices(e);
+                let c = if editing.is_some_and(|ed| ed.edges.contains(&e)) { EDIT_SELECTED } else { c };
                 out.lines.push(Vertex::new(positions[a.index()], Vec3::Y, c));
                 out.lines.push(Vertex::new(positions[b.index()], Vec3::Y, c));
+            }
+        }
+        // Vertex dots in vertex select mode, selected ones orange.
+        if let Some(ed) = editing
+            && ed.mode == shape_scene::SelectMode::Vertex
+        {
+            for v in mesh.vertex_ids() {
+                let c = if ed.verts.contains(&v) { EDIT_SELECTED } else { EDIT_VERTEX };
+                out.points.push(Vertex::new(positions[v.index()], Vec3::Y, c));
             }
         }
     }
@@ -272,6 +286,15 @@ pub fn pick_detail(scene: &Scene, camera: &OrbitCamera, pixel: Vec2, size: Vec2)
 }
 
 /// Edge of `face` nearest to a local-space point: for loop cut on the hovered edge.
+/// The vertex of `face` nearest to a local-space point (vertex picking).
+pub fn nearest_vertex(mesh: &shape_geom::Mesh, face: FaceId, local_point: Vec3) -> Option<shape_geom::VertexId> {
+    mesh.face_vertices(face).min_by(|&a, &b| {
+        let da = (mesh.position(a) - local_point).length_squared();
+        let db = (mesh.position(b) - local_point).length_squared();
+        da.total_cmp(&db)
+    })
+}
+
 pub fn nearest_edge(mesh: &shape_geom::Mesh, face: FaceId, local_point: Vec3) -> Option<shape_geom::EdgeId> {
     let mut best: Option<(f32, shape_geom::EdgeId)> = None;
     for h in mesh.face_halfedges(face) {
@@ -341,7 +364,7 @@ mod edit_tests {
         let cam = OrbitCamera { yaw: 0.0, pitch: 0.0, distance: 6.0, ..Default::default() };
         let size = Vec2::new(400.0, 300.0);
         let hit = pick_detail(&scene, &cam, size * 0.5, size).unwrap();
-        let mesh = scene.object_mesh(id).unwrap().1;
+        let mesh = &scene.object_mesh(id).unwrap().1.clone();
         assert!(mesh.face_normal(hit.face).z > 0.9, "front (+Z) face");
         assert!((hit.local_point.z - 1.0).abs() < 1e-4);
         let edge = nearest_edge(mesh, hit.face, Vec3::new(0.9, 0.0, 1.0)).unwrap();
@@ -355,6 +378,16 @@ mod edit_tests {
         let orange = frame.triangles.iter().filter(|v| v.color == SELECTED_FACE).count();
         assert_eq!(orange, 6, "two triangles of the selected quad");
         assert_eq!(frame.lines.len(), 24, "edit wire on every edge");
+        assert!(frame.points.is_empty(), "no vertex dots in face mode");
+        let mut e = scene.edit.take().unwrap();
+        e.flush(mesh);
+        e.set_mode(shape_scene::SelectMode::Vertex, mesh);
+        scene.edit = Some(e);
+        let frame = build_frame(&scene, &ViewOptions { show_grid: false, ..Default::default() });
+        assert_eq!(frame.points.len(), 8, "a dot per vertex in vertex mode");
+        assert_eq!(frame.points.iter().filter(|p| p.color == EDIT_SELECTED).count(), 4, "the four selected corners are orange");
+        assert_eq!(frame.lines.iter().filter(|p| p.color == EDIT_SELECTED).count(), 8, "the four selected edges, two ends each");
+        assert_eq!(crate::expand_points(&frame.points).len(), 48);
     }
 }
 

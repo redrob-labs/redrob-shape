@@ -5,7 +5,7 @@
 //! through `parent`; an object's world transform is its parents' transforms composed with its own.
 
 use serde::{Deserialize, Serialize};
-use shape_geom::{FaceId, Mesh};
+use shape_geom::{EdgeId, FaceId, Mesh, VertexId};
 use shape_math::{Aabb, Transform, Vec2, Vec3};
 use std::collections::BTreeSet;
 
@@ -228,16 +228,130 @@ impl Selection {
     }
 }
 
-/// Edit mode: one mesh object whose faces are being selected and edited directly.
+/// Which element kind clicks pick in edit mode (Blender's 1 / 2 / 3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SelectMode {
+    Vertex,
+    Edge,
+    #[default]
+    Face,
+}
+
+impl SelectMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            SelectMode::Vertex => "Vertex",
+            SelectMode::Edge => "Edge",
+            SelectMode::Face => "Face",
+        }
+    }
+}
+
+/// Edit mode: one mesh object whose vertices, edges and faces are being selected and edited.
+///
+/// The three sets are kept consistent by [`EditSelection::flush`], the way Blender flushes a
+/// selection: in vertex mode an edge is selected when both ends are, a face when all its
+/// vertices are; in edge mode a face is selected when all its edges are; in face mode the vertices
+/// and edges of the selected faces are selected. Operators read whichever set they need.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EditSelection {
     pub object: ObjectId,
+    pub mode: SelectMode,
+    pub verts: BTreeSet<VertexId>,
+    pub edges: BTreeSet<EdgeId>,
     pub faces: BTreeSet<FaceId>,
 }
 
 impl EditSelection {
     pub fn new(object: ObjectId) -> Self {
-        Self { object, faces: BTreeSet::new() }
+        Self { object, mode: SelectMode::Face, verts: BTreeSet::new(), edges: BTreeSet::new(), faces: BTreeSet::new() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self.mode {
+            SelectMode::Vertex => self.verts.is_empty(),
+            SelectMode::Edge => self.edges.is_empty(),
+            SelectMode::Face => self.faces.is_empty(),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.verts.clear();
+        self.edges.clear();
+        self.faces.clear();
+    }
+
+    /// Switch mode, converting the selection the way Blender does (down: everything the
+    /// elements touch; up: only elements fully selected).
+    pub fn set_mode(&mut self, mode: SelectMode, mesh: &Mesh) {
+        if mode == self.mode {
+            return;
+        }
+        self.flush(mesh);
+        self.mode = mode;
+        self.flush(mesh);
+    }
+
+    /// Recompute the two derived sets from the one the current mode owns.
+    pub fn flush(&mut self, mesh: &Mesh) {
+        match self.mode {
+            SelectMode::Vertex => {
+                self.verts.retain(|v| v.index() < mesh.vertex_count());
+                self.edges = mesh
+                    .edge_ids()
+                    .filter(|&e| {
+                        let (a, b) = mesh.edge_vertices(e);
+                        self.verts.contains(&a) && self.verts.contains(&b)
+                    })
+                    .collect();
+                self.faces = mesh.face_ids().filter(|&f| mesh.face_vertices(f).all(|v| self.verts.contains(&v))).collect();
+            }
+            SelectMode::Edge => {
+                self.edges.retain(|e| e.index() < mesh.edge_count());
+                self.verts = self
+                    .edges
+                    .iter()
+                    .flat_map(|&e| {
+                        let (a, b) = mesh.edge_vertices(e);
+                        [a, b]
+                    })
+                    .collect();
+                self.faces = mesh.face_ids().filter(|&f| mesh.face_halfedges(f).all(|h| self.edges.contains(&mesh.halfedge(h).edge))).collect();
+            }
+            SelectMode::Face => {
+                self.faces.retain(|f| f.index() < mesh.face_count());
+                self.verts = self.faces.iter().flat_map(|&f| mesh.face_vertices(f)).collect();
+                self.edges = self.faces.iter().flat_map(|&f| mesh.face_halfedges(f).map(|h| mesh.halfedge(h).edge)).collect();
+            }
+        }
+    }
+
+    /// Select everything of the current mode's kind.
+    pub fn select_all(&mut self, mesh: &Mesh) {
+        match self.mode {
+            SelectMode::Vertex => self.verts = mesh.vertex_ids().collect(),
+            SelectMode::Edge => self.edges = mesh.edge_ids().collect(),
+            SelectMode::Face => self.faces = mesh.face_ids().collect(),
+        }
+        self.flush(mesh);
+    }
+
+    /// Everything of the current kind selected?
+    pub fn is_all(&self, mesh: &Mesh) -> bool {
+        match self.mode {
+            SelectMode::Vertex => self.verts.len() == mesh.vertex_count(),
+            SelectMode::Edge => self.edges.len() == mesh.edge_count(),
+            SelectMode::Face => self.faces.len() == mesh.face_count(),
+        }
+    }
+
+    pub fn invert(&mut self, mesh: &Mesh) {
+        match self.mode {
+            SelectMode::Vertex => self.verts = mesh.vertex_ids().filter(|v| !self.verts.contains(v)).collect(),
+            SelectMode::Edge => self.edges = mesh.edge_ids().filter(|e| !self.edges.contains(e)).collect(),
+            SelectMode::Face => self.faces = mesh.face_ids().filter(|f| !self.faces.contains(f)).collect(),
+        }
+        self.flush(mesh);
     }
 }
 

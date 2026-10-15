@@ -155,6 +155,16 @@ fn vs_lines(in: LineIn) -> VertexOut {
     let offset_ndc = normal_px / (size * 0.5);
 
     var clip = select(ca, cb, in.params.x > 0.5);
+    if (in.params.z > 1.5) {
+        // A point: a square of 2 * (2 * line width) pixels around a.
+        let half = globals.viewport.z * 2.0;
+        let px = vec2<f32>(select(-1.0, 1.0, in.params.x > 0.5), in.params.y) * half;
+        clip = vec4<f32>(ca.xy + px / (size * 0.5) * ca.w, ca.z - 0.0008 * ca.w, ca.w);
+        out.clip = clip;
+        out.world = in.a;
+        out.normal = vec3<f32>(0.0, 1.0, 0.0);
+        return out;
+    }
     clip = vec4<f32>(clip.xy + offset_ndc * clip.w, clip.z, clip.w);
     // Nudge towards the camera so wire overlays win the depth test against their faces.
     clip.z = clip.z - 0.0004 * clip.w;
