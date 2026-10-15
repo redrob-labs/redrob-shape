@@ -12,6 +12,21 @@
 
 초기 단계입니다. 단계 계획은 [ROADMAP.md](ROADMAP.md)에 있고, 지금 동작하는 범위는 그 표가 기준입니다.
 
+## 스크린샷
+
+
+| | |
+|---|---|
+| ![Layout 워크스페이스](docs/screenshots/layout.png)<br>Layout 워크스페이스 | ![추가 메뉴 (Shift+A)](docs/screenshots/add-menu.png)<br>추가 메뉴 (Shift+A) |
+| ![편집 모드](docs/screenshots/edit-mode.png)<br>편집 모드 | ![모디파이어](docs/screenshots/modifiers.png)<br>모디파이어 |
+| ![아웃라이너](docs/screenshots/outliner.png)<br>아웃라이너 | ![셰이더 편집기](docs/screenshots/shader-editor.png)<br>셰이더 편집기 |
+| ![셰이딩 팝오버](docs/screenshots/shading-popover.png)<br>셰이딩 팝오버 | ![스컬프트](docs/screenshots/sculpt.png)<br>스컬프트 |
+| ![UV 편집](docs/screenshots/uv-editing.png)<br>UV 편집 | ![애니메이션](docs/screenshots/animation.png)<br>애니메이션 |
+| ![포즈 모드](docs/screenshots/pose-mode.png)<br>포즈 모드 | ![웨이트 페인트](docs/screenshots/weight-paint.png)<br>웨이트 페인트 |
+| ![렌더 (패스 트레이서)](docs/screenshots/render.png)<br>렌더 (패스 트레이서) | ![커브](docs/screenshots/curves.png)<br>커브 |
+| ![COLLADA 가져오기](docs/screenshots/collada-import.png)<br>COLLADA 가져오기 | ![지오메트리 노드](docs/screenshots/geometry-nodes.png)<br>지오메트리 노드 |
+| ![환경설정 / 키맵](docs/screenshots/preferences.png)<br>환경설정 / 키맵 | ![스크립팅 콘솔](docs/screenshots/scripting-console.png)<br>스크립팅 콘솔 |
+
 ## 빌드
 
 ```
