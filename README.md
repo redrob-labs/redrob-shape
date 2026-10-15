@@ -30,6 +30,11 @@ for what works today.
 | ![COLLADA import](docs/screenshots/collada-import.png)<br>COLLADA import | ![Geometry Nodes](docs/screenshots/geometry-nodes.png)<br>Geometry Nodes |
 | ![Preferences / keymap](docs/screenshots/preferences.png)<br>Preferences / keymap | ![Scripting console](docs/screenshots/scripting-console.png)<br>Scripting console |
 
+## Install
+
+Releases ship for Linux (tar.gz), macOS (notarized DMG) and Windows (`-setup.exe` per-user
+installer, or `-portable.zip` to unzip anywhere). Redrob Launcher installs the portable build.
+
 ## Build
 
 ```

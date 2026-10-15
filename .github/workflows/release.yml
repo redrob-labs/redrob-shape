@@ -14,6 +14,8 @@
 #
 # Asset names follow `redrob-shape-<version>-<os>-<arch>[-portable].<ext>`, the one shape Redrob
 # Launcher installs (scripts/check-asset-names.py refuses anything else before it is published).
+# Windows also ships `-setup.exe`, the branded per-user installer (apps/redrob-shape-setup) for
+# people who download by hand; the launcher skips it and takes the portable zip.
 name: Release
 
 on:
