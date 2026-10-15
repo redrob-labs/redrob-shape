@@ -22,6 +22,7 @@ pub use edit_mode::EditDelete;
 pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub mod node_editor;
+pub mod sculpt_mode;
 pub use layout::{PropsTab, Regions, Workspace};
 pub use object_mode::SetOrigin;
 pub use render_panel::RenderPanel;
@@ -55,6 +56,7 @@ pub struct ShapeApp {
     /// Scene before the property drag in progress, turned into one undo step on release.
     property_before: Option<Scene>,
     pub(crate) node_editor: node_editor::NodeEditor,
+    pub sculpt: Option<sculpt_mode::SculptMode>,
     node_editor_origin: egui::Vec2,
     /// Pointer over the viewport last frame, in viewport pixels.
     last_pointer: Option<Vec2>,
@@ -144,6 +146,7 @@ impl ShapeApp {
             file: None,
             property_before: None,
             node_editor: Default::default(),
+            sculpt: None,
             node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
             agent: AgentPanel::new(None),
@@ -474,6 +477,7 @@ impl ShapeApp {
 
     /// Enter edit mode on the active mesh object, or leave it.
     pub fn toggle_edit_mode(&mut self) {
+        self.sculpt = None;
         if self.scene.edit.is_some() {
             self.scene.edit = None;
             self.status = "Object Mode".into();
@@ -538,6 +542,12 @@ impl ShapeApp {
     fn modal_keys(&mut self, ui: &egui::Ui) -> (bool, bool) {
         if ui.ctx().egui_wants_keyboard_input() {
             return (false, false);
+        }
+        if self.sculpt.is_some() {
+            // Sculpt Mode owns G / S / I / X etc. as brushes; only confirm / cancel pass.
+            return ui.input_mut(|inp| {
+                (crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter), crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape))
+            });
         }
         let modal_running = self.modal.is_some();
         let (enter, escape, g, r, sc, e, i, loop_cut, bevel, tab, a, x, y, z) = ui.input_mut(|inp| {
@@ -701,7 +711,10 @@ impl ShapeApp {
         if !over_nodes {
             self.hotkeys(ui);
         }
-        if self.popup.is_none() && !over_nodes {
+        if self.sculpt.is_some() && self.popup.is_none() && !over_nodes {
+            self.sculpt_keys(ui);
+            self.mode_keys(ui);
+        } else if self.popup.is_none() && !over_nodes {
             self.object_keys(ui);
             self.edit_keys(ui);
             self.edit_tool_keys(ui);
@@ -753,13 +766,18 @@ impl ShapeApp {
         }
         if self.popup.is_some() {
             self.popup_ui(ui);
-        } else if self.circle_select_input(&input, escape) || self.knife_input(&input, escape) || self.place_cursor(&input) {
+        } else if self.sculpt_input(&input, enter, escape)
+            || self.circle_select_input(&input, escape)
+            || self.knife_input(&input, escape)
+            || self.place_cursor(&input)
+        {
             // a paint/click tool owns the pointer
         } else if !self.box_select_input(&input) {
             self.handle_viewport_input(&input, enter, escape);
         }
         self.box_select_overlay(ui);
         self.edit_tool_overlay(ui);
+        self.sculpt_overlay(ui);
         self.cursor_overlay(ui);
         if self.circle.is_some() || self.knife.is_some() {
             ui.ctx().request_repaint();

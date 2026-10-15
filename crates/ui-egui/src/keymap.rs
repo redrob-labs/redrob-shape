@@ -178,6 +178,8 @@ impl Op {
 pub enum Popup {
     Add,
     Shading,
+    /// Ctrl+Tab: Object / Edit / Sculpt.
+    Mode,
     DeleteConfirm,
     Search {
         query: String,
@@ -413,6 +415,21 @@ impl ShapeApp {
         });
     }
 
+    /// The mode keys that stay live in Sculpt Mode: Ctrl+Tab (mode menu) and Escape.
+    pub(crate) fn mode_keys(&mut self, ui: &egui::Ui) {
+        if ui.ctx().egui_wants_keyboard_input() {
+            return;
+        }
+        let (mode, escape) =
+            ui.input_mut(|i| (crate::key(i, egui::Modifiers::COMMAND, egui::Key::Tab), crate::key(i, egui::Modifiers::NONE, egui::Key::Escape)));
+        if mode {
+            self.popup = Some(Popup::Mode);
+        }
+        if escape {
+            self.popup = None;
+        }
+    }
+
     /// Object-mode keys that open popups or drive the view. Runs after the modal keys so a modal
     /// owns X/Y/Z while it is active.
     pub(crate) fn object_keys(&mut self, ui: &egui::Ui) {
@@ -464,7 +481,7 @@ impl ShapeApp {
             self.popup = Some(Popup::Search { query: String::new() });
         }
         if mode {
-            self.run_op(Op::ToggleEditMode);
+            self.popup = Some(Popup::Mode);
         }
         if join {
             self.run_op(Op::Join);
@@ -535,6 +552,29 @@ impl ShapeApp {
                             if ui.button(label).clicked() {
                                 run = Some(op);
                             }
+                        }
+                    }
+                    Popup::Mode => {
+                        ui.label(RichText::new("Mode").strong());
+                        ui.separator();
+                        let (editing, sculpting) = (self.scene.edit.is_some(), self.sculpt.is_some());
+                        if ui.selectable_label(!editing && !sculpting, "Object Mode").clicked() {
+                            self.scene.edit = None;
+                            self.sculpt = None;
+                            self.status = "Object Mode".into();
+                            close = true;
+                        }
+                        if ui.selectable_label(editing, "Edit Mode").clicked() {
+                            if !editing {
+                                self.toggle_edit_mode();
+                            }
+                            close = true;
+                        }
+                        if ui.selectable_label(sculpting, "Sculpt Mode").clicked() {
+                            if !sculpting {
+                                self.toggle_sculpt_mode();
+                            }
+                            close = true;
                         }
                     }
                     Popup::Shading => {

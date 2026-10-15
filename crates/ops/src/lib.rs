@@ -12,6 +12,7 @@ pub mod edit;
 pub mod edit2;
 pub mod generate;
 pub mod modifiers;
+pub mod sculpt;
 pub mod subdivide;
 pub mod uv;
 

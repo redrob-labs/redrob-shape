@@ -49,6 +49,12 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   Studio / MatCap (Clay, Metal, Red Wax, Ceramic, drawn in the shader from the view-space normal) /
   Flat; Color Material (the material's new Viewport Display colour) / Object / Random / Single;
   Backface Culling, X-Ray with alpha (Alt+Z, header toggle) and Cavity (crease darkening).
+- Sculpt Mode (Ctrl+Tab mode menu, header mode dropdown, Sculpting workspace tab): brushes Draw
+  (X), Clay (C), Smooth (S, or Shift while painting), Grab (G), Inflate (I), Flatten (Shift+T) in
+  the toolbar and header; the brush is a red ring of `Radius` pixels, F / Shift+F adjust radius /
+  strength by pointer distance (click confirms, Esc restores), Ctrl inverts, Shift+X/Y/Z toggle
+  symmetry. One stroke is one undo step. Dabs are spaced at 10 % of the radius with Blender's
+  smooth falloff; the Sculpting workspace switches to MatCap lighting.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

@@ -69,16 +69,18 @@ impl PropsTab {
 pub enum Workspace {
     Layout,
     Modeling,
+    Sculpting,
     Shading,
     Rendering,
 }
 
 impl Workspace {
-    pub const ALL: [Workspace; 4] = [Workspace::Layout, Workspace::Modeling, Workspace::Shading, Workspace::Rendering];
+    pub const ALL: [Workspace; 5] = [Workspace::Layout, Workspace::Modeling, Workspace::Sculpting, Workspace::Shading, Workspace::Rendering];
     pub fn name(self) -> &'static str {
         match self {
             Workspace::Layout => "Layout",
             Workspace::Modeling => "Modeling",
+            Workspace::Sculpting => "Sculpting",
             Workspace::Shading => "Shading",
             Workspace::Rendering => "Rendering",
         }
@@ -142,6 +144,13 @@ impl ShapeApp {
                 if self.scene.edit.is_some() {
                     self.toggle_edit_mode();
                 }
+                self.sculpt = None;
+            }
+            Workspace::Sculpting => {
+                if self.sculpt.is_none() {
+                    self.toggle_sculpt_mode();
+                }
+                self.viewport.options.solid.lighting = shape_gpu::Lighting::MatCap;
             }
             Workspace::Modeling => {
                 if self.scene.edit.is_none() {
@@ -152,6 +161,7 @@ impl ShapeApp {
                 if self.scene.edit.is_some() {
                     self.toggle_edit_mode();
                 }
+                self.sculpt = None;
                 self.viewport.options.shading = shape_gpu::ShadingMode::MaterialPreview;
             }
             Workspace::Rendering => self.render.open = true,
@@ -285,16 +295,33 @@ impl ShapeApp {
             egui::MenuBar::new().ui(ui, |ui| {
                 let editing = self.scene.edit.is_some();
                 let has_mesh = self.scene.selection.active.is_some_and(|id| self.scene.object_mesh(id).is_some());
-                let mode = if editing { "Edit Mode" } else { "Object Mode" };
+                let sculpting = self.sculpt.is_some();
+                let mode = if editing {
+                    "Edit Mode"
+                } else if sculpting {
+                    "Sculpt Mode"
+                } else {
+                    "Object Mode"
+                };
                 egui::ComboBox::from_id_salt("mode").selected_text(mode).width(110.0).show_ui(ui, |ui| {
-                    if ui.selectable_label(!editing, "Object Mode").clicked() && editing {
-                        self.toggle_edit_mode();
+                    if ui.selectable_label(!editing && !sculpting, "Object Mode").clicked() {
+                        if editing {
+                            self.toggle_edit_mode();
+                        }
+                        self.sculpt = None;
                     }
                     if ui.add_enabled(has_mesh, egui::Button::selectable(editing, "Edit Mode")).clicked() && !editing {
                         self.toggle_edit_mode();
                     }
+                    if ui.add_enabled(has_mesh, egui::Button::selectable(sculpting, "Sculpt Mode")).clicked() && !sculpting {
+                        self.toggle_sculpt_mode();
+                    }
                 });
                 ui.separator();
+                if sculpting {
+                    self.sculpt_tool_settings(ui);
+                    ui.separator();
+                }
                 if editing {
                     // Blender's vertex / edge / face select-mode buttons (1 / 2 / 3).
                     let current = self.scene.edit.as_ref().map(|e| e.mode).unwrap_or_default();
@@ -445,6 +472,29 @@ impl ShapeApp {
         egui::Panel::left("toolbar").exact_size(TOOLBAR_W).frame(egui::Frame::NONE.fill(theme::VIEWPORT_BG).inner_margin(4)).show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 egui::Frame::NONE.fill(theme::REGION).corner_radius(4).inner_margin(2).show(ui, |ui| {
+                    // Sculpt Mode: the toolbar lists brushes, as Blender's does.
+                    if let Some(s) = self.sculpt.as_mut() {
+                        for b in shape_ops::sculpt::Brush::ALL {
+                            let on = s.brush == b;
+                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::click());
+                            if on {
+                                ui.painter().rect_filled(rect, 3.0, theme::ACCENT);
+                            } else if resp.hovered() {
+                                ui.painter().rect_filled(rect, 3.0, theme::WIDGET_HOVER);
+                            }
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                &b.name()[..2],
+                                egui::FontId::proportional(14.0),
+                                Color32::WHITE,
+                            );
+                            if resp.on_hover_text(format!("{} ({})", b.name(), b.key())).clicked() {
+                                s.brush = b;
+                            }
+                        }
+                        return;
+                    }
                     for t in Tool::ALL {
                         let on = self.tool == t;
                         let (rect, resp) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::click());
