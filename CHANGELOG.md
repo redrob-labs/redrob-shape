@@ -84,6 +84,10 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   Pose Mode, I keys the selected bones (bone location / rotation F-curves, shown in the Timeline)
   and playback poses them. Bone picking accepts clicks on the bone body, not only its axis.
   `SHAPE_TRACE_STATUS=1` echoes the status line to stderr for scripted testing.
+- Weight Paint mode (Ctrl+Tab menu / header dropdown on a mesh with vertex groups): the viewport
+  colours the vertices of the active group with Blender's blue-cyan-green-yellow-red ramp, LMB
+  strokes add weight under the brush on the deformed mesh (Ctrl subtracts; Radius / Weight in the
+  header), the group is picked from a header dropdown, one stroke is one undo step.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

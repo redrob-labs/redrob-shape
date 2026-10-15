@@ -324,12 +324,15 @@ impl ShapeApp {
                 let has_mesh = self.scene.selection.active.is_some_and(|id| self.scene.object_mesh(id).is_some());
                 let sculpting = self.sculpt.is_some();
                 let posing = self.pose.is_some();
+                let painting = self.weight_paint.is_some();
                 let mode = if editing {
                     "Edit Mode"
                 } else if sculpting {
                     "Sculpt Mode"
                 } else if posing {
                     "Pose Mode"
+                } else if painting {
+                    "Weight Paint"
                 } else {
                     "Object Mode"
                 };
@@ -350,7 +353,15 @@ impl ShapeApp {
                     if ui.add_enabled(has_arm, egui::Button::selectable(posing, "Pose Mode")).clicked() && !posing {
                         self.toggle_pose_mode();
                     }
+                    let can_paint = self.active_can_weight_paint();
+                    if ui.add_enabled(can_paint, egui::Button::selectable(painting, "Weight Paint")).clicked() && !painting {
+                        self.toggle_weight_paint();
+                    }
                 });
+                if painting {
+                    self.weight_paint_header(ui);
+                    ui.separator();
+                }
                 if posing {
                     self.pose_header(ui);
                     ui.separator();

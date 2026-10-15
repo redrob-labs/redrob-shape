@@ -588,10 +588,14 @@ impl ShapeApp {
                         ui.label(RichText::new("Mode").strong());
                         ui.separator();
                         let (editing, sculpting) = (self.scene.edit.is_some(), self.sculpt.is_some());
-                        if ui.selectable_label(!editing && !sculpting && self.pose.is_none(), "Object Mode").clicked() {
+                        if ui.selectable_label(!editing && !sculpting && self.pose.is_none() && self.weight_paint.is_none(), "Object Mode").clicked()
+                        {
                             self.scene.edit = None;
                             self.sculpt = None;
                             self.pose = None;
+                            if self.weight_paint.is_some() {
+                                self.toggle_weight_paint();
+                            }
                             self.status = "Object Mode".into();
                             close = true;
                         }
@@ -606,6 +610,15 @@ impl ShapeApp {
                                 self.toggle_sculpt_mode();
                             }
                             close = true;
+                        }
+                        if self.active_can_weight_paint() || self.weight_paint.is_some() {
+                            let painting = self.weight_paint.is_some();
+                            if ui.selectable_label(painting, "Weight Paint").clicked() {
+                                if !painting {
+                                    self.toggle_weight_paint();
+                                }
+                                close = true;
+                            }
                         }
                         if self.active_is_armature() || self.pose.is_some() {
                             let posing = self.pose.is_some();

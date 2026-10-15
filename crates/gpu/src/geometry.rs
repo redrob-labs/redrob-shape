@@ -35,6 +35,17 @@ impl ShadingMode {
     }
 }
 
+/// Blender's weight ramp: blue (0) -> cyan -> green (0.5) -> yellow -> red (1).
+pub fn weight_color(w: f32) -> [f32; 4] {
+    let w = w.clamp(0.0, 1.0);
+    let stops = [[0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [1.0, 0.0, 0.0]];
+    let t = w * 4.0;
+    let i = (t.floor() as usize).min(3);
+    let f = t - i as f32;
+    let (a, b) = (stops[i], stops[i + 1]);
+    [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, 1.0]
+}
+
 /// Solid-mode surface colour per Blender's shading popover "Color" setting.
 fn solid_color(scene: &Scene, id: ObjectId, data: &ObjectData, solid: &SolidOptions) -> [f32; 4] {
     match solid.color {
@@ -148,6 +159,21 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
             solid_color(scene, id, &object.data, &options.solid)
         };
         let (metallic, roughness, emissive) = material.map(|m| (m.metallic, m.roughness, m.emissive)).unwrap_or((0.0, 0.5, [0.0; 3]));
+        // Weight Paint: per-vertex colours from the active group (only while the displayed mesh
+        // still has the base mesh's vertices).
+        let weights: Option<Vec<f32>> = match (&options.weight_paint, &object.data) {
+            (Some((wp_id, group)), ObjectData::Mesh { mesh: mid, .. }) if *wp_id == id => scene.mesh(*mid).and_then(|d| {
+                let g = d.vertex_groups.iter().find(|g| &g.name == group)?;
+                let mut w = vec![0.0; d.mesh.vertex_count()];
+                for &(v, weight) in &g.weights {
+                    if let Some(slot) = w.get_mut(v as usize) {
+                        *slot = weight;
+                    }
+                }
+                Some(w)
+            }),
+            _ => None,
+        };
         // Image texture: only with UVs on the base mesh (modifiers drop them), in Material Preview.
         let uvs = match (&object.data, material.and_then(|m| m.base_color_texture)) {
             (ObjectData::Mesh { mesh: mid, modifiers, .. }, Some(tex)) if modifiers.iter().all(|m| !m.enabled()) => {
@@ -168,6 +194,10 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
                 let face_uv = uvs.as_ref().map(|(_, u)| &u[f.index()]).filter(|u| u.len() == vs.len() && !selected_face);
                 for i in 1..vs.len() - 1 {
                     for &c in &[0, i, i + 1] {
+                        let color = match &weights {
+                            Some(w) if w.len() == positions.len() => weight_color(w[vs[c]]),
+                            _ => color,
+                        };
                         let v = Vertex::new(positions[vs[c]], n, color).with_material(metallic, roughness, emissive);
                         match face_uv {
                             Some(u) => textured_tris.push(v.with_uv(u[c])),

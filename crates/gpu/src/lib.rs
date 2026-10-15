@@ -11,7 +11,7 @@ pub mod camera;
 mod geometry;
 
 pub use camera::{AxisView, OrbitCamera};
-pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, nearest_vertex, pick, pick_detail, scene_lights};
+pub use geometry::{PickHit, ShadingMode, build_frame, display_mesh, nearest_edge, nearest_vertex, pick, pick_detail, scene_lights, weight_color};
 
 use bytemuck::{Pod, Zeroable};
 use shape_math::Vec3;
@@ -203,6 +203,8 @@ pub const MATCAPS: [&str; 4] = ["Clay", "Metal", "Red Wax", "Ceramic"];
 pub struct ViewOptions {
     pub shading: ShadingMode,
     pub solid: SolidOptions,
+    /// Weight Paint: colour this object's vertices by the named vertex group's weight.
+    pub weight_paint: Option<(shape_scene::ObjectId, String)>,
     pub show_grid: bool,
     pub background: [f32; 4],
     /// World direction towards the key light.
@@ -216,6 +218,7 @@ impl Default for ViewOptions {
         Self {
             shading: ShadingMode::Solid,
             solid: SolidOptions::default(),
+            weight_paint: None,
             show_grid: true,
             // Blender's default 3D viewport background (#3f3f3f), already sRGB-encoded: the clear
             // colour is written to the non-sRGB target as-is

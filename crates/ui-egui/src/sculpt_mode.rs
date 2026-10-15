@@ -61,6 +61,9 @@ impl ShapeApp {
         {
             self.scene.edit = None;
             self.pose = None;
+            if self.weight_paint.is_some() {
+                self.toggle_weight_paint();
+            }
             self.sculpt = Some(SculptMode::new(id));
             self.status = "Sculpt Mode".into();
         }

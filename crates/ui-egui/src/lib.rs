@@ -28,6 +28,7 @@ pub use pose_mode::ParentKind;
 pub mod sculpt_mode;
 pub mod timeline;
 pub mod uv_editor;
+pub mod weight_paint;
 pub use layout::{PropsTab, Regions, Workspace};
 pub use object_mode::SetOrigin;
 pub use render_panel::RenderPanel;
@@ -65,6 +66,7 @@ pub struct ShapeApp {
     pub sculpt: Option<sculpt_mode::SculptMode>,
     pub pose: Option<pose_mode::PoseMode>,
     pub bone_edit: Option<bone_edit::BoneEditMode>,
+    pub weight_paint: Option<weight_paint::WeightPaint>,
     /// Fractional frames carried between playback ticks.
     pub(crate) play_accum: f32,
     node_editor_origin: egui::Vec2,
@@ -161,6 +163,7 @@ impl ShapeApp {
             sculpt: None,
             pose: None,
             bone_edit: None,
+            weight_paint: None,
             play_accum: 0.0,
             node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
@@ -495,6 +498,9 @@ impl ShapeApp {
     pub fn toggle_edit_mode(&mut self) {
         self.sculpt = None;
         self.pose = None;
+        if self.weight_paint.is_some() {
+            self.toggle_weight_paint();
+        }
         if self.bone_edit.is_some() || (self.scene.edit.is_none() && self.active_is_armature()) {
             self.toggle_bone_edit_mode();
             return;
@@ -564,7 +570,7 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return (false, false);
         }
-        if self.sculpt.is_some() || self.pose.is_some() || self.bone_edit.is_some() {
+        if self.sculpt.is_some() || self.pose.is_some() || self.bone_edit.is_some() || self.weight_paint.is_some() {
             // Sculpt / Pose / Armature Edit Mode own G / R / S / E / I / X etc.; only confirm / cancel pass.
             return ui.input_mut(|inp| {
                 (crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter), crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape))
@@ -752,6 +758,8 @@ impl ShapeApp {
         } else if self.bone_edit.is_some() && self.popup.is_none() && !over_nodes {
             self.bone_edit_keys(ui);
             self.mode_keys(ui);
+        } else if self.weight_paint.is_some() && self.popup.is_none() && !over_nodes {
+            self.mode_keys(ui);
         } else if self.popup.is_none() && !over_nodes {
             self.object_keys(ui);
             self.edit_keys(ui);
@@ -810,7 +818,8 @@ impl ShapeApp {
         }
         if self.popup.is_some() {
             self.popup_ui(ui);
-        } else if self.bone_edit_input(&input, enter, escape)
+        } else if self.weight_paint_input(&input)
+            || self.bone_edit_input(&input, enter, escape)
             || self.pose_input(&input, enter, escape)
             || self.sculpt_input(&input, enter, escape)
             || self.circle_select_input(&input, escape)
