@@ -8,7 +8,7 @@ use crate::viewport::ViewportInput;
 use shape_geom::{FaceId, Mesh};
 use shape_gpu::OrbitCamera;
 use shape_math::{Quat, Transform, Vec2, Vec3};
-use shape_scene::{MeshId, ObjectId, Scene};
+use shape_scene::{EditSelection, MeshId, ObjectId, Scene};
 
 /// Toolbar tool. Select picks; the others start the matching modal on a left drag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -71,8 +71,10 @@ pub enum ModalKind {
     Extrude,
     /// Edit mode: inset the selected faces by a pointer-driven thickness.
     Inset,
-    /// Edit mode: bevel the edges of the selected faces by a pointer-driven offset.
+    /// Edit mode: bevel the selected edges by a pointer-driven offset; the wheel sets segments.
     Bevel,
+    /// Edit mode: Alt+S, move the selected vertices along their normals.
+    ShrinkFatten,
 }
 
 impl ModalKind {
@@ -84,6 +86,7 @@ impl ModalKind {
             ModalKind::Extrude => "Extrude",
             ModalKind::Inset => "Inset",
             ModalKind::Bevel => "Bevel",
+            ModalKind::ShrinkFatten => "Shrink/Fatten",
         }
     }
 }
@@ -108,12 +111,14 @@ pub struct Modal {
     pub objects: Vec<(ObjectId, Transform)>,
     /// World-space pivot: the selection centre.
     pub pivot: Vec3,
-    /// Edit-mode payload: mesh id, base mesh, selected faces.
-    pub edit: Option<(MeshId, Mesh, Vec<FaceId>)>,
+    /// Edit-mode payload: mesh id, base mesh, the selection when the modal started.
+    pub edit: Option<(MeshId, Mesh, EditSelection)>,
     /// Confirm on primary release instead of click (tool drags).
     pub release_confirms: bool,
     /// Last computed amount, for the status line.
     pub amount: f32,
+    /// Bevel segments (wheel).
+    pub segments: u32,
 }
 
 impl Modal {
@@ -125,17 +130,21 @@ impl Modal {
             return None;
         }
         let pivot = scene.selection_center();
-        Some(Self { kind, before: scene.clone(), start_pointer, axis: None, objects, pivot, edit: None, release_confirms, amount: 0.0 })
+        Some(Self { kind, before: scene.clone(), start_pointer, axis: None, objects, pivot, edit: None, release_confirms, amount: 0.0, segments: 1 })
     }
 
     /// Start an edit-mode face modal. `None` without an edit selection.
     pub fn faces(kind: ModalKind, scene: &Scene, start_pointer: Vec2) -> Option<Self> {
         let edit = scene.edit.as_ref()?;
-        if edit.faces.is_empty() {
+        let enough = match kind {
+            ModalKind::Bevel => !edit.edges.is_empty(),
+            ModalKind::ShrinkFatten => !edit.verts.is_empty(),
+            _ => !edit.faces.is_empty(),
+        };
+        if !enough {
             return None;
         }
         let (mesh_id, mesh) = scene.object_mesh(edit.object)?;
-        let faces: Vec<FaceId> = edit.faces.iter().copied().collect();
         let pivot = scene.world_transform(edit.object).translation;
         Some(Self {
             kind,
@@ -144,9 +153,10 @@ impl Modal {
             axis: None,
             objects: Vec::new(),
             pivot,
-            edit: Some((mesh_id, mesh.clone(), faces)),
+            edit: Some((mesh_id, mesh.clone(), edit.clone())),
             release_confirms: false,
             amount: 0.0,
+            segments: 1,
         })
     }
 
@@ -210,14 +220,17 @@ impl Modal {
                     }
                 }
             }
-            ModalKind::Extrude | ModalKind::Inset | ModalKind::Bevel => {
-                let Some((mesh_id, base, faces)) = &self.edit else { return };
+            ModalKind::Extrude | ModalKind::Inset | ModalKind::Bevel | ModalKind::ShrinkFatten => {
+                let Some((mesh_id, base, sel)) = &self.edit else { return };
                 let amount = -delta.y * world_per_pixel;
                 self.amount = amount;
+                let faces: Vec<FaceId> = sel.faces.iter().copied().collect();
+                let edges: Vec<shape_geom::EdgeId> = sel.edges.iter().copied().collect();
                 let result = match self.kind {
-                    ModalKind::Extrude => shape_ops::extrude_faces(base, faces, amount),
-                    ModalKind::Bevel => shape_ops::bevel_edges(base, &shape_ops::face_edges(base, faces), amount.max(0.0)),
-                    _ => shape_ops::inset_faces(base, faces, amount.max(0.0)),
+                    ModalKind::Extrude => shape_ops::extrude_faces(base, &faces, amount),
+                    ModalKind::Bevel => shape_ops::bevel_edges_segments(base, &edges, amount.max(0.0), self.segments),
+                    ModalKind::ShrinkFatten => shape_ops::shrink_fatten_vertices(base, &sel.verts, amount),
+                    _ => shape_ops::inset_faces(base, &faces, amount.max(0.0)),
                 };
                 if let Ok(m) = result
                     && let Some(data) = scene.mesh_mut(*mesh_id)
@@ -225,6 +238,14 @@ impl Modal {
                     data.set_mesh(m);
                 }
             }
+        }
+    }
+
+    /// Wheel during a bevel: one segment per notch.
+    pub fn scroll(&mut self, notches: f32) {
+        if self.kind == ModalKind::Bevel && notches != 0.0 {
+            let n = self.segments as i64 + if notches > 0.0 { 1 } else { -1 };
+            self.segments = n.clamp(1, 32) as u32;
         }
     }
 
@@ -246,7 +267,8 @@ impl Modal {
             ModalKind::Scale => format!("Scale{axis}  ×{:.3}  ·  click/Enter confirm, Esc cancel, X/Y/Z axis", self.amount),
             ModalKind::Extrude => format!("Extrude  {:.3}  ·  move pointer up/down, click/Enter confirm, Esc cancel", self.amount),
             ModalKind::Inset => format!("Inset  {:.3}  ·  move pointer up/down, click/Enter confirm, Esc cancel", self.amount),
-            ModalKind::Bevel => format!("Bevel  {:.3}  ·  move pointer up/down, click/Enter confirm, Esc cancel", self.amount),
+            ModalKind::Bevel => format!("Bevel  {:.3}  segments {}  ·  wheel segments, click/Enter confirm, Esc cancel", self.amount, self.segments),
+            ModalKind::ShrinkFatten => format!("Shrink/Fatten  {:.3}  ·  move pointer up/down, click/Enter confirm, Esc cancel", self.amount),
         }
     }
 

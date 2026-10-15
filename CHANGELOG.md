@@ -17,6 +17,9 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   vertex dots and orange selection in Blender's colours, click / Shift+click / box select per mode,
   Alt+click edge and face loops, L select linked, Ctrl+Numpad +/- grow and shrink, F fill, M merge
   menu (center / first / last), X delete menu (vertices, edges, faces, dissolve edges / faces).
+- Edit mode tools: C circle select (paint, Shift erases, wheel sizes), K knife (two edge points
+  of one face), Ctrl+B bevel with wheel segments (rounded profile), Alt+S shrink/fatten, Bridge
+  Edge Loops, Spin, and the Ctrl+V / Ctrl+E / Ctrl+F vertex / edge / face menus.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

@@ -166,7 +166,7 @@ impl ShapeApp {
                 let hint = if self.modal.is_some() {
                     ""
                 } else if self.scene.edit.is_some() {
-                    "1/2/3 vert·edge·face · click · shift add · alt loop · L linked · E I F M X · Ctrl+B Ctrl+R"
+                    "1/2/3 modes · B C box/circle · K knife · E I F M X · Ctrl+B bevel(wheel) · Ctrl+R · Ctrl+E/V/F menus"
                 } else {
                     "G move · R rotate · S scale · X delete · Home frame"
                 };

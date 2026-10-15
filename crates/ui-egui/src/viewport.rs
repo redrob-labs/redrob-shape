@@ -37,6 +37,8 @@ pub struct ViewportInput {
     pub shift: bool,
     pub ctrl: bool,
     pub alt: bool,
+    /// Wheel notches this frame (positive = up), when the camera does not use them.
+    pub scroll: f32,
     pub hovered: bool,
 }
 
@@ -143,6 +145,17 @@ impl ViewportPanel {
                     self.camera.zoom(scroll / 50.0);
                 }
             }
+        } else if response.hovered() {
+            // Whole notches only, so a bevel's segment count moves by one per wheel click.
+            input.scroll = ui.input(|i| {
+                i.events
+                    .iter()
+                    .filter_map(|e| match e {
+                        egui::Event::MouseWheel { delta, .. } => Some(delta.y.signum()),
+                        _ => None,
+                    })
+                    .sum()
+            });
         }
 
         // ---- render ----

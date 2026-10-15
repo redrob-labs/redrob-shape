@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod edit_mode;
+pub mod edit_tools;
 pub mod keymap;
 pub mod layout;
 mod panels;
@@ -17,6 +18,7 @@ pub mod viewport;
 
 pub use agent::{AgentFactory, AgentPanel};
 pub use edit_mode::EditDelete;
+pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub use layout::{PropsTab, Regions, Workspace};
 pub use render_panel::RenderPanel;
@@ -61,6 +63,8 @@ pub struct ShapeApp {
     pub box_pending: bool,
     /// Set by `run_op(RenderImage)`; the frame starts the render where it has the context.
     render_requested: bool,
+    pub circle: Option<CircleSelect>,
+    pub knife: Option<Knife>,
 }
 
 /// Consume a key press only when exactly these modifiers are held. egui's own `consume_key`
@@ -139,6 +143,8 @@ impl ShapeApp {
             box_select: None,
             box_pending: false,
             render_requested: false,
+            circle: None,
+            knife: None,
         }
     }
 
@@ -668,6 +674,7 @@ impl ShapeApp {
         if self.popup.is_none() {
             self.object_keys(ui);
             self.edit_keys(ui);
+            self.edit_tool_keys(ui);
         }
         if std::mem::take(&mut self.render_requested) {
             self.start_render(ui.ctx());
@@ -710,10 +717,16 @@ impl ShapeApp {
         }
         if self.popup.is_some() {
             self.popup_ui(ui);
+        } else if self.circle_select_input(&input, escape) || self.knife_input(&input, escape) {
+            // a paint/click tool owns the pointer
         } else if !self.box_select_input(&input) {
             self.handle_viewport_input(&input, enter, escape);
         }
         self.box_select_overlay(ui);
+        self.edit_tool_overlay(ui);
+        if self.circle.is_some() || self.knife.is_some() {
+            ui.ctx().request_repaint();
+        }
         match self.render.ui(ui.ctx()) {
             Some(render_panel::RenderAction::Start) => self.start_render(ui.ctx()),
             Some(render_panel::RenderAction::Save) => {
@@ -735,6 +748,7 @@ impl ShapeApp {
     pub fn handle_viewport_input(&mut self, input: &ViewportInput, enter: bool, escape: bool) {
         let size = input.size.max(Vec2::ONE);
         if let Some(modal) = &mut self.modal {
+            modal.scroll(input.scroll);
             if let Some(p) = input.pointer {
                 modal.update(&mut self.scene, &self.viewport.camera, p, size);
             }

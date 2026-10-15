@@ -180,6 +180,23 @@ pub enum Popup {
     Merge,
     /// Edit mode X: what to delete or dissolve.
     EditDelete,
+    /// Ctrl+V / Ctrl+E / Ctrl+F.
+    VertexMenu,
+    EdgeMenu,
+    FaceMenu,
+}
+
+/// What an edit-mode menu item does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EditAction {
+    Fill,
+    Bridge,
+    Spin,
+    LoopCut,
+    Extrude,
+    Inset,
+    Bevel,
+    ShrinkFatten,
 }
 
 /// Box select in progress: start pixel, current pixel (viewport pixels).
@@ -476,6 +493,7 @@ impl ShapeApp {
         let mut run: Option<Op> = None;
         let mut merge: Option<shape_ops::MergeAt> = None;
         let mut edit_delete: Option<crate::EditDelete> = None;
+        let mut edit_action: Option<EditAction> = None;
         let area = egui::Area::new(egui::Id::new("blender-popup")).fixed_pos(pos).order(egui::Order::Foreground);
         let response = area.show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -544,6 +562,64 @@ impl ShapeApp {
                             }
                         }
                     }
+                    Popup::VertexMenu => {
+                        ui.label(RichText::new("Vertex").strong());
+                        ui.separator();
+                        if ui.button("Merge Vertices    M").clicked() {
+                            self.popup = Some(Popup::Merge);
+                            return;
+                        }
+                        if ui.button("New Edge/Face from Vertices    F").clicked() {
+                            edit_action = Some(EditAction::Fill);
+                        }
+                        if ui.button("Shrink/Fatten    Alt+S").clicked() {
+                            edit_action = Some(EditAction::ShrinkFatten);
+                        }
+                        if ui.button("Dissolve Vertices").clicked() {
+                            edit_delete = Some(crate::EditDelete::Vertices);
+                        }
+                    }
+                    Popup::EdgeMenu => {
+                        ui.label(RichText::new("Edge").strong());
+                        ui.separator();
+                        if ui.button("Bevel Edges    Ctrl+B").clicked() {
+                            edit_action = Some(EditAction::Bevel);
+                        }
+                        if ui.button("Loop Cut and Slide    Ctrl+R").clicked() {
+                            edit_action = Some(EditAction::LoopCut);
+                        }
+                        if ui.button("Bridge Edge Loops").clicked() {
+                            edit_action = Some(EditAction::Bridge);
+                        }
+                        if ui.button("Select Loop (Alt+click)").clicked() {
+                            close = true;
+                        }
+                        if ui.button("Dissolve Edges").clicked() {
+                            edit_delete = Some(crate::EditDelete::DissolveEdges);
+                        }
+                    }
+                    Popup::FaceMenu => {
+                        ui.label(RichText::new("Face").strong());
+                        ui.separator();
+                        if ui.button("Extrude Faces    E").clicked() {
+                            edit_action = Some(EditAction::Extrude);
+                        }
+                        if ui.button("Inset Faces    I").clicked() {
+                            edit_action = Some(EditAction::Inset);
+                        }
+                        if ui.button("Fill    F").clicked() {
+                            edit_action = Some(EditAction::Fill);
+                        }
+                        if ui.button("Spin (Y, 90°, 9 steps)").clicked() {
+                            edit_action = Some(EditAction::Spin);
+                        }
+                        if ui.button("Triangulate Faces").clicked() {
+                            run = Some(Op::Triangulate);
+                        }
+                        if ui.button("Dissolve Faces").clicked() {
+                            edit_delete = Some(crate::EditDelete::DissolveFaces);
+                        }
+                    }
                     Popup::Search { query } => {
                         let mut q = query.clone();
                         let edit = ui.add(egui::TextEdit::singleline(&mut q).hint_text("Search operators…").desired_width(260.0));
@@ -589,6 +665,19 @@ impl ShapeApp {
         }
         if let Some(what) = edit_delete {
             self.edit_delete(what);
+            close = true;
+        }
+        if let Some(action) = edit_action {
+            match action {
+                EditAction::Fill => self.fill_selected(),
+                EditAction::Bridge => self.bridge_selected(),
+                EditAction::Spin => self.spin_selected(90.0, 9),
+                EditAction::LoopCut => self.loop_cut_at_pointer(),
+                EditAction::Extrude => self.start_face_modal(crate::tools::ModalKind::Extrude),
+                EditAction::Inset => self.start_face_modal(crate::tools::ModalKind::Inset),
+                EditAction::Bevel => self.start_face_modal(crate::tools::ModalKind::Bevel),
+                EditAction::ShrinkFatten => self.start_face_modal(crate::tools::ModalKind::ShrinkFatten),
+            }
             close = true;
         }
         if close {
