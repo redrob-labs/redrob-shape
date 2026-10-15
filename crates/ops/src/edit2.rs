@@ -99,6 +99,9 @@ pub fn bridge_edge_loops(mesh: &Mesh, edges: &BTreeSet<EdgeId>) -> Result<Mesh> 
 /// leaves a seam there rather than closing onto them.
 pub fn spin(mesh: &Mesh, edges: &BTreeSet<EdgeId>, center: Vec3, axis: Vec3, angle: f32, steps: u32) -> Result<Mesh> {
     let steps = steps.clamp(1, 256);
+    // Only edges with a free side can grow a sweep; an interior edge already has faces on both.
+    let edges: BTreeSet<EdgeId> = edges.iter().copied().filter(|&e| mesh.is_boundary_edge(e)).collect();
+    let edges = &edges;
     if edges.is_empty() {
         return Ok(mesh.clone());
     }

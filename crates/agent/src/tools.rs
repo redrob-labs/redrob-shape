@@ -25,7 +25,7 @@ pub fn tool_definitions() -> Value {
          "inputSchema": {"type": "object", "properties": {"object": object, "color": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 4}, "metallic": {"type": "number"}, "roughness": {"type": "number"}, "emissive": vec3("linear RGB"), "name": {"type": "string"}}, "required": ["object"]}},
         {"name": "mesh_op", "description": "Edit a mesh object's geometry destructively. op: subdivide (Catmull-Clark), subdivide_linear, smooth, extrude (all faces by amount), inset (all faces by amount), bevel (all edges by amount), shrink_fatten (amount), triangulate, flip_normals.",
          "inputSchema": {"type": "object", "properties": {"object": object, "op": {"type": "string", "enum": ["subdivide", "subdivide_linear", "smooth", "extrude", "inset", "bevel", "shrink_fatten", "triangulate", "flip_normals"]}, "amount": {"type": "number"}}, "required": ["object", "op"]}},
-        {"name": "add_modifier", "description": "Add a non-destructive modifier to a mesh object. kind: mirror {axis: x|y|z}, array {count, offset:[x,y,z]}, subdivision {levels, smooth}, smooth {iterations, factor}, bevel {offset}.",
+        {"name": "add_modifier", "description": "Add a non-destructive modifier to a mesh object. kind: mirror {axis: x|y|z}, array {count, offset:[x,y,z]}, subdivision {levels, smooth}, smooth {iterations, factor}, bevel {offset, segments}, solidify {thickness, offset}, decimate {ratio}, wireframe {thickness}, triangulate, screw {axis, angle(deg), steps, screw}, simple_deform {mode: twist|bend|taper|stretch, axis, factor(radians for twist/bend)}, displace {strength, scale}, weld {distance}, boolean {operation: union|difference|intersect, target: object}, shrinkwrap {target: object, offset}.",
          "inputSchema": {"type": "object", "properties": {"object": object, "kind": {"type": "string", "enum": ["mirror", "array", "subdivision", "smooth"]}, "axis": {"type": "string"}, "count": {"type": "integer"}, "offset": vec3("x y z"), "levels": {"type": "integer"}, "smooth": {"type": "boolean"}, "iterations": {"type": "integer"}, "factor": {"type": "number"}}, "required": ["object", "kind"]}},
         {"name": "clear_modifiers", "description": "Remove every modifier from a mesh object (apply=true bakes them into the mesh first).",
          "inputSchema": {"type": "object", "properties": {"object": object, "apply": {"type": "boolean"}}, "required": ["object"]}},
@@ -178,7 +178,50 @@ pub fn execute(scene: &mut Scene, name: &str, args: &Value) -> Result<Value, Str
                     iterations: a.get("iterations").and_then(Value::as_u64).unwrap_or(1).min(50) as u32,
                     factor: a.get("factor").and_then(Value::as_f64).unwrap_or(0.5).clamp(0.0, 1.0) as f32,
                 },
-                "bevel" => Modifier::Bevel { offset: a.get("offset").and_then(Value::as_f64).unwrap_or(0.1).clamp(0.0, 10.0) as f32 },
+                "bevel" => Modifier::Bevel {
+                    offset: a.get("offset").and_then(Value::as_f64).unwrap_or(0.1).clamp(0.0, 10.0) as f32,
+                    segments: a.get("segments").and_then(Value::as_u64).unwrap_or(1).clamp(1, 32) as u32,
+                },
+                "solidify" => Modifier::Solidify {
+                    thickness: a.get("thickness").and_then(Value::as_f64).unwrap_or(0.1) as f32,
+                    offset: a.get("offset").and_then(Value::as_f64).unwrap_or(-1.0).clamp(-1.0, 1.0) as f32,
+                },
+                "decimate" => Modifier::Decimate { ratio: a.get("ratio").and_then(Value::as_f64).unwrap_or(0.5).clamp(0.0, 1.0) as f32 },
+                "wireframe" => Modifier::Wireframe { thickness: a.get("thickness").and_then(Value::as_f64).unwrap_or(0.05).max(0.0) as f32 },
+                "triangulate" => Modifier::Triangulate,
+                "screw" => Modifier::Screw {
+                    axis: axis_arg(a),
+                    angle: (a.get("angle").and_then(Value::as_f64).unwrap_or(360.0) as f32).to_radians(),
+                    steps: a.get("steps").and_then(Value::as_u64).unwrap_or(16).clamp(1, 256) as u32,
+                    screw: a.get("screw").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                },
+                "simple_deform" => Modifier::SimpleDeform {
+                    mode: match a.get("mode").and_then(Value::as_str).unwrap_or("twist") {
+                        "bend" => shape_scene::DeformMode::Bend,
+                        "taper" => shape_scene::DeformMode::Taper,
+                        "stretch" => shape_scene::DeformMode::Stretch,
+                        _ => shape_scene::DeformMode::Twist,
+                    },
+                    axis: axis_arg(a),
+                    factor: a.get("factor").and_then(Value::as_f64).unwrap_or(0.785) as f32,
+                },
+                "displace" => Modifier::Displace {
+                    strength: a.get("strength").and_then(Value::as_f64).unwrap_or(0.1) as f32,
+                    scale: a.get("scale").and_then(Value::as_f64).unwrap_or(1.0).max(0.01) as f32,
+                },
+                "weld" => Modifier::Weld { distance: a.get("distance").and_then(Value::as_f64).unwrap_or(0.001).max(0.0) as f32 },
+                "boolean" => Modifier::Boolean {
+                    op: match a.get("operation").and_then(Value::as_str).unwrap_or("difference") {
+                        "union" => shape_scene::BooleanOp::Union,
+                        "intersect" => shape_scene::BooleanOp::Intersect,
+                        _ => shape_scene::BooleanOp::Difference,
+                    },
+                    target: Some(find(scene, a.get("target"))?),
+                },
+                "shrinkwrap" => Modifier::Shrinkwrap {
+                    target: Some(find(scene, a.get("target"))?),
+                    offset: a.get("offset").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                },
                 other => return Err(format!("unknown modifier `{other}`")),
             };
             let stack = scene.modifiers_mut(id).ok_or("not a mesh object")?;
@@ -349,6 +392,15 @@ pub fn find(scene: &Scene, key: Option<&Value>) -> Result<ObjectId, String> {
 
 fn str_arg<'a>(a: &'a Value, key: &str) -> Result<&'a str, String> {
     a.get(key).and_then(Value::as_str).ok_or_else(|| format!("missing `{key}`"))
+}
+
+/// `axis`: x | y | z (default y).
+fn axis_arg(a: &Value) -> u8 {
+    match a.get("axis").and_then(Value::as_str).unwrap_or("y") {
+        "x" | "X" => 0,
+        "z" | "Z" => 2,
+        _ => 1,
+    }
 }
 
 fn vec3_arg(a: &Value, key: &str) -> Option<Vec3> {

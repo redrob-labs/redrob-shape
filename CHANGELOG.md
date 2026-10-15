@@ -20,6 +20,12 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 - Edit mode tools: C circle select (paint, Shift erases, wheel sizes), K knife (two edge points
   of one face), Ctrl+B bevel with wheel segments (rounded profile), Alt+S shrink/fatten, Bridge
   Edge Loops, Spin, and the Ctrl+V / Ctrl+E / Ctrl+F vertex / edge / face menus.
+- Modifiers with Blender's names and parameters: Boolean (union / difference / intersect with
+  another object, BSP clipping), Shrinkwrap (nearest surface of another object, offset), Solidify
+  (thickness, offset), Decimate (collapse to a ratio), Wireframe (strut thickness), Triangulate,
+  Screw (axis, angle, steps, screw), Simple Deform (twist / bend / taper / stretch), Displace
+  (noise strength, scale), Weld (distance); Bevel gained Segments. All available to the agent's
+  `add_modifier`.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

@@ -296,13 +296,65 @@ impl ShapeApp {
                     self.add_modifier(Modifier::Smooth { iterations: 1, factor: 0.5 });
                 }
                 if ui.button("Bevel").clicked() {
-                    self.add_modifier(Modifier::Bevel { offset: 0.05 });
+                    self.add_modifier(Modifier::Bevel { offset: 0.05, segments: 1 });
+                }
+                ui.separator();
+                if ui.button("Solidify").clicked() {
+                    self.add_modifier(Modifier::Solidify { thickness: 0.1, offset: -1.0 });
+                }
+                if ui.button("Decimate").clicked() {
+                    self.add_modifier(Modifier::Decimate { ratio: 0.5 });
+                }
+                if ui.button("Wireframe").clicked() {
+                    self.add_modifier(Modifier::Wireframe { thickness: 0.05 });
+                }
+                if ui.button("Triangulate").clicked() {
+                    self.add_modifier(Modifier::Triangulate);
+                }
+                if ui.button("Screw").clicked() {
+                    self.add_modifier(Modifier::Screw { axis: 1, angle: std::f32::consts::TAU, steps: 16, screw: 0.0 });
+                }
+                if ui.button("Simple Deform").clicked() {
+                    self.add_modifier(Modifier::SimpleDeform { mode: shape_scene::DeformMode::Twist, axis: 1, factor: 0.785 });
+                }
+                if ui.button("Displace").clicked() {
+                    self.add_modifier(Modifier::Displace { strength: 0.1, scale: 1.0 });
+                }
+                if ui.button("Weld").clicked() {
+                    self.add_modifier(Modifier::Weld { distance: 0.001 });
+                }
+                ui.separator();
+                if ui.button("Boolean").clicked() {
+                    self.add_modifier(Modifier::Boolean { op: shape_scene::BooleanOp::Difference, target: None });
+                }
+                if ui.button("Shrinkwrap").clicked() {
+                    self.add_modifier(Modifier::Shrinkwrap { target: None, offset: 0.0 });
                 }
             });
         });
         let mut stack = self.scene.modifiers(id).to_vec();
         let before = stack.clone();
         let mut remove: Option<usize> = None;
+        // Other mesh objects, for the target pickers.
+        let others: Vec<(ObjectId, String)> = self
+            .scene
+            .objects()
+            .filter(|(oid, o)| *oid != id && matches!(o.data, ObjectData::Mesh { .. }))
+            .map(|(oid, o)| (oid, o.name.clone()))
+            .collect();
+        let target_picker = |ui: &mut egui::Ui, salt: &str, target: &mut Option<ObjectId>| {
+            let current = target.and_then(|t| others.iter().find(|(o, _)| *o == t)).map(|(_, n)| n.clone()).unwrap_or("Object: none".into());
+            egui::ComboBox::from_id_salt(salt).selected_text(current).show_ui(ui, |ui| {
+                if ui.selectable_label(target.is_none(), "none").clicked() {
+                    *target = None;
+                }
+                for (oid, name) in &others {
+                    if ui.selectable_label(*target == Some(*oid), name).clicked() {
+                        *target = Some(*oid);
+                    }
+                }
+            });
+        };
         for (i, m) in stack.iter_mut().enumerate() {
             ui.push_id(i, |ui| {
                 ui.horizontal(|ui| {
@@ -338,8 +390,81 @@ impl ShapeApp {
                             ui.add(egui::DragValue::new(factor).range(0.0..=1.0).speed(0.01).prefix("factor "));
                         });
                     }
-                    Modifier::Bevel { offset } => {
-                        ui.add(egui::DragValue::new(offset).range(0.0..=10.0).speed(0.005).prefix("offset "));
+                    Modifier::Bevel { offset, segments } => {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(offset).range(0.0..=10.0).speed(0.005).prefix("Amount "));
+                            ui.add(egui::DragValue::new(segments).range(1..=32).prefix("Segments "));
+                        });
+                    }
+                    Modifier::Solidify { thickness, offset } => {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(thickness).range(-10.0..=10.0).speed(0.005).prefix("Thickness "));
+                            ui.add(egui::DragValue::new(offset).range(-1.0..=1.0).speed(0.01).prefix("Offset "));
+                        });
+                    }
+                    Modifier::Decimate { ratio } => {
+                        ui.add(egui::DragValue::new(ratio).range(0.0..=1.0).speed(0.005).prefix("Ratio "));
+                    }
+                    Modifier::Wireframe { thickness } => {
+                        ui.add(egui::DragValue::new(thickness).range(0.0..=10.0).speed(0.002).prefix("Thickness "));
+                    }
+                    Modifier::Triangulate => {}
+                    Modifier::Screw { axis, angle, steps, screw } => {
+                        ui.horizontal(|ui| {
+                            for (i, l) in ["X", "Y", "Z"].iter().enumerate() {
+                                ui.selectable_value(axis, i as u8, *l);
+                            }
+                            let mut deg = angle.to_degrees();
+                            if ui.add(egui::DragValue::new(&mut deg).range(0.0..=720.0).prefix("Angle ° ")).changed() {
+                                *angle = deg.to_radians();
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(steps).range(1..=256).prefix("Steps "));
+                            ui.add(egui::DragValue::new(screw).range(-100.0..=100.0).speed(0.01).prefix("Screw "));
+                        });
+                    }
+                    Modifier::SimpleDeform { mode, axis, factor } => {
+                        ui.horizontal(|ui| {
+                            for m in shape_scene::DeformMode::ALL {
+                                ui.selectable_value(mode, m, m.name());
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            for (i, l) in ["X", "Y", "Z"].iter().enumerate() {
+                                ui.selectable_value(axis, i as u8, *l);
+                            }
+                            let angular = matches!(mode, shape_scene::DeformMode::Twist | shape_scene::DeformMode::Bend);
+                            if angular {
+                                let mut deg = factor.to_degrees();
+                                if ui.add(egui::DragValue::new(&mut deg).range(-720.0..=720.0).prefix("Angle ° ")).changed() {
+                                    *factor = deg.to_radians();
+                                }
+                            } else {
+                                ui.add(egui::DragValue::new(factor).range(-10.0..=10.0).speed(0.01).prefix("Factor "));
+                            }
+                        });
+                    }
+                    Modifier::Displace { strength, scale } => {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(strength).range(-10.0..=10.0).speed(0.005).prefix("Strength "));
+                            ui.add(egui::DragValue::new(scale).range(0.01..=100.0).speed(0.01).prefix("Scale "));
+                        });
+                    }
+                    Modifier::Weld { distance } => {
+                        ui.add(egui::DragValue::new(distance).range(0.0..=10.0).speed(0.0005).prefix("Distance "));
+                    }
+                    Modifier::Boolean { op, target } => {
+                        ui.horizontal(|ui| {
+                            for o in shape_scene::BooleanOp::ALL {
+                                ui.selectable_value(op, o, o.name());
+                            }
+                        });
+                        target_picker(ui, "boolean-target", target);
+                    }
+                    Modifier::Shrinkwrap { target, offset } => {
+                        target_picker(ui, "shrinkwrap-target", target);
+                        ui.add(egui::DragValue::new(offset).range(-10.0..=10.0).speed(0.005).prefix("Offset "));
                     }
                 }
             });

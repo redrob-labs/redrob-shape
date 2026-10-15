@@ -108,15 +108,121 @@ impl Default for Camera {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Modifier {
     /// Mirror across the plane perpendicular to `axis` (0 X, 1 Y, 2 Z) through the object origin.
-    Mirror { axis: u8, merge_distance: f32 },
+    Mirror {
+        axis: u8,
+        merge_distance: f32,
+    },
     /// `count` copies spaced `offset` apart.
-    Array { count: u32, offset: Vec3, merge_distance: f32 },
+    Array {
+        count: u32,
+        offset: Vec3,
+        merge_distance: f32,
+    },
     /// Catmull-Clark (`smooth`) or linear subdivision, `levels` times.
-    Subdivision { levels: u32, smooth: bool },
+    Subdivision {
+        levels: u32,
+        smooth: bool,
+    },
     /// Laplacian smoothing.
-    Smooth { iterations: u32, factor: f32 },
-    /// Chamfer every edge by `offset` (one segment).
-    Bevel { offset: f32 },
+    Smooth {
+        iterations: u32,
+        factor: f32,
+    },
+    /// Bevel every edge by `offset` in `segments` strips.
+    Bevel {
+        offset: f32,
+        #[serde(default = "one")]
+        segments: u32,
+    },
+    /// A second shell `thickness` away; `offset` -1 inward, 0 centred, 1 outward.
+    Solidify {
+        thickness: f32,
+        offset: f32,
+    },
+    /// Collapse edges until `ratio` of the triangles remain.
+    Decimate {
+        ratio: f32,
+    },
+    /// Every edge becomes a strut of `thickness`.
+    Wireframe {
+        thickness: f32,
+    },
+    Triangulate,
+    /// Revolve the mesh's edges around `axis` by `angle` radians in `steps`, lifting `screw` per turn.
+    Screw {
+        axis: u8,
+        angle: f32,
+        steps: u32,
+        screw: f32,
+    },
+    /// Twist / bend (radians) or taper / stretch (factor) along `axis`.
+    SimpleDeform {
+        mode: DeformMode,
+        axis: u8,
+        factor: f32,
+    },
+    /// Noise along the normals.
+    Displace {
+        strength: f32,
+        scale: f32,
+    },
+    /// Merge vertices closer than `distance`.
+    Weld {
+        distance: f32,
+    },
+    /// Union / difference / intersect with another mesh object (its base mesh, in this object's space).
+    Boolean {
+        op: BooleanOp,
+        target: Option<ObjectId>,
+    },
+    /// Project every vertex onto another mesh object's surface, then `offset` away from it.
+    Shrinkwrap {
+        target: Option<ObjectId>,
+        offset: f32,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BooleanOp {
+    Union,
+    Difference,
+    Intersect,
+}
+
+impl BooleanOp {
+    pub const ALL: [BooleanOp; 3] = [BooleanOp::Union, BooleanOp::Difference, BooleanOp::Intersect];
+    pub fn name(self) -> &'static str {
+        match self {
+            BooleanOp::Union => "Union",
+            BooleanOp::Difference => "Difference",
+            BooleanOp::Intersect => "Intersect",
+        }
+    }
+}
+
+fn one() -> u32 {
+    1
+}
+
+/// Simple Deform modes (Blender's names).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeformMode {
+    Twist,
+    Bend,
+    Taper,
+    Stretch,
+}
+
+impl DeformMode {
+    pub const ALL: [DeformMode; 4] = [DeformMode::Twist, DeformMode::Bend, DeformMode::Taper, DeformMode::Stretch];
+    pub fn name(self) -> &'static str {
+        match self {
+            DeformMode::Twist => "Twist",
+            DeformMode::Bend => "Bend",
+            DeformMode::Taper => "Taper",
+            DeformMode::Stretch => "Stretch",
+        }
+    }
 }
 
 impl Modifier {
@@ -127,6 +233,16 @@ impl Modifier {
             Modifier::Subdivision { .. } => "Subdivision",
             Modifier::Smooth { .. } => "Smooth",
             Modifier::Bevel { .. } => "Bevel",
+            Modifier::Solidify { .. } => "Solidify",
+            Modifier::Decimate { .. } => "Decimate",
+            Modifier::Wireframe { .. } => "Wireframe",
+            Modifier::Triangulate => "Triangulate",
+            Modifier::Screw { .. } => "Screw",
+            Modifier::SimpleDeform { .. } => "Simple Deform",
+            Modifier::Displace { .. } => "Displace",
+            Modifier::Weld { .. } => "Weld",
+            Modifier::Boolean { .. } => "Boolean",
+            Modifier::Shrinkwrap { .. } => "Shrinkwrap",
         }
     }
 
@@ -136,8 +252,15 @@ impl Modifier {
             Modifier::Array { count, .. } => *count > 1,
             Modifier::Subdivision { levels, .. } => *levels > 0,
             Modifier::Smooth { iterations, .. } => *iterations > 0,
-            Modifier::Bevel { offset } => *offset > 0.0,
-            Modifier::Mirror { .. } => true,
+            Modifier::Bevel { offset, .. } => *offset > 0.0,
+            Modifier::Solidify { thickness, .. } => thickness.abs() > 0.0,
+            Modifier::Decimate { ratio } => *ratio < 1.0,
+            Modifier::Wireframe { thickness } => *thickness > 0.0,
+            Modifier::Screw { steps, .. } => *steps > 0,
+            Modifier::Displace { strength, .. } => *strength != 0.0,
+            Modifier::Weld { distance } => *distance > 0.0,
+            Modifier::Boolean { target, .. } | Modifier::Shrinkwrap { target, .. } => target.is_some(),
+            Modifier::Mirror { .. } | Modifier::Triangulate | Modifier::SimpleDeform { .. } => true,
         }
     }
 }
