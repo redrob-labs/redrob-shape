@@ -19,6 +19,7 @@ pub enum Op {
     AddSpot,
     AddCamera,
     AddEmpty,
+    AddArmature,
     Delete,
     Duplicate,
     Hide,
@@ -61,6 +62,7 @@ impl Op {
         Op::AddSpot,
         Op::AddCamera,
         Op::AddEmpty,
+        Op::AddArmature,
         Op::Delete,
         Op::Duplicate,
         Op::Hide,
@@ -108,6 +110,7 @@ impl Op {
             Op::AddSpot => "Add > Light > Spot".into(),
             Op::AddCamera => "Add > Camera".into(),
             Op::AddEmpty => "Add > Empty".into(),
+            Op::AddArmature => "Add > Armature".into(),
             Op::Delete => "Object > Delete".into(),
             Op::Duplicate => "Object > Duplicate Objects".into(),
             Op::Hide => "Object > Show/Hide > Hide Selected".into(),
@@ -145,7 +148,7 @@ impl Op {
     /// Blender's default key, or empty.
     pub fn key(self) -> &'static str {
         match self {
-            Op::Add(_) | Op::AddPointLight | Op::AddSun | Op::AddSpot | Op::AddCamera | Op::AddEmpty => "Shift+A",
+            Op::Add(_) | Op::AddPointLight | Op::AddSun | Op::AddSpot | Op::AddCamera | Op::AddEmpty | Op::AddArmature => "Shift+A",
             Op::Delete => "X / Delete",
             Op::Duplicate => "Shift+D",
             Op::Hide => "H",
@@ -194,6 +197,8 @@ pub enum Popup {
     UvMenu,
     /// Object mode I: Insert Keyframe.
     InsertKeyframe,
+    /// Ctrl+P: Set Parent To.
+    ParentMenu,
     EdgeMenu,
     FaceMenu,
     /// M in object mode.
@@ -241,6 +246,10 @@ impl ShapeApp {
             }
             Op::AddEmpty => {
                 self.add_object("Empty", ObjectData::Empty, Vec3::ZERO);
+            }
+            Op::AddArmature => {
+                let at = self.scene.cursor;
+                self.add_object("Armature", ObjectData::Armature(shape_scene::Armature::single_bone()), at);
             }
             Op::Delete => self.delete_selected(),
             Op::Duplicate => self.duplicate_selected(),
@@ -532,6 +541,7 @@ impl ShapeApp {
         let mut new_collection = false;
         let mut uv: Option<crate::UvOp> = None;
         let mut keying: Option<shape_scene::KeyingSet> = None;
+        let mut parent: Option<crate::ParentKind> = None;
         let area = egui::Area::new(egui::Id::new("blender-popup")).fixed_pos(pos).order(egui::Order::Foreground);
         let response = area.show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -554,7 +564,7 @@ impl ShapeApp {
                             }
                         }
                         ui.separator();
-                        for (op, label) in [(Op::AddCamera, "Camera"), (Op::AddEmpty, "Empty")] {
+                        for (op, label) in [(Op::AddCamera, "Camera"), (Op::AddEmpty, "Empty"), (Op::AddArmature, "Armature")] {
                             if ui.button(label).clicked() {
                                 run = Some(op);
                             }
@@ -564,9 +574,10 @@ impl ShapeApp {
                         ui.label(RichText::new("Mode").strong());
                         ui.separator();
                         let (editing, sculpting) = (self.scene.edit.is_some(), self.sculpt.is_some());
-                        if ui.selectable_label(!editing && !sculpting, "Object Mode").clicked() {
+                        if ui.selectable_label(!editing && !sculpting && self.pose.is_none(), "Object Mode").clicked() {
                             self.scene.edit = None;
                             self.sculpt = None;
+                            self.pose = None;
                             self.status = "Object Mode".into();
                             close = true;
                         }
@@ -581,6 +592,15 @@ impl ShapeApp {
                                 self.toggle_sculpt_mode();
                             }
                             close = true;
+                        }
+                        if self.active_is_armature() || self.pose.is_some() {
+                            let posing = self.pose.is_some();
+                            if ui.selectable_label(posing, "Pose Mode").clicked() {
+                                if !posing {
+                                    self.toggle_pose_mode();
+                                }
+                                close = true;
+                            }
                         }
                     }
                     Popup::Shading => {
@@ -662,6 +682,22 @@ impl ShapeApp {
                         }
                         if ui.button("Clear Seam").clicked() {
                             uv = Some(crate::UvOp::ClearSeam);
+                        }
+                    }
+                    Popup::ParentMenu => {
+                        ui.label(RichText::new("Set Parent To").strong());
+                        ui.separator();
+                        if ui.button("Object (Keep Transform)").clicked() {
+                            parent = Some(crate::ParentKind::Object);
+                        }
+                        if self.active_is_armature() {
+                            ui.separator();
+                            if ui.button("Armature Deform").clicked() {
+                                parent = Some(crate::ParentKind::ArmatureDeform);
+                            }
+                            if ui.button("With Automatic Weights").clicked() {
+                                parent = Some(crate::ParentKind::AutomaticWeights);
+                            }
                         }
                     }
                     Popup::InsertKeyframe => {
@@ -774,6 +810,10 @@ impl ShapeApp {
         }
         if let Some(set) = keying {
             self.insert_keyframes(set);
+            close = true;
+        }
+        if let Some(kind) = parent {
+            self.parent_selected(kind);
             close = true;
         }
         if let Some(target) = collection_target {

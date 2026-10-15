@@ -189,17 +189,29 @@ impl ShapeApp {
             ObjectData::Light(_) => "☀",
             ObjectData::Camera(_) => "🎥",
             ObjectData::Empty => "○",
+            ObjectData::Armature(_) => "🦴",
         };
         let eye = if object.visible { "" } else { "  (hidden)" };
         let text = format!("{icon} {}{eye}", object.name);
         let text = if self.scene.selection.active == Some(id) { RichText::new(text).strong() } else { RichText::new(text) };
-        if ui.selectable_label(selected, text).clicked() {
-            if shift {
-                self.scene.selection.toggle(id);
-            } else {
-                self.scene.selection.set(id);
+        let visible = object.visible;
+        // One row: eye toggle + name. Children follow, indented (so the row itself must not be
+        // inside a horizontal layout).
+        ui.horizontal(|ui| {
+            let eye = if visible { "👁" } else { "―" };
+            if ui.small_button(eye).clicked()
+                && let Some(o) = self.scene.object_mut(id)
+            {
+                o.visible = !o.visible;
             }
-        }
+            if ui.selectable_label(selected, text).clicked() {
+                if shift {
+                    self.scene.selection.toggle(id);
+                } else {
+                    self.scene.selection.set(id);
+                }
+            }
+        });
         let children: Vec<ObjectId> = self.scene.children(Some(id)).collect();
         if !children.is_empty() {
             ui.indent(id.0, |ui| {
@@ -372,6 +384,9 @@ impl ShapeApp {
                 if ui.button("Shrinkwrap").clicked() {
                     self.add_modifier(Modifier::Shrinkwrap { target: None, offset: 0.0 });
                 }
+                if ui.button("Armature").clicked() {
+                    self.add_modifier(Modifier::Armature { object: None });
+                }
             });
         });
         let mut stack = self.scene.modifiers(id).to_vec();
@@ -384,6 +399,8 @@ impl ShapeApp {
             .filter(|(oid, o)| *oid != id && matches!(o.data, ObjectData::Mesh { .. }))
             .map(|(oid, o)| (oid, o.name.clone()))
             .collect();
+        let armatures: Vec<(ObjectId, String)> =
+            self.scene.objects().filter(|(_, o)| matches!(o.data, ObjectData::Armature(_))).map(|(oid, o)| (oid, o.name.clone())).collect();
         let target_picker = |ui: &mut egui::Ui, salt: &str, target: &mut Option<ObjectId>| {
             let current = target.and_then(|t| others.iter().find(|(o, _)| *o == t)).map(|(_, n)| n.clone()).unwrap_or("Object: none".into());
             egui::ComboBox::from_id_salt(salt).selected_text(current).show_ui(ui, |ui| {
@@ -507,6 +524,20 @@ impl ShapeApp {
                     Modifier::Shrinkwrap { target, offset } => {
                         target_picker(ui, "shrinkwrap-target", target);
                         ui.add(egui::DragValue::new(offset).range(-10.0..=10.0).speed(0.005).prefix("Offset "));
+                    }
+                    Modifier::Armature { object } => {
+                        let current =
+                            object.and_then(|t| armatures.iter().find(|(o, _)| *o == t)).map(|(_, n)| n.clone()).unwrap_or("Object: none".into());
+                        egui::ComboBox::from_id_salt("armature-object").selected_text(current).show_ui(ui, |ui| {
+                            if ui.selectable_label(object.is_none(), "none").clicked() {
+                                *object = None;
+                            }
+                            for (oid, name) in &armatures {
+                                if ui.selectable_label(*object == Some(*oid), name).clicked() {
+                                    *object = Some(*oid);
+                                }
+                            }
+                        });
                     }
                 }
             });

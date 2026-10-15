@@ -216,7 +216,7 @@ impl ShapeApp {
             self.status = format!("Proportional editing {}", if self.xf.proportional { "on" } else { "off" });
         }
         if ctrl_p && !editing {
-            self.parent_to_active();
+            self.popup = Some(Popup::ParentMenu);
         }
         if alt_p && !editing {
             self.clear_parent();
@@ -288,17 +288,7 @@ impl ShapeApp {
     }
 
     fn outliner_row_eye(&mut self, ui: &mut egui::Ui, id: ObjectId, shift: bool) {
-        let Some(object) = self.scene.object(id) else { return };
-        let visible = object.visible;
-        ui.horizontal(|ui| {
-            let eye = if visible { "👁" } else { "―" };
-            if ui.small_button(eye).clicked()
-                && let Some(o) = self.scene.object_mut(id)
-            {
-                o.visible = !o.visible;
-            }
-            self.outliner_row(ui, id, shift);
-        });
+        self.outliner_row(ui, id, shift);
     }
 }
 

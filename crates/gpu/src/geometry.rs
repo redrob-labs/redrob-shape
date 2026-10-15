@@ -129,6 +129,10 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
                 axes_gizmo(&mut out.lines, world.translation, 0.3, c);
                 continue;
             }
+            ObjectData::Armature(arm) => {
+                armature_gizmo(&mut out.lines, &world, arm, selected);
+                continue;
+            }
             ObjectData::Mesh { .. } => {}
         }
         let Some(mesh) = display_mesh(scene, id) else { continue };
@@ -257,6 +261,38 @@ fn seg(lines: &mut Vec<Vertex>, a: Vec3, b: Vec3, c: [f32; 4]) {
 fn axes_gizmo(lines: &mut Vec<Vertex>, at: Vec3, r: f32, c: [f32; 4]) {
     for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
         seg(lines, at - axis * r, at + axis * r, c);
+    }
+}
+
+/// Blender's octahedral bones: a thin diamond from head to tail, selected bones in the pose-mode
+/// blue, the active one lighter.
+fn armature_gizmo(lines: &mut Vec<Vertex>, world: &shape_math::Transform, arm: &shape_scene::Armature, object_selected: bool) {
+    const BONE: [f32; 4] = [0.62, 0.62, 0.65, 1.0];
+    const BONE_SELECTED: [f32; 4] = [0.35, 0.55, 0.85, 1.0];
+    const BONE_ACTIVE: [f32; 4] = [0.55, 0.75, 1.0, 1.0];
+    for (i, (head, tail)) in arm.posed_segments().into_iter().enumerate() {
+        let c = if arm.active == Some(i) {
+            BONE_ACTIVE
+        } else if arm.selected.contains(&i) || (object_selected && arm.selected.is_empty()) {
+            BONE_SELECTED
+        } else {
+            BONE
+        };
+        let axis = tail - head;
+        let len = axis.length().max(1e-6);
+        let dir = axis / len;
+        let side = dir.any_orthonormal_vector();
+        let up = dir.cross(side);
+        let mid = head + dir * (len * 0.1);
+        let r = len * 0.1;
+        let ring = [mid + side * r, mid + up * r, mid - side * r, mid - up * r].map(|p| world.transform_point(p));
+        let (h, t) = (world.transform_point(head), world.transform_point(tail));
+        for k in 0..4 {
+            for (a, b) in [(h, ring[k]), (ring[k], t), (ring[k], ring[(k + 1) % 4])] {
+                lines.push(Vertex::new(a, Vec3::Y, c));
+                lines.push(Vertex::new(b, Vec3::Y, c));
+            }
+        }
     }
 }
 

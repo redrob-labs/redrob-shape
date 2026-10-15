@@ -22,6 +22,8 @@ pub use edit_mode::EditDelete;
 pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub mod node_editor;
+pub mod pose_mode;
+pub use pose_mode::ParentKind;
 pub mod sculpt_mode;
 pub mod timeline;
 pub mod uv_editor;
@@ -60,6 +62,7 @@ pub struct ShapeApp {
     property_before: Option<Scene>,
     pub(crate) node_editor: node_editor::NodeEditor,
     pub sculpt: Option<sculpt_mode::SculptMode>,
+    pub pose: Option<pose_mode::PoseMode>,
     /// Fractional frames carried between playback ticks.
     pub(crate) play_accum: f32,
     node_editor_origin: egui::Vec2,
@@ -152,6 +155,7 @@ impl ShapeApp {
             property_before: None,
             node_editor: Default::default(),
             sculpt: None,
+            pose: None,
             play_accum: 0.0,
             node_editor_origin: egui::Vec2::ZERO,
             last_pointer: None,
@@ -484,6 +488,7 @@ impl ShapeApp {
     /// Enter edit mode on the active mesh object, or leave it.
     pub fn toggle_edit_mode(&mut self) {
         self.sculpt = None;
+        self.pose = None;
         if self.scene.edit.is_some() {
             self.scene.edit = None;
             self.status = "Object Mode".into();
@@ -549,8 +554,8 @@ impl ShapeApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return (false, false);
         }
-        if self.sculpt.is_some() {
-            // Sculpt Mode owns G / S / I / X etc. as brushes; only confirm / cancel pass.
+        if self.sculpt.is_some() || self.pose.is_some() {
+            // Sculpt / Pose Mode own G / R / S / I / X etc.; only confirm / cancel pass.
             return ui.input_mut(|inp| {
                 (crate::key(inp, egui::Modifiers::NONE, egui::Key::Enter), crate::key(inp, egui::Modifiers::NONE, egui::Key::Escape))
             });
@@ -725,6 +730,9 @@ impl ShapeApp {
         if self.sculpt.is_some() && self.popup.is_none() && !over_nodes {
             self.sculpt_keys(ui);
             self.mode_keys(ui);
+        } else if self.pose.is_some() && self.popup.is_none() && !over_nodes {
+            self.pose_keys(ui);
+            self.mode_keys(ui);
         } else if self.popup.is_none() && !over_nodes {
             self.object_keys(ui);
             self.edit_keys(ui);
@@ -783,7 +791,8 @@ impl ShapeApp {
         }
         if self.popup.is_some() {
             self.popup_ui(ui);
-        } else if self.sculpt_input(&input, enter, escape)
+        } else if self.pose_input(&input, enter, escape)
+            || self.sculpt_input(&input, enter, escape)
             || self.circle_select_input(&input, escape)
             || self.knife_input(&input, escape)
             || self.place_cursor(&input)

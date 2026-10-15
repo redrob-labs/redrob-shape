@@ -33,7 +33,9 @@ id!(TextureId);
 /// An image texture: the file it came from and its pixels (linear RGBA floats, decoded from the
 /// 8-bit sRGB file). Pixels are not saved with the scene; they reload from `path` on open.
 pub mod anim;
+pub mod armature;
 pub use anim::{Action, Channel, KeyingSet, Timeline};
+pub use armature::{Armature, Bone, VertexGroup};
 pub mod nodes;
 pub use nodes::{NodeKind, NodeTree};
 
@@ -289,6 +291,10 @@ pub enum Modifier {
         target: Option<ObjectId>,
         offset: f32,
     },
+    /// Skin the mesh to an armature object's pose through its vertex groups.
+    Armature {
+        object: Option<ObjectId>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -352,6 +358,7 @@ impl Modifier {
             Modifier::Weld { .. } => "Weld",
             Modifier::Boolean { .. } => "Boolean",
             Modifier::Shrinkwrap { .. } => "Shrinkwrap",
+            Modifier::Armature { .. } => "Armature",
         }
     }
 
@@ -369,6 +376,7 @@ impl Modifier {
             Modifier::Displace { strength, .. } => *strength != 0.0,
             Modifier::Weld { distance } => *distance > 0.0,
             Modifier::Boolean { target, .. } | Modifier::Shrinkwrap { target, .. } => target.is_some(),
+            Modifier::Armature { object } => object.is_some(),
             Modifier::Mirror { .. } | Modifier::Triangulate | Modifier::SimpleDeform { .. } => true,
         }
     }
@@ -386,6 +394,7 @@ pub enum ObjectData {
     },
     Light(Light),
     Camera(Camera),
+    Armature(armature::Armature),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -422,11 +431,14 @@ pub struct MeshData {
     /// UV seams as (low, high) vertex-index pairs; Unwrap splits islands here.
     #[serde(default)]
     pub seams: BTreeSet<(u32, u32)>,
+    /// Bone weights (Blender's vertex groups).
+    #[serde(default)]
+    pub vertex_groups: Vec<armature::VertexGroup>,
 }
 
 impl MeshData {
     pub fn new(name: impl Into<String>, mesh: Mesh) -> Self {
-        Self { name: name.into(), mesh, uvs: None, seams: BTreeSet::new() }
+        Self { name: name.into(), mesh, uvs: None, seams: BTreeSet::new(), vertex_groups: Vec::new() }
     }
 
     /// Replace the mesh and drop UVs that no longer match it.

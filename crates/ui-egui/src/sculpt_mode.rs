@@ -60,6 +60,7 @@ impl ShapeApp {
             && self.scene.object_mesh(id).is_some()
         {
             self.scene.edit = None;
+            self.pose = None;
             self.sculpt = Some(SculptMode::new(id));
             self.status = "Sculpt Mode".into();
         }

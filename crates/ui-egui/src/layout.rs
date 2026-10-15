@@ -323,10 +323,13 @@ impl ShapeApp {
                 let editing = self.scene.edit.is_some();
                 let has_mesh = self.scene.selection.active.is_some_and(|id| self.scene.object_mesh(id).is_some());
                 let sculpting = self.sculpt.is_some();
+                let posing = self.pose.is_some();
                 let mode = if editing {
                     "Edit Mode"
                 } else if sculpting {
                     "Sculpt Mode"
+                } else if posing {
+                    "Pose Mode"
                 } else {
                     "Object Mode"
                 };
@@ -343,7 +346,15 @@ impl ShapeApp {
                     if ui.add_enabled(has_mesh, egui::Button::selectable(sculpting, "Sculpt Mode")).clicked() && !sculpting {
                         self.toggle_sculpt_mode();
                     }
+                    let has_arm = self.active_is_armature();
+                    if ui.add_enabled(has_arm, egui::Button::selectable(posing, "Pose Mode")).clicked() && !posing {
+                        self.toggle_pose_mode();
+                    }
                 });
+                if posing {
+                    self.pose_header(ui);
+                    ui.separator();
+                }
                 ui.separator();
                 if sculpting {
                     self.sculpt_tool_settings(ui);

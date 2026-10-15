@@ -15,8 +15,20 @@ pub fn apply(modifier: &Modifier, mesh: &Mesh) -> Result<Mesh> {
 /// their target's base mesh and placement.
 pub fn apply_in(context: Option<(&Scene, ObjectId)>, modifier: &Modifier, mesh: &Mesh) -> Result<Mesh> {
     match modifier {
-        Modifier::Boolean { target: None, .. } | Modifier::Shrinkwrap { target: None, .. } => Ok(mesh.clone()),
-        Modifier::Boolean { .. } | Modifier::Shrinkwrap { .. } if context.is_none() => Ok(mesh.clone()),
+        Modifier::Boolean { target: None, .. } | Modifier::Shrinkwrap { target: None, .. } | Modifier::Armature { object: None } => Ok(mesh.clone()),
+        Modifier::Boolean { .. } | Modifier::Shrinkwrap { .. } | Modifier::Armature { .. } if context.is_none() => Ok(mesh.clone()),
+        Modifier::Armature { object: Some(arm_id) } => {
+            let (scene, id) = context.expect("checked above");
+            let Some(shape_scene::ObjectData::Armature(arm)) = scene.object(*arm_id).map(|o| &o.data) else { return Ok(mesh.clone()) };
+            let Some(shape_scene::ObjectData::Mesh { mesh: mesh_id, .. }) = scene.object(id).map(|o| &o.data) else { return Ok(mesh.clone()) };
+            let Some(data) = scene.mesh(*mesh_id) else { return Ok(mesh.clone()) };
+            // Weights are per base-mesh vertex: skinning only applies while the vertex count matches.
+            if data.mesh.vertex_count() != mesh.vertex_count() {
+                return Ok(mesh.clone());
+            }
+            let to_arm = scene.world_transform(*arm_id).inverse().mul_transform(&scene.world_transform(id));
+            Ok(shape_scene::armature::skin(mesh, arm, &data.vertex_groups, &to_arm))
+        }
         Modifier::Boolean { op, target: Some(target) } => {
             let (scene, id) = context.expect("checked above");
             let Some((_, other)) = scene.object_mesh(*target).filter(|_| *target != id) else { return Ok(mesh.clone()) };

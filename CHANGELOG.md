@@ -70,6 +70,14 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   / start / end / fps fields, a ruler with the active object's keys as diamonds (summary plus one
   row per channel), a blue playhead you can scrub; Space plays, Left / Right step, Shift+Left /
   Right jump to the ends, Up / Down jump to the next / previous key. Saved in .rshape.
+- Rigging (part 1): Armature objects (Shift+A > Armature: one bone; bones have head, tail, roll,
+  parent and a pose transform), drawn as octahedral bones, blue when selected. Pose Mode (Ctrl+Tab
+  menu, header dropdown): click picks a bone, G / R move / rotate the selected bones' pose with
+  LMB / Enter to confirm and Esc to cancel, Alt+G / Alt+R clear, A selects all, Clear Pose in the
+  header. Ctrl+P now opens Set Parent To: Object (Keep Transform), and with an armature active
+  Armature Deform / With Automatic Weights, which parent the meshes, fill vertex groups from bone
+  distance and add an Armature modifier that skins the mesh by those weights. Vertex groups and
+  poses are saved. Fix: the outliner panicked on parented objects (indent inside a row).
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the
