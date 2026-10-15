@@ -8,12 +8,12 @@ pub fn apply(tree: &CompositorTree, width: u32, height: u32, rgba: &[u8]) -> Vec
     if !tree.enabled || tree.nodes.is_empty() || rgba.len() != (width * height * 4) as usize {
         return rgba.to_vec();
     }
-    let mut img: Vec<[f32; 3]> = rgba.chunks_exact(4).map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect();
+    let mut img: Vec<[f32; 3]> = rgba.as_chunks::<4>().0.iter().map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect();
     for node in &tree.nodes {
         img = apply_node(node, width as usize, height as usize, &img);
     }
     let mut out = Vec::with_capacity(rgba.len());
-    for (p, src) in img.iter().zip(rgba.chunks_exact(4)) {
+    for (p, src) in img.iter().zip(rgba.as_chunks::<4>().0.iter()) {
         out.extend_from_slice(&[to8(p[0]), to8(p[1]), to8(p[2]), src[3]]);
     }
     out

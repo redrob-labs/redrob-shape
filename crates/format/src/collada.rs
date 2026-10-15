@@ -37,7 +37,12 @@ pub fn write(scene: &Scene, out: &mut impl Write) -> Result<()> {
     }
     writeln!(out, "  </library_effects>\n  <library_materials>")?;
     for o in objects.iter().filter(|o| o.color.is_some()) {
-        writeln!(out, "    <material id=\"{0}-material\" name=\"{1}\"><instance_effect url=\"#{0}-effect\"/></material>", o.name, o.material_name.clone().unwrap_or_default())?;
+        writeln!(
+            out,
+            "    <material id=\"{0}-material\" name=\"{1}\"><instance_effect url=\"#{0}-effect\"/></material>",
+            o.name,
+            o.material_name.clone().unwrap_or_default()
+        )?;
     }
     writeln!(out, "  </library_materials>\n  <library_geometries>")?;
     for o in &objects {
@@ -48,7 +53,11 @@ pub fn write(scene: &Scene, out: &mut impl Write) -> Result<()> {
             write!(out, "{} {} {} ", p.x, p.y, p.z)?;
         }
         writeln!(out, "</float_array>")?;
-        writeln!(out, "        <technique_common><accessor source=\"#{id}-positions-array\" count=\"{}\" stride=\"3\"><param name=\"X\" type=\"float\"/><param name=\"Y\" type=\"float\"/><param name=\"Z\" type=\"float\"/></accessor></technique_common>", o.positions.len())?;
+        writeln!(
+            out,
+            "        <technique_common><accessor source=\"#{id}-positions-array\" count=\"{}\" stride=\"3\"><param name=\"X\" type=\"float\"/><param name=\"Y\" type=\"float\"/><param name=\"Z\" type=\"float\"/></accessor></technique_common>",
+            o.positions.len()
+        )?;
         writeln!(out, "      </source>")?;
         writeln!(out, "      <vertices id=\"{id}-vertices\"><input semantic=\"POSITION\" source=\"#{id}-positions\"/></vertices>")?;
         let material_attr = if o.color.is_some() { format!(" material=\"{}-material\"", o.name) } else { String::new() };
@@ -71,18 +80,21 @@ pub fn write(scene: &Scene, out: &mut impl Write) -> Result<()> {
     for o in &objects {
         writeln!(out, "      <node id=\"{0}\" name=\"{0}\" type=\"NODE\">", o.name)?;
         // COLLADA matrices are row-major.
-        let m = o.world.to_cols_array_2d();
+        // Row-major: transpose our column-major array.
+        let m = o.world.transpose().to_cols_array();
         write!(out, "        <matrix sid=\"transform\">")?;
-        for row in 0..4 {
-            for col in 0..4 {
-                write!(out, "{} ", m[col][row])?;
-            }
+        for v in m {
+            write!(out, "{v} ")?;
         }
         writeln!(out, "</matrix>")?;
         write!(out, "        <instance_geometry url=\"#{}-mesh\"", o.name)?;
         if o.color.is_some() {
             writeln!(out, ">")?;
-            writeln!(out, "          <bind_material><technique_common><instance_material symbol=\"{0}-material\" target=\"#{0}-material\"/></technique_common></bind_material>", o.name)?;
+            writeln!(
+                out,
+                "          <bind_material><technique_common><instance_material symbol=\"{0}-material\" target=\"#{0}-material\"/></technique_common></bind_material>",
+                o.name
+            )?;
             writeln!(out, "        </instance_geometry>")?;
         } else {
             writeln!(out, "/>")?;
@@ -172,7 +184,7 @@ fn make_node(e: &quick_xml::events::BytesStart) -> Node {
     let mut node = Node { name: local_name(&String::from_utf8_lossy(e.name().as_ref())), ..Default::default() };
     for a in e.attributes().flatten() {
         let k = local_name(&String::from_utf8_lossy(a.key.as_ref()));
-        let v = a.unescape_value().map(|v| v.to_string()).unwrap_or_default();
+        let v = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).map(|v| v.to_string()).unwrap_or_default();
         node.attrs.insert(k, v);
     }
     node
@@ -221,10 +233,8 @@ pub fn read(xml: &str, name: &str) -> Result<Scene> {
     for g in geometry_nodes {
         let Some(id) = g.attr("id") else { continue };
         let Some(mesh) = g.child("mesh") else { continue };
-        let sources: HashMap<String, Vec<f32>> = mesh
-            .children_named("source")
-            .filter_map(|s| Some((s.attr("id")?.to_string(), floats(&s.child("float_array")?.text))))
-            .collect();
+        let sources: HashMap<String, Vec<f32>> =
+            mesh.children_named("source").filter_map(|s| Some((s.attr("id")?.to_string(), floats(&s.child("float_array")?.text)))).collect();
         let Some(vertices) = mesh.child("vertices") else { continue };
         let position_source = vertices
             .children_named("input")
@@ -246,7 +256,8 @@ pub fn read(xml: &str, name: &str) -> Result<Scene> {
             }
             let inputs: Vec<&Node> = prim.children_named("input").collect();
             let stride = inputs.iter().filter_map(|i| i.attr("offset")?.parse::<usize>().ok()).max().map(|m| m + 1).unwrap_or(1);
-            let vertex_offset = inputs.iter().find(|i| i.attr("semantic") == Some("VERTEX")).and_then(|i| i.attr("offset")?.parse::<usize>().ok()).unwrap_or(0);
+            let vertex_offset =
+                inputs.iter().find(|i| i.attr("semantic") == Some("VERTEX")).and_then(|i| i.attr("offset")?.parse::<usize>().ok()).unwrap_or(0);
             match prim.name.as_str() {
                 "polylist" => {
                     let counts = prim.child("vcount").map(|v| ints(&v.text)).unwrap_or_default();
@@ -292,7 +303,14 @@ pub fn read(xml: &str, name: &str) -> Result<Scene> {
     let mut records = Vec::new();
     let mut node_nodes = Vec::new();
     collada.find_all("node", &mut node_nodes);
-    fn walk(n: &Node, parent: Mat4, z_up: bool, geometries: &HashMap<String, (Vec<Vec3>, Vec<Vec<u32>>, Option<String>)>, materials: &HashMap<String, [f32; 4]>, records: &mut Vec<(String, Vec<Vec3>, Vec<Vec<u32>>, Mat4, Option<[f32; 4]>)>) {
+    fn walk(
+        n: &Node,
+        parent: Mat4,
+        z_up: bool,
+        geometries: &HashMap<String, (Vec<Vec3>, Vec<Vec<u32>>, Option<String>)>,
+        materials: &HashMap<String, [f32; 4]>,
+        records: &mut Vec<(String, Vec<Vec3>, Vec<Vec<u32>>, Mat4, Option<[f32; 4]>)>,
+    ) {
         let local = node_matrix(n);
         let world = parent * local;
         for inst in n.children_named("instance_geometry") {
@@ -390,14 +408,14 @@ mod tests {
 
     #[test]
     fn z_up_file_with_triangles_is_converted() {
-        let xml = r#"<?xml version="1.0"?><COLLADA version="1.4.1"><asset><up_axis>Z_UP</up_axis></asset>
+        let xml = r##"<?xml version="1.0"?><COLLADA version="1.4.1"><asset><up_axis>Z_UP</up_axis></asset>
 <library_geometries><geometry id="g"><mesh>
 <source id="g-pos"><float_array id="g-pos-array" count="12">0 0 0 1 0 0 1 1 0 0 1 0</float_array></source>
 <vertices id="g-v"><input semantic="POSITION" source="#g-pos"/></vertices>
 <triangles count="2"><input semantic="VERTEX" source="#g-v" offset="0"/><input semantic="NORMAL" source="#g-pos" offset="1"/><p>0 0 1 0 2 0 0 0 2 0 3 0</p></triangles>
 </mesh></geometry></library_geometries>
 <library_visual_scenes><visual_scene id="S"><node id="n" name="Quad"><translate>0 0 5</translate><instance_geometry url="#g"/></node></visual_scene></library_visual_scenes>
-</COLLADA>"#;
+</COLLADA>"##;
         let scene = read(xml, "t").unwrap();
         let (id, o) = scene.objects().next().unwrap();
         assert_eq!(o.name, "Quad");

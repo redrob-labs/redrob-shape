@@ -14,22 +14,51 @@ pub enum GeoNodeKind {
     GroupInput,
     GroupOutput,
     /// Move / rotate (Euler radians) / scale the geometry.
-    Transform { translation: Vec3, rotation: Vec3, scale: Vec3 },
+    Transform {
+        translation: Vec3,
+        rotation: Vec3,
+        scale: Vec3,
+    },
     /// Merge two geometries into one (Blender's multi-input socket is two inputs here).
     JoinGeometry,
     /// Linear subdivision `level` times (Blender: Subdivide Mesh).
-    SubdivideMesh { level: u32 },
+    SubdivideMesh {
+        level: u32,
+    },
     /// Catmull-Clark `level` times (Blender: Subdivision Surface).
-    SubdivisionSurface { level: u32 },
+    SubdivisionSurface {
+        level: u32,
+    },
     /// Add `offset` to every position.
-    SetPosition { offset: Vec3 },
-    MeshCube { size: Vec3 },
-    MeshUvSphere { radius: f32, segments: u32, rings: u32 },
-    MeshCylinder { radius: f32, depth: f32, vertices: u32 },
-    MeshGrid { size_x: f32, size_y: f32, vertices_x: u32, vertices_y: u32 },
+    SetPosition {
+        offset: Vec3,
+    },
+    MeshCube {
+        size: Vec3,
+    },
+    MeshUvSphere {
+        radius: f32,
+        segments: u32,
+        rings: u32,
+    },
+    MeshCylinder {
+        radius: f32,
+        depth: f32,
+        vertices: u32,
+    },
+    MeshGrid {
+        size_x: f32,
+        size_y: f32,
+        vertices_x: u32,
+        vertices_y: u32,
+    },
     /// Put a copy of `Instance` at every vertex of `Points`.
-    InstanceOnPoints { scale: f32 },
-    MeshBoolean { op: BooleanOp },
+    InstanceOnPoints {
+        scale: f32,
+    },
+    MeshBoolean {
+        op: BooleanOp,
+    },
 }
 
 impl GeoNodeKind {
@@ -227,7 +256,9 @@ mod tests {
         assert!(!t.link(join, 0, cube, 0), "cube has no inputs");
         assert!(!t.link(join, 0, sub, 0), "cycle refused");
         t.remove_node(cube);
-        assert!(t.links.iter().all(|l| l.from_node != cube), "links shifted");
+        assert!(t.links.iter().all(|l| l.from_node < t.nodes.len() && l.to_node < t.nodes.len()), "links shifted");
+        assert!(t.links.contains(&GeoLink { from_node: sub - 1, from_socket: 0, to_node: join - 1, to_socket: 0 }));
+        assert!(t.input_link(sub - 1, 0).is_none(), "the cube's link is gone");
         assert_eq!(t.nodes[sub - 1].kind, GeoNodeKind::SubdivideMesh { level: 1 });
     }
 }

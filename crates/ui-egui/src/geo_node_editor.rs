@@ -36,7 +36,10 @@ fn header_color(kind: &GeoNodeKind) -> Color32 {
 fn param_rows(kind: &GeoNodeKind) -> usize {
     match kind {
         GeoNodeKind::Transform { .. } => 3,
-        GeoNodeKind::SubdivideMesh { .. } | GeoNodeKind::SubdivisionSurface { .. } | GeoNodeKind::InstanceOnPoints { .. } | GeoNodeKind::MeshBoolean { .. } => 1,
+        GeoNodeKind::SubdivideMesh { .. }
+        | GeoNodeKind::SubdivisionSurface { .. }
+        | GeoNodeKind::InstanceOnPoints { .. }
+        | GeoNodeKind::MeshBoolean { .. } => 1,
         GeoNodeKind::SetPosition { .. } | GeoNodeKind::MeshCube { .. } => 1,
         GeoNodeKind::MeshUvSphere { .. } | GeoNodeKind::MeshCylinder { .. } => 3,
         GeoNodeKind::MeshGrid { .. } => 4,
@@ -83,9 +86,11 @@ impl ShapeApp {
     }
 
     pub(crate) fn geo_node_editor_panel(&mut self, ui: &mut egui::Ui) {
-        let resp = egui::Panel::bottom("geometry-node-editor").default_size(EDITOR_H).resizable(true).frame(theme::region_frame(theme::TIMELINE)).show(
-            ui,
-            |ui| {
+        let resp = egui::Panel::bottom("geometry-node-editor")
+            .default_size(EDITOR_H)
+            .resizable(true)
+            .frame(theme::region_frame(theme::TIMELINE))
+            .show(ui, |ui| {
                 self.geo_header(ui);
                 ui.set_min_height(EDITOR_H - theme::HEADER_H);
                 let Some(active) = self.scene.selection.active else {
@@ -106,8 +111,7 @@ impl ShapeApp {
                     return;
                 };
                 self.geo_canvas(ui, id, index);
-            },
-        );
+            });
         self.geo_editor.hovered = ui.rect_contains_pointer(resp.response.rect);
     }
 
@@ -218,10 +222,26 @@ impl ShapeApp {
             let rect = Rect::from_min_size(to_screen(node.pos), size);
             let selected = self.geo_editor.selected == Some(ni);
             painter.rect_filled(rect, CornerRadius::same(4), Color32::from_rgb(0x30, 0x30, 0x30));
-            painter.rect_filled(Rect::from_min_size(rect.min, vec2(size.x, HEADER_H)), CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 }, header_color(&node.kind));
-            painter.rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0, if selected { Color32::WHITE } else { theme::OUTLINE }), egui::StrokeKind::Outside);
-            painter.text(rect.min + vec2(8.0, HEADER_H / 2.0), egui::Align2::LEFT_CENTER, node.kind.name(), egui::FontId::proportional(12.0), theme::TEXT);
-            let header = ui.interact(Rect::from_min_size(rect.min, vec2(size.x, HEADER_H)), ui.id().with(("geo-node-header", ni)), Sense::click_and_drag());
+            painter.rect_filled(
+                Rect::from_min_size(rect.min, vec2(size.x, HEADER_H)),
+                CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 },
+                header_color(&node.kind),
+            );
+            painter.rect_stroke(
+                rect,
+                CornerRadius::same(4),
+                Stroke::new(1.0, if selected { Color32::WHITE } else { theme::OUTLINE }),
+                egui::StrokeKind::Outside,
+            );
+            painter.text(
+                rect.min + vec2(8.0, HEADER_H / 2.0),
+                egui::Align2::LEFT_CENTER,
+                node.kind.name(),
+                egui::FontId::proportional(12.0),
+                theme::TEXT,
+            );
+            let header =
+                ui.interact(Rect::from_min_size(rect.min, vec2(size.x, HEADER_H)), ui.id().with(("geo-node-header", ni)), Sense::click_and_drag());
             if header.drag_started() || header.clicked() {
                 self.geo_editor.selected = Some(ni);
             }
@@ -241,7 +261,13 @@ impl ShapeApp {
             let mut y = rect.min.y + HEADER_H + 3.0;
             for (i, out) in node.kind.outputs().iter().enumerate() {
                 let row = Rect::from_min_size(pos2(rect.min.x, y), vec2(size.x, ROW_H));
-                painter.text(pos2(rect.max.x - 10.0, row.center().y), egui::Align2::RIGHT_CENTER, *out, egui::FontId::proportional(11.0), theme::TEXT);
+                painter.text(
+                    pos2(rect.max.x - 10.0, row.center().y),
+                    egui::Align2::RIGHT_CENTER,
+                    *out,
+                    egui::FontId::proportional(11.0),
+                    theme::TEXT,
+                );
                 let c = pos2(rect.max.x, row.center().y);
                 painter.circle(c, SOCKET_R, GEOMETRY, Stroke::new(1.0, Color32::BLACK));
                 sockets.push((Hit::Output(ni, i), c));
@@ -414,7 +440,8 @@ impl ShapeApp {
                     pick = Self::geo_add_menu(ui);
                 });
             });
-            let outside = ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !resp.response.rect.expand(4.0).contains(p)));
+            let outside =
+                ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !resp.response.rect.expand(4.0).contains(p)));
             if let Some(kind) = pick.clone() {
                 self.geo_add_node(id, index, kind, Some(at));
             }
@@ -475,6 +502,11 @@ fn vec3_row(ui: &mut egui::Ui, v: &mut shape_math::Vec3, speed: f64) -> egui::Re
 
 fn draw_link(painter: &egui::Painter, a: Pos2, b: Pos2) {
     let dx = ((b.x - a.x).abs() * 0.5).max(30.0);
-    let shape = egui::epaint::CubicBezierShape::from_points_stroke([a, a + vec2(dx, 0.0), b - vec2(dx, 0.0), b], false, Color32::TRANSPARENT, Stroke::new(2.0, GEOMETRY));
+    let shape = egui::epaint::CubicBezierShape::from_points_stroke(
+        [a, a + vec2(dx, 0.0), b - vec2(dx, 0.0), b],
+        false,
+        Color32::TRANSPARENT,
+        Stroke::new(2.0, GEOMETRY),
+    );
     painter.add(shape);
 }

@@ -80,8 +80,11 @@ fn node_output(tree: &GeoNodeTree, input: &Mesh, node: usize, cache: &mut HashMa
         GeoNodeKind::InstanceOnPoints { scale } => {
             let points = socket(tree, input, node, 0, cache, depth)?;
             let instance = socket(tree, input, node, 1, cache, depth)?;
-            let copies: Vec<Mesh> =
-                points.positions().take(4096).map(|p| transform(&instance, Mat4::from_scale_rotation_translation(Vec3::splat(*scale), Quat::IDENTITY, p))).collect();
+            let copies: Vec<Mesh> = points
+                .positions()
+                .take(4096)
+                .map(|p| transform(&instance, Mat4::from_scale_rotation_translation(Vec3::splat(*scale), Quat::IDENTITY, p)))
+                .collect();
             join(&copies)?
         }
         GeoNodeKind::MeshBoolean { op } => {
@@ -92,7 +95,7 @@ fn node_output(tree: &GeoNodeTree, input: &Mesh, node: usize, cache: &mut HashMa
             } else if b.face_count() == 0 {
                 a
             } else {
-                crate::boolean(&a, &b, &Transform::IDENTITY, *op)?
+                crate::boolean(&a, &b, &Transform::IDENTITY, crate::modifiers::bool_op(*op))?
             }
         }
     };
@@ -118,7 +121,7 @@ pub fn join(meshes: &[Mesh]) -> Result<Mesh> {
         positions.extend(pos);
         polygons.extend(polys.into_iter().map(|poly| poly.into_iter().map(|i| i + offset).collect()));
     }
-    Ok(Mesh::from_polygons(positions, &polygons)?)
+    Mesh::from_polygons(positions, &polygons)
 }
 
 #[cfg(test)]

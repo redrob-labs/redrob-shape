@@ -88,7 +88,8 @@ impl Format {
         })
     }
 
-    pub const ALL: [Format; 9] = [Format::Rshape, Format::Obj, Format::Stl, Format::Ply, Format::Gltf, Format::Collada, Format::Usd, Format::Fbx, Format::Blend];
+    pub const ALL: [Format; 9] =
+        [Format::Rshape, Format::Obj, Format::Stl, Format::Ply, Format::Gltf, Format::Collada, Format::Usd, Format::Fbx, Format::Blend];
 
     pub fn can_export(self) -> bool {
         self != Format::Blend

@@ -77,7 +77,8 @@ pub(crate) fn scene_from_records(name: &str, records: Vec<(String, Vec<Vec3>, Ve
             continue;
         }
         let mesh = crate::mesh_from_soup(&positions, &polygons)?;
-        let material = color.map(|c| scene.add_material(shape_scene::Material { name: format!("{obj_name}_mat"), base_color: c, ..Default::default() }));
+        let material =
+            color.map(|c| scene.add_material(shape_scene::Material { name: format!("{obj_name}_mat"), base_color: c, ..Default::default() }));
         let id = scene.add_mesh_object(obj_name, mesh, material);
         if let Some(o) = scene.object_mut(id) {
             o.transform = shape_math::Transform::from_matrix(world);

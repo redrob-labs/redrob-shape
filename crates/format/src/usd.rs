@@ -19,15 +19,19 @@ pub fn save(scene: &Scene, path: &Path) -> Result<()> {
 }
 
 pub fn write(scene: &Scene, out: &mut impl Write) -> Result<()> {
-    writeln!(out, "#usda 1.0\n(\n    defaultPrim = \"root\"\n    doc = \"Redrob Shape {}\"\n    metersPerUnit = 1\n    upAxis = \"Y\"\n)\n", env!("CARGO_PKG_VERSION"))?;
+    writeln!(
+        out,
+        "#usda 1.0\n(\n    defaultPrim = \"root\"\n    doc = \"Redrob Shape {}\"\n    metersPerUnit = 1\n    upAxis = \"Y\"\n)\n",
+        env!("CARGO_PKG_VERSION")
+    )?;
     writeln!(out, "def Xform \"root\"\n{{")?;
     for o in export_objects(scene) {
         writeln!(out, "    def Xform \"{}\"\n    {{", o.name)?;
         let m = o.world.to_cols_array_2d();
         // USD matrices are row vectors: rows are the basis vectors, translation in the last row.
         write!(out, "        matrix4d xformOp:transform = ( ")?;
-        for col in 0..4 {
-            write!(out, "({}, {}, {}, {})", m[col][0], m[col][1], m[col][2], m[col][3])?;
+        for (col, c) in m.iter().enumerate() {
+            write!(out, "({}, {}, {}, {})", c[0], c[1], c[2], c[3])?;
             if col < 3 {
                 write!(out, ", ")?;
             }

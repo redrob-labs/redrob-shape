@@ -344,7 +344,9 @@ impl ShapeApp {
                     return Some(None);
                 }
                 i.events.iter().find_map(|e| match e {
-                    egui::Event::Key { key, pressed: true, modifiers, .. } if !matches!(key, egui::Key::Escape) => Some(Some(KeyCombo::new(*modifiers, *key))),
+                    egui::Event::Key { key, pressed: true, modifiers, .. } if !matches!(key, egui::Key::Escape) => {
+                        Some(Some(KeyCombo::new(*modifiers, *key)))
+                    }
                     _ => None,
                 })
             });
@@ -362,7 +364,13 @@ impl ShapeApp {
                     let combo = self.prefs.combo(a);
                     let rebound = self.prefs.keymap.contains_key(&a);
                     let text = if self.prefs_window.capturing == Some(a) { "…".to_string() } else { combo.label() };
-                    if ui.add(egui::Button::new(RichText::new(text).color(if rebound { theme::TEXT } else { theme::TEXT_WEAK })).min_size(egui::vec2(120.0, 0.0))).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new(text).color(if rebound { theme::TEXT } else { theme::TEXT_WEAK }))
+                                .min_size(egui::vec2(120.0, 0.0)),
+                        )
+                        .clicked()
+                    {
                         self.prefs_window.capturing = Some(a);
                     }
                     if rebound {
@@ -400,7 +408,13 @@ impl ShapeApp {
                 self.status = format!("Add-ons folder: {}", dir.display());
             }
         });
-        ui.label(RichText::new("A Shape Script (*.shape) with `# name:`, `# description:` and `# menu:` header lines; enabled add-ons appear under Scripts.").color(theme::TEXT_WEAK).small());
+        ui.label(
+            RichText::new(
+                "A Shape Script (*.shape) with `# name:`, `# description:` and `# menu:` header lines; enabled add-ons appear under Scripts.",
+            )
+            .color(theme::TEXT_WEAK)
+            .small(),
+        );
         ui.separator();
         if self.prefs_window.addons.is_empty() {
             ui.label(RichText::new("No add-ons found.").color(theme::TEXT_WEAK));

@@ -22,10 +22,23 @@ pub fn save(scene: &Scene, path: &Path) -> Result<()> {
 
 pub fn write(scene: &Scene, out: &mut impl Write) -> Result<()> {
     let objects = export_objects(scene);
-    writeln!(out, "; FBX 7.4.0 project file\n; Redrob Shape {}\nFBXHeaderExtension:  {{\n\tFBXHeaderVersion: 1003\n\tFBXVersion: 7400\n\tCreator: \"Redrob Shape\"\n}}", env!("CARGO_PKG_VERSION"))?;
-    writeln!(out, "GlobalSettings:  {{\n\tVersion: 1000\n\tProperties70:  {{\n\t\tP: \"UpAxis\", \"int\", \"Integer\", \"\",1\n\t\tP: \"UpAxisSign\", \"int\", \"Integer\", \"\",1\n\t\tP: \"FrontAxis\", \"int\", \"Integer\", \"\",2\n\t\tP: \"CoordAxis\", \"int\", \"Integer\", \"\",0\n\t\tP: \"UnitScaleFactor\", \"double\", \"Number\", \"\",100\n\t}}\n}}")?;
+    writeln!(
+        out,
+        "; FBX 7.4.0 project file\n; Redrob Shape {}\nFBXHeaderExtension:  {{\n\tFBXHeaderVersion: 1003\n\tFBXVersion: 7400\n\tCreator: \"Redrob Shape\"\n}}",
+        env!("CARGO_PKG_VERSION")
+    )?;
+    writeln!(
+        out,
+        "GlobalSettings:  {{\n\tVersion: 1000\n\tProperties70:  {{\n\t\tP: \"UpAxis\", \"int\", \"Integer\", \"\",1\n\t\tP: \"UpAxisSign\", \"int\", \"Integer\", \"\",1\n\t\tP: \"FrontAxis\", \"int\", \"Integer\", \"\",2\n\t\tP: \"CoordAxis\", \"int\", \"Integer\", \"\",0\n\t\tP: \"UnitScaleFactor\", \"double\", \"Number\", \"\",100\n\t}}\n}}"
+    )?;
     let n_mat = objects.iter().filter(|o| o.color.is_some()).count();
-    writeln!(out, "Definitions:  {{\n\tVersion: 100\n\tCount: {}\n\tObjectType: \"Geometry\" {{\n\t\tCount: {}\n\t}}\n\tObjectType: \"Model\" {{\n\t\tCount: {}\n\t}}\n\tObjectType: \"Material\" {{\n\t\tCount: {n_mat}\n\t}}\n}}", objects.len() * 2 + n_mat, objects.len(), objects.len())?;
+    writeln!(
+        out,
+        "Definitions:  {{\n\tVersion: 100\n\tCount: {}\n\tObjectType: \"Geometry\" {{\n\t\tCount: {}\n\t}}\n\tObjectType: \"Model\" {{\n\t\tCount: {}\n\t}}\n\tObjectType: \"Material\" {{\n\t\tCount: {n_mat}\n\t}}\n}}",
+        objects.len() * 2 + n_mat,
+        objects.len(),
+        objects.len()
+    )?;
     writeln!(out, "Objects:  {{")?;
     for (i, o) in objects.iter().enumerate() {
         let geo_id = 1_000_000 + i as u64;
@@ -56,7 +69,11 @@ pub fn write(scene: &Scene, out: &mut impl Write) -> Result<()> {
         writeln!(out, "\t\t}}\n\t\tShading: T\n\t\tCulling: \"CullingOff\"\n\t}}")?;
         if let Some(c) = o.color {
             let mat_id = 3_000_000 + i as u64;
-            writeln!(out, "\tMaterial: {mat_id}, \"Material::{}\", \"\" {{\n\t\tVersion: 102\n\t\tShadingModel: \"lambert\"\n\t\tProperties70:  {{", o.material_name.clone().unwrap_or_default())?;
+            writeln!(
+                out,
+                "\tMaterial: {mat_id}, \"Material::{}\", \"\" {{\n\t\tVersion: 102\n\t\tShadingModel: \"lambert\"\n\t\tProperties70:  {{",
+                o.material_name.clone().unwrap_or_default()
+            )?;
             writeln!(out, "\t\t\tP: \"DiffuseColor\", \"Color\", \"\", \"A\",{},{},{}\n\t\t}}\n\t}}", c[0], c[1], c[2])?;
         }
     }
@@ -209,7 +226,8 @@ pub fn read(text: &str, name: &str) -> Result<Scene> {
     for g in objects.children_named("Geometry") {
         let Some(id) = g.id() else { continue };
         let verts: Vec<f64> = g.child("Vertices").map(FbxNode::numbers).unwrap_or_default();
-        let positions: Vec<Vec3> = verts.chunks(3).filter(|c| c.len() == 3).map(|c| Vec3::new(c[0] as f32, c[1] as f32, c[2] as f32) * to_metres).collect();
+        let positions: Vec<Vec3> =
+            verts.chunks(3).filter(|c| c.len() == 3).map(|c| Vec3::new(c[0] as f32, c[1] as f32, c[2] as f32) * to_metres).collect();
         let idx: Vec<f64> = g.child("PolygonVertexIndex").map(FbxNode::numbers).unwrap_or_default();
         let mut polygons = Vec::new();
         let mut poly: Vec<u32> = Vec::new();
@@ -232,7 +250,9 @@ pub fn read(text: &str, name: &str) -> Result<Scene> {
     let mut materials: HashMap<i64, [f32; 4]> = HashMap::new();
     for m in objects.children_named("Material") {
         let Some(id) = m.id() else { continue };
-        if let Some(c) = m.child("Properties70").and_then(|p| p.children_named("P").find(|c| c.props.first().map(String::as_str) == Some("DiffuseColor"))) {
+        if let Some(c) =
+            m.child("Properties70").and_then(|p| p.children_named("P").find(|c| c.props.first().map(String::as_str) == Some("DiffuseColor")))
+        {
             let v: Vec<f32> = c.props.iter().skip(4).filter_map(|s| s.parse::<f32>().ok()).collect();
             if v.len() >= 3 {
                 materials.insert(id, [v[0], v[1], v[2], 1.0]);
@@ -272,7 +292,8 @@ pub fn read(text: &str, name: &str) -> Result<Scene> {
     if let Some(conns) = root.child("Connections") {
         for c in conns.children_named("C") {
             if c.props.first().map(String::as_str) == Some("OO")
-                && let (Some(child), Some(parent)) = (c.props.get(1).and_then(|v| v.parse::<i64>().ok()), c.props.get(2).and_then(|v| v.parse::<i64>().ok()))
+                && let (Some(child), Some(parent)) =
+                    (c.props.get(1).and_then(|v| v.parse::<i64>().ok()), c.props.get(2).and_then(|v| v.parse::<i64>().ok()))
             {
                 parent_of.insert(child, parent);
             }
@@ -290,7 +311,11 @@ pub fn read(text: &str, name: &str) -> Result<Scene> {
         let Some(&model_id) = parent_of.get(&gid) else { continue };
         let Some(model) = models.get(&model_id) else { continue };
         let world = world_of(model_id, &models, &parent_of, 0);
-        let color = parent_of.iter().find(|(child, parent)| **parent == model_id && materials.contains_key(child)).and_then(|(child, _)| materials.get(child)).copied();
+        let color = parent_of
+            .iter()
+            .find(|(child, parent)| **parent == model_id && materials.contains_key(child))
+            .and_then(|(child, _)| materials.get(child))
+            .copied();
         records.push((model.name.clone(), positions.clone(), polygons.clone(), world, color));
     }
     records.sort_by(|a, b| a.0.cmp(&b.0));

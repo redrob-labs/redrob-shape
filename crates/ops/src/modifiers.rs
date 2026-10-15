@@ -67,7 +67,7 @@ pub fn apply_in(context: Option<(&Scene, ObjectId)>, modifier: &Modifier, mesh: 
     }
 }
 
-fn bool_op(op: shape_scene::BooleanOp) -> crate::BooleanOp {
+pub(crate) fn bool_op(op: shape_scene::BooleanOp) -> crate::BooleanOp {
     match op {
         shape_scene::BooleanOp::Union => crate::BooleanOp::Union,
         shape_scene::BooleanOp::Difference => crate::BooleanOp::Difference,

@@ -234,11 +234,12 @@ impl RenderPanel {
     fn pull(&mut self, ctx: &egui::Context) {
         let Some(job) = &self.job else { return };
         let frame = job.latest.lock().ok().and_then(|mut l| l.take());
+        let finished = job.stop.load(Ordering::Relaxed) && job.renderer.lock().ok().is_some_and(|r| r.is_some());
         if let Some(frame) = frame {
             self.raw = Some(frame);
             self.composite(ctx);
         }
-        if job.stop.load(Ordering::Relaxed) && job.renderer.lock().ok().is_some_and(|r| r.is_some()) {
+        if finished {
             // worker finished
             self.job = None;
         }
