@@ -27,6 +27,11 @@
 | ![COLLADA 가져오기](docs/screenshots/collada-import.png)<br>COLLADA 가져오기 | ![지오메트리 노드](docs/screenshots/geometry-nodes.png)<br>지오메트리 노드 |
 | ![환경설정 / 키맵](docs/screenshots/preferences.png)<br>환경설정 / 키맵 | ![스크립팅 콘솔](docs/screenshots/scripting-console.png)<br>스크립팅 콘솔 |
 
+## 설치
+
+릴리즈는 Linux(tar.gz), macOS(공증된 DMG), Windows(`-setup.exe` 사용자 설치기 또는 아무 데나 풀어
+쓰는 `-portable.zip`)로 나옵니다. Redrob Launcher는 portable 빌드를 설치합니다.
+
 ## 빌드
 
 ```

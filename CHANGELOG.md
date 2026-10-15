@@ -4,6 +4,17 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-15
+
+### Added
+- Windows: a branded setup (`redrob-shape-<version>-windows-<arch>-setup.exe`) next to the
+  portable zip. Pure Rust (Win32 + GDI, `apps/redrob-shape-setup`), per-user with no
+  administrator prompt: installs to `%LOCALAPPDATA%\Redrob\Shape`, adds a Start menu entry
+  (optional desktop shortcut) and a Settings > Apps entry whose Uninstall runs the same exe
+  with `--uninstall` (optionally deleting preferences). The embedded app and the setup are both
+  signed through Azure Artifact Signing. `--demo` / `--demo-uninstall` show the screens without
+  touching the machine.
+
 ## [0.4.0] - 2026-10-15
 
 Blender parity P1-P15 (behaviour port; see ROADMAP.md "Blender parity").

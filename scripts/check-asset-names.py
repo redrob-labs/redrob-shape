@@ -63,6 +63,9 @@ EXTENSIONS = {
 }
 
 SIDECARS = (".sha256",)
+# The branded Windows setup (apps/redrob-shape-setup) is for people, not the launcher: the
+# launcher installs the -portable.zip and skips this name, so it is accepted but not counted.
+HUMAN_INSTALLERS = re.compile(r"^redrob-shape-(?P<version>[^-]+(?:-[0-9A-Za-z.]+)?)-windows-(x64|arm64)-setup\.exe$")
 # The launcher's release manifest: one asset beside the installers, not installable itself.
 MANIFEST_NAME = "redrob-launcher.json"
 MANIFEST_SCHEMA = 1
@@ -133,6 +136,10 @@ def problems(names, version=None):
     for name in names:
         if is_sidecar(name):
             continue
+        if (m := HUMAN_INSTALLERS.match(name)) is not None:
+            if version is not None and m.group("version") != version:
+                out.append(f"{name}: carries version {m.group('version')}, expected {version}")
+            continue
         parsed = parse(name)
         if parsed is None:
             out.append(f"{name}: not {STEM}-<version>-<os>-<arch>[-portable].<ext> with a token and extension the launcher installs")
@@ -187,6 +194,10 @@ class Tests(unittest.TestCase):
         self.assertEqual(problems(names[:3], "0.1.2"), ["redrob-shape-0.1.1-linux-x86_64.tar.gz: carries version 0.1.1, expected 0.1.2"])
         self.assertEqual(problems(["SHA256SUMS.txt"]), ["no installable asset among the names given"])
         self.assertEqual(problems(names[:3] + [MANIFEST_NAME], "0.1.1"), [])
+        setup = "redrob-shape-0.1.1-windows-x64-setup.exe"
+        self.assertEqual(problems(names[:3] + [setup], "0.1.1"), [], "the branded setup rides along")
+        self.assertEqual(problems([setup], "0.1.1"), ["no installable asset among the names given"], "but is not what the launcher installs")
+        self.assertEqual(len(problems(names[:3] + [setup], "0.1.2")), 2)
 
     def test_the_manifest_content_the_launcher_reads(self):
         # The exact bytes the publish job writes (docs/release-manifest.md in redrob-launcher).
