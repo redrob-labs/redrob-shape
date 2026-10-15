@@ -70,17 +70,20 @@ pub enum Workspace {
     Layout,
     Modeling,
     Sculpting,
+    UvEditing,
     Shading,
     Rendering,
 }
 
 impl Workspace {
-    pub const ALL: [Workspace; 5] = [Workspace::Layout, Workspace::Modeling, Workspace::Sculpting, Workspace::Shading, Workspace::Rendering];
+    pub const ALL: [Workspace; 6] =
+        [Workspace::Layout, Workspace::Modeling, Workspace::Sculpting, Workspace::UvEditing, Workspace::Shading, Workspace::Rendering];
     pub fn name(self) -> &'static str {
         match self {
             Workspace::Layout => "Layout",
             Workspace::Modeling => "Modeling",
             Workspace::Sculpting => "Sculpting",
+            Workspace::UvEditing => "UV Editing",
             Workspace::Shading => "Shading",
             Workspace::Rendering => "Rendering",
         }
@@ -155,6 +158,15 @@ impl ShapeApp {
             Workspace::Modeling => {
                 if self.scene.edit.is_none() {
                     self.toggle_edit_mode();
+                }
+            }
+            Workspace::UvEditing => {
+                // Blender's UV Editing workspace opens in edit mode with everything selected.
+                if self.scene.edit.is_none() {
+                    self.toggle_edit_mode();
+                }
+                if self.scene.edit.as_ref().is_some_and(|e| e.is_empty()) {
+                    self.select_all();
                 }
             }
             Workspace::Shading => {

@@ -253,9 +253,13 @@ impl ShapeApp {
                 crate::key(i, egui::Modifiers::NONE, egui::Key::F),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::M),
                 crate::key(i, egui::Modifiers::NONE, egui::Key::X),
+                crate::key(i, egui::Modifiers::NONE, egui::Key::U),
             ]
         });
-        let [k1, k2, k3, l, ctrl_l, more, less, f, m, x] = keys;
+        let [k1, k2, k3, l, ctrl_l, more, less, f, m, x, u] = keys;
+        if u {
+            self.popup = Some(Popup::UvMenu);
+        }
         if k1 {
             self.set_select_mode(SelectMode::Vertex);
         }

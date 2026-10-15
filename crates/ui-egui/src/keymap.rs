@@ -190,6 +190,8 @@ pub enum Popup {
     EditDelete,
     /// Ctrl+V / Ctrl+E / Ctrl+F.
     VertexMenu,
+    /// Edit mode U: UV Mapping.
+    UvMenu,
     EdgeMenu,
     FaceMenu,
     /// M in object mode.
@@ -526,6 +528,7 @@ impl ShapeApp {
         let mut edit_action: Option<EditAction> = None;
         let mut collection_target: Option<Option<shape_scene::CollectionId>> = None;
         let mut new_collection = false;
+        let mut uv: Option<crate::UvOp> = None;
         let area = egui::Area::new(egui::Id::new("blender-popup")).fixed_pos(pos).order(egui::Order::Foreground);
         let response = area.show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -650,6 +653,22 @@ impl ShapeApp {
                         if ui.button("Dissolve Edges").clicked() {
                             edit_delete = Some(crate::EditDelete::DissolveEdges);
                         }
+                        ui.separator();
+                        if ui.button("Mark Seam").clicked() {
+                            uv = Some(crate::UvOp::MarkSeam);
+                        }
+                        if ui.button("Clear Seam").clicked() {
+                            uv = Some(crate::UvOp::ClearSeam);
+                        }
+                    }
+                    Popup::UvMenu => {
+                        ui.label(RichText::new("UV Mapping").strong());
+                        ui.separator();
+                        for op in crate::UvOp::MENU {
+                            if ui.button(op.name()).clicked() {
+                                uv = Some(op);
+                            }
+                        }
                     }
                     Popup::FaceMenu => {
                         ui.label(RichText::new("Face").strong());
@@ -735,6 +754,10 @@ impl ShapeApp {
         }
         if let Some(what) = edit_delete {
             self.edit_delete(what);
+            close = true;
+        }
+        if let Some(op) = uv {
+            self.uv_op(op);
             close = true;
         }
         if let Some(target) = collection_target {

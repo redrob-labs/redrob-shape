@@ -55,6 +55,13 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
   strength by pointer distance (click confirms, Esc restores), Ctrl inverts, Shift+X/Y/Z toggle
   symmetry. One stroke is one undo step. Dabs are spaced at 10 % of the radius with Blender's
   smooth falloff; the Sculpting workspace switches to MatCap lighting.
+- UV editing: the UV Editing workspace (UV editor on the left, edit mode with everything
+  selected on the right) draws the active mesh's UV faces over the 0..1 grid with the selected
+  faces in orange and counts islands and seams; edit-mode U menu with Unwrap (islands split at
+  seams, each unfolded face by face across shared edges, then packed), Smart UV Project (66 degree
+  normal groups), Cube / Cylinder / Sphere Projection and Pack Islands; Ctrl+E Mark Seam / Clear
+  Seam on the selected edges or faces, seams drawn red in the viewport. Seams are saved with the
+  mesh.
 - Object-mode keymap (Blender defaults): Shift+A add menu at the pointer, Z shading menu,
   Shift+Z wireframe toggle, X asks before deleting (Delete key deletes at once), F3 operator
   search (also Edit > Operator Search), Ctrl+Tab edit mode, B box select and drag-to-box with the

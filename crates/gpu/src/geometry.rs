@@ -84,6 +84,8 @@ const CAMERA_GIZMO: [f32; 4] = [0.70, 0.75, 0.85, 1.0];
 const POINT_POWER_SCALE: f32 = 1.0 / 80.0;
 const SUN_SCALE: f32 = 0.35;
 const EDIT_WIRE: [f32; 4] = [0.10, 0.10, 0.12, 1.0];
+/// Blender's seam edge colour.
+const SEAM: [f32; 4] = [0.86, 0.16, 0.16, 1.0];
 /// Blender's edit-mode selection orange for edges and vertices, and its black vertex dots.
 const EDIT_SELECTED: [f32; 4] = [0.79, 0.29, 0.03, 1.0]; // #E89330 in Blender's dark theme
 const EDIT_VERTEX: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
@@ -189,9 +191,20 @@ pub fn build_frame(scene: &Scene, options: &ViewOptions) -> FrameGeometry {
             None
         };
         if let Some(c) = wire_color {
+            let seams = match &object.data {
+                ObjectData::Mesh { mesh: mid, .. } if editing.is_some() => scene.mesh(*mid).map(|d| &d.seams),
+                _ => None,
+            };
             for e in mesh.edge_ids() {
                 let (a, b) = mesh.edge_vertices(e);
-                let c = if editing.is_some_and(|ed| ed.edges.contains(&e)) { EDIT_SELECTED } else { c };
+                let is_seam = seams.is_some_and(|s| s.contains(&shape_ops::unwrap::seam_key(a, b)));
+                let c = if editing.is_some_and(|ed| ed.edges.contains(&e)) {
+                    EDIT_SELECTED
+                } else if is_seam {
+                    SEAM
+                } else {
+                    c
+                };
                 out.lines.push(Vertex::new(positions[a.index()], Vec3::Y, c));
                 out.lines.push(Vertex::new(positions[b.index()], Vec3::Y, c));
             }

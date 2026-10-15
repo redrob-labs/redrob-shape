@@ -414,17 +414,21 @@ pub struct MeshData {
     /// Cleared by every operator that rebuilds the mesh.
     #[serde(default)]
     pub uvs: Option<Vec<Vec<Vec2>>>,
+    /// UV seams as (low, high) vertex-index pairs; Unwrap splits islands here.
+    #[serde(default)]
+    pub seams: BTreeSet<(u32, u32)>,
 }
 
 impl MeshData {
     pub fn new(name: impl Into<String>, mesh: Mesh) -> Self {
-        Self { name: name.into(), mesh, uvs: None }
+        Self { name: name.into(), mesh, uvs: None, seams: BTreeSet::new() }
     }
 
     /// Replace the mesh and drop UVs that no longer match it.
     pub fn set_mesh(&mut self, mesh: Mesh) {
         self.mesh = mesh;
         self.uvs = None;
+        self.seams.clear();
     }
 }
 

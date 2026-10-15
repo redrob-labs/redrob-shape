@@ -23,6 +23,7 @@ pub use edit_tools::{CircleSelect, Knife};
 pub use keymap::{BoxSelect, Op, Popup};
 pub mod node_editor;
 pub mod sculpt_mode;
+pub mod uv_editor;
 pub use layout::{PropsTab, Regions, Workspace};
 pub use object_mode::SetOrigin;
 pub use render_panel::RenderPanel;
@@ -36,6 +37,7 @@ use shape_undo::{History, Snapshot};
 use std::path::PathBuf;
 pub use tools::{Modal, ModalEnd, ModalKind, Tool};
 pub use tools::{Orientation, PivotPoint, TransformSettings};
+pub use uv_editor::UvOp;
 pub use viewport::{GpuContext, ViewportInput, ViewportPanel};
 
 /// Crate name, used by the layering test in `apps/redrob-shape`.
@@ -727,6 +729,9 @@ impl ShapeApp {
         self.status_bar(ui);
         if self.regions.right_column && !self.regions.maximized {
             self.right_column(ui);
+        }
+        if self.regions.workspace == layout::Workspace::UvEditing && !self.regions.maximized {
+            self.uv_editor_panel(ui);
         }
         if self.regions.workspace == layout::Workspace::Shading && !self.regions.maximized {
             self.node_editor_panel(ui);

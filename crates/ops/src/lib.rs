@@ -14,6 +14,7 @@ pub mod generate;
 pub mod modifiers;
 pub mod sculpt;
 pub mod subdivide;
+pub mod unwrap;
 pub mod uv;
 
 pub use bevel::bevel_edges_segments;
