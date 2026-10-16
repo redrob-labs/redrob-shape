@@ -4,6 +4,10 @@
 //! reads, `--demo` fills the scene with the primitives and `--no-grid` hides the floor grid.
 //! `redrob-shape mcp --connect ADDR` runs the MCP server the agent uses to reach a window.
 
+// A GUI app: no console window behind the editor when a person double-clicks it on Windows.
+// `mcp --connect ADDR` talks over a socket, so it keeps working without a console.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod acp;
 
 use shape_ui_egui::{Primitive, ShapeApp};
