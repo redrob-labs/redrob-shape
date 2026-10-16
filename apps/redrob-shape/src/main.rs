@@ -9,6 +9,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod acp;
+mod app_bridge;
 
 use shape_ui_egui::{Primitive, ShapeApp};
 
@@ -76,7 +77,8 @@ fn main() -> eframe::Result {
             if let Some(mode) = shading {
                 app.viewport.options.shading = mode;
             }
-            Ok(Box::new(app))
+            // The Redrob Code daemon's agent reaches this window's tools through the app bridge.
+            Ok(Box::new(app_bridge::Bridged::start(app, cc.egui_ctx.clone())))
         }),
     )
 }
