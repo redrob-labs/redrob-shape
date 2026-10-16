@@ -66,10 +66,12 @@ SIDECARS = (".sha256",)
 # The branded Windows setup (apps/redrob-shape-setup) is for people, not the launcher: the
 # launcher installs the -portable.zip and skips this name, so it is accepted but not counted.
 HUMAN_INSTALLERS = re.compile(r"^redrob-shape-(?P<version>[^-]+(?:-[0-9A-Za-z.]+)?)-windows-(x64|arm64)-setup\.exe$")
-# The launcher's release manifest: one asset beside the installers, not installable itself.
+# The launcher's release manifest: one asset beside the installers, not installable itself, and
+# the 512 px app icon it names as "icon" (the launcher's catalog shows it for this release).
 MANIFEST_NAME = "redrob-launcher.json"
 MANIFEST_SCHEMA = 1
-SIDECAR_NAMES = ("SHA256SUMS.txt", MANIFEST_NAME)
+ICON_NAME = "redrob-shape.png"
+SIDECAR_NAMES = ("SHA256SUMS.txt", MANIFEST_NAME, ICON_NAME)
 
 # A version like 0.1.1 or 0.1.1-rc.1, no leading v.
 VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$")
@@ -193,7 +195,7 @@ class Tests(unittest.TestCase):
         self.assertIn("macos-arm64-unsigned.zip", found[0])
         self.assertEqual(problems(names[:3], "0.1.2"), ["redrob-shape-0.1.1-linux-x86_64.tar.gz: carries version 0.1.1, expected 0.1.2"])
         self.assertEqual(problems(["SHA256SUMS.txt"]), ["no installable asset among the names given"])
-        self.assertEqual(problems(names[:3] + [MANIFEST_NAME], "0.1.1"), [])
+        self.assertEqual(problems(names[:3] + [MANIFEST_NAME, ICON_NAME], "0.1.1"), [])
         setup = "redrob-shape-0.1.1-windows-x64-setup.exe"
         self.assertEqual(problems(names[:3] + [setup], "0.1.1"), [], "the branded setup rides along")
         self.assertEqual(problems([setup], "0.1.1"), ["no installable asset among the names given"], "but is not what the launcher installs")
@@ -202,6 +204,7 @@ class Tests(unittest.TestCase):
     def test_the_manifest_content_the_launcher_reads(self):
         # The exact bytes the publish job writes (docs/release-manifest.md in redrob-launcher).
         self.assertEqual(manifest_problems('{ "schema": 1, "sharedAccount": true }\n'), [])
+        self.assertEqual(manifest_problems('{ "schema": 1, "sharedAccount": true, "icon": "redrob-shape.png" }\n'), [])
         self.assertEqual(manifest_problems('{"sharedAccount": true, "schema": 1, "later": "ignored"}'), [])
         for text, fragment in [
             ("", "not JSON"),

@@ -64,8 +64,9 @@ put() {
 
 for file in "$staging"/*; do
   name="$(basename "$file")"
-  # Sidecars are written here as we go; only the artefacts are inputs.
-  case "$name" in *.sha256) continue ;; esac
+  # Sidecars are written here as we go; only the artefacts are inputs. The launcher icon
+  # (redrob-shape.png) is a GitHub release asset only: it has no version and no CDN alias.
+  case "$name" in *.sha256|redrob-shape.png) continue ;; esac
   # The alias a page links: the same name with the version taken out of it.
   stable="${name/-$version/}"
   if [ "$stable" = "$name" ]; then
