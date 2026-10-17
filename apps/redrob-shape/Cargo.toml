@@ -22,8 +22,7 @@ shape-agent.workspace = true
 serde_json.workspace = true
 env_logger.workspace = true
 log.workspace = true
-# TODO pin to the tag of the redrob-code release that ships it
-redrob-app-bridge = { git = "https://github.com/redrob-labs/redrob-code", branch = "feat/channels-app-bridge" }
+redrob-app-bridge = { git = "https://github.com/redrob-labs/redrob-code", tag = "v0.7.0" }
 
 [dev-dependencies]
 egui_kittest.workspace = true
