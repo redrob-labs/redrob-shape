@@ -260,8 +260,12 @@ impl Bridged {
     fn scene_info(&self) -> String {
         let scene = &self.app.scene;
         let path = self.app.file().map_or_else(|| "untitled".to_string(), |p| p.display().to_string());
-        let selected: Vec<String> =
-            scene.selection.objects.iter().map(|id| scene.object(*id).map_or_else(|| id.0.to_string(), |o| format!("{} ({})", o.name, id.0))).collect();
+        let selected: Vec<String> = scene
+            .selection
+            .objects
+            .iter()
+            .map(|id| scene.object(*id).map_or_else(|| id.0.to_string(), |o| format!("{} ({})", o.name, id.0)))
+            .collect();
         let active = scene.selection.active.and_then(|id| scene.object(id)).map_or_else(|| "-".to_string(), |o| o.name.clone());
         let cam = &self.app.viewport.camera;
         let scene_camera = scene
@@ -348,7 +352,8 @@ fn tool(tx: &Sender<BridgeRequest>, ctx: &egui::Context, name: &'static str, des
 }
 
 fn tools(tx: Sender<BridgeRequest>, ctx: egui::Context) -> Vec<Tool> {
-    let id_schema = json!({ "description": "Object id from list_objects, or the object's name", "anyOf": [{ "type": "integer" }, { "type": "string" }] });
+    let id_schema =
+        json!({ "description": "Object id from list_objects, or the object's name", "anyOf": [{ "type": "integer" }, { "type": "string" }] });
     let vec3 = |what: &str| json!({ "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": what });
     vec![
         tool(
