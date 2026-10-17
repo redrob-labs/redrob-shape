@@ -205,6 +205,16 @@ impl ShapeApp {
         }
     }
 
+    /// The file the scene was opened from or last saved to, if any.
+    pub fn file(&self) -> Option<&std::path::Path> {
+        self.file.as_deref()
+    }
+
+    /// The status bar text (what the last operation reported).
+    pub fn status(&self) -> &str {
+        &self.status
+    }
+
     /// Camera for a render: the scene's first camera object, else the viewport's view.
     pub fn render_camera(&self) -> shape_render::RenderCamera {
         shape_render::RenderScene::scene_camera(&self.scene).unwrap_or_else(|| {

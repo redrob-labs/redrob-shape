@@ -4,6 +4,20 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-17
+
+### Added
+- Control from Redrob Code: the window registers with the shared Redrob Code daemon
+  (`redrob-app-bridge`, redrob-code v0.7.0 protocol) as MCP server `app:shape`. Tools:
+  `scene_info`, `open_scene`, `list_objects`, `select`, `transform`, `set_visible`, `render`,
+  `save`; edits are undo steps. Without a daemon the app runs as before.
+- Releases ship `redrob-shape.png` (the 512 px app icon) as a launcher icon asset, named in
+  `redrob-launcher.json` so Redrob Launcher's catalog shows the release's own logo.
+
+### Fixed
+- Windows: the editor is a GUI subsystem binary; a double-click opens only the app window and no
+  console window sits behind it.
+
 ## [0.4.1] - 2026-10-15
 
 ### Added

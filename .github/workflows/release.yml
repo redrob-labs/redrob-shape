@@ -58,6 +58,19 @@ jobs:
           echo "### Redrob Shape v$v (\`${GITHUB_SHA::9}\`)" >>"$GITHUB_STEP_SUMMARY"
       - name: The asset-name gate tests itself
         run: python3 scripts/check-asset-names.py --self-test
+      # The launcher icon: the 512 px app icon as one more release asset, named in
+      # redrob-launcher.json (`icon`) by the shared publish job so Redrob Launcher's catalog shows
+      # this release's own logo. Uploaded under the `release-*` prefix the publish job collects;
+      # cdn-publish.sh skips it and check-asset-names.py knows it as a sidecar.
+      - name: Launcher icon
+        run: |
+          mkdir -p "$RUNNER_TEMP/launcher-icon"
+          cp assets/brand/icon-512.png "$RUNNER_TEMP/launcher-icon/redrob-shape.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-launcher-icon
+          path: ${{ runner.temp }}/launcher-icon/redrob-shape.png
+          if-no-files-found: error
 
   linux:
     name: Linux x86_64
@@ -238,4 +251,5 @@ jobs:
       title: Redrob Shape
       target: ${{ needs.version.outputs.sha }}
       launcher_manifest: true
+      launcher_icon: redrob-shape.png
       publish: true
