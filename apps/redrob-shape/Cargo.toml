@@ -22,6 +22,7 @@ shape-agent.workspace = true
 serde_json.workspace = true
 env_logger.workspace = true
 log.workspace = true
+redrob-app-bridge = { git = "https://github.com/redrob-labs/redrob-code", tag = "v0.7.0" }
 
 [dev-dependencies]
 egui_kittest.workspace = true

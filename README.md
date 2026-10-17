@@ -57,6 +57,22 @@ Branches follow gitflow: `develop` is the default, `main` is release, work branc
 `feat/…`, `fix/…`, `docs/…`, `chore/…`, `test/…`, `refactor/…`, `perf/…`, `hotfix/…`,
 `release/…`, `sync/…`. See the org [CONTRIBUTING](https://github.com/redrob-labs/.github/blob/main/CONTRIBUTING.md).
 
+## Control from Redrob Code
+
+While a Redrob Shape window is open it registers itself with the shared Redrob Code daemon,
+so the agent in any Redrob surface sees the window as MCP server `app:shape` and can drive
+the scene the user is looking at. Every call runs on the UI thread with the same code the menus
+use, and edits land in the undo history. Without a daemon the app runs as usual.
+
+- `scene_info` -- file path (or untitled), object count, selection, viewport and scene camera, render size.
+- `open_scene {path}` -- open a scene file in the window, replacing the current scene.
+- `list_objects {max?}` -- one line per object: id, name, type, parent, visible or hidden.
+- `select {ids}` -- select objects by id or name, replacing the selection.
+- `transform {id, translate?, rotate_deg?, scale?}` -- move, rotate and/or scale one object relative to where it is.
+- `set_visible {id, visible}` -- show or hide one object.
+- `render {path?, width?, height?}` -- render with the render panel's settings and write a PNG; answers the path.
+- `save` -- save the scene to its file; fails when the scene is untitled.
+
 ## History
 
 Until October 2026 this repository was a patch-based Blender distribution. That tree is kept at

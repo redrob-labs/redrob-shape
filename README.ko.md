@@ -54,6 +54,22 @@ cargo test --workspace
 `docs/…`, `chore/…`, `test/…`, `refactor/…`, `perf/…`, `hotfix/…`, `release/…`, `sync/…` 입니다.
 조직 공통 [CONTRIBUTING](https://github.com/redrob-labs/.github/blob/main/CONTRIBUTING.ko.md)을 참고하세요.
 
+## Redrob Code에서 제어하기
+
+Redrob Shape 창이 열려 있는 동안 창은 공용 Redrob Code 데몬에 자신을 등록합니다. 그래서 어느
+Redrob 표면의 에이전트든 이 창을 MCP 서버 `app:shape`로 보고, 사용자가 보고 있는 그 씬을 조작할 수
+있습니다. 모든 호출은 UI 스레드에서 메뉴와 같은 코드로 실행되고, 편집은 실행 취소 이력에 남습니다.
+데몬이 없으면 앱은 평소대로 동작합니다.
+
+- `scene_info` -- 파일 경로(또는 제목 없음), 오브젝트 수, 선택, 뷰포트·씬 카메라, 렌더 크기.
+- `open_scene {path}` -- 씬 파일을 창에 열어 현재 씬을 교체합니다.
+- `list_objects {max?}` -- 오브젝트마다 한 줄: id, 이름, 종류, 부모, 표시/숨김.
+- `select {ids}` -- id 또는 이름으로 오브젝트를 선택합니다(기존 선택을 교체).
+- `transform {id, translate?, rotate_deg?, scale?}` -- 오브젝트 하나를 현재 위치 기준으로 이동·회전·크기 조절합니다.
+- `set_visible {id, visible}` -- 오브젝트 하나를 표시하거나 숨깁니다.
+- `render {path?, width?, height?}` -- 렌더 패널 설정으로 렌더해 PNG로 쓰고 경로를 돌려줍니다.
+- `save` -- 씬을 원래 파일에 저장합니다. 제목 없는 씬이면 실패합니다.
+
 ## 이력
 
 2026년 10월까지 이 저장소는 패치 기반 Blender 배포판이었습니다. 그 트리는 태그 `blender-fork-final`과
