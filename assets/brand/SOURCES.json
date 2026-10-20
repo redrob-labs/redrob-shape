@@ -1,14 +1,21 @@
 {
-  "//": "Published Redrob design-system files, copied unchanged. Checked by CI in a later stage.",
-  "design_system": "redrob-design-system (the published distribution)",
+  "//": "Published Redrob design-system files. favicon.svg is copied unchanged; the PNG and ICO are rendered from the pinned SVG with Chromium (never recolored or redrawn).",
+  "design_system": "@redrob-labs/ui@1.8.0 (npm, dist/brand/app-icons/manifest.json)",
   "files": {
-    "icon-512.png": {
-      "source": "assets/Favicons/icon-512.png",
-      "sha256": "9c168d6215a4e1957456d9aff3041eb8e33c4c8c9189663bc77ff505c2401e17"
-    },
     "favicon.svg": {
-      "source": "assets/Favicons/favicon.svg",
-      "sha256": "fd971f9e388afffa3c0f21153be36e23abb242f335c91ee7d8d1522acf88e09b"
+      "source": "dist/brand/app-icons/redrob-shape/redrob-shape-icon-web.svg",
+      "sha256": "219ac68e2c37a40fb3e63b93312ad239fe9a11def551ca3f86cc7b8d58d06e6a"
+    },
+    "icon-512.png": {
+      "rendered_from": "dist/brand/app-icons/redrob-shape/redrob-shape-icon-web.svg",
+      "source_sha256": "219ac68e2c37a40fb3e63b93312ad239fe9a11def551ca3f86cc7b8d58d06e6a",
+      "sha256": "4a3a9e6192dbafc8af0503a324344af535e0efb4a90542296a1d3c4e84c1c8d5"
+    },
+    "icon.ico": {
+      "rendered_from": "dist/brand/app-icons/redrob-shape/redrob-shape-icon-web.svg",
+      "source_sha256": "219ac68e2c37a40fb3e63b93312ad239fe9a11def551ca3f86cc7b8d58d06e6a",
+      "sizes": [256, 64, 48, 32, 16],
+      "sha256": "0443d5f898ddafd4c52b4eceaf5a75659e1970292aa4c439ef12ffc433bfe8fe"
     }
   }
 }
