@@ -4,6 +4,11 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- The 2026 Redrob Shape app icon (`@redrob-labs/ui` 1.8.0, rounded `icon-web` variant) on every
+  platform: Windows exe/setup `.ico`, macOS `.icns`, the Linux PNG, the favicon and the
+  `redrob-shape.png` launcher asset.
+
 ## [0.5.0] - 2026-10-17
 
 ### Added
