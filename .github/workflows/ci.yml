@@ -1,11 +1,14 @@
 # The gate every pull request into develop and main must pass: format, clippy with warnings as
 # errors, and the workspace tests. It runs the same commands a contributor runs locally.
+#
+# It runs on pull requests only: a push to develop or main is the merge of a pull request that
+# already passed it, and the release binary is built by release.yml on the tag. A pull request
+# that only touches docs or only bumps version strings skips the heavy job (`changes` decides);
+# a skipped job still satisfies the required "fmt, clippy, test" check.
 name: CI
 
 on:
   pull_request:
-    branches: [develop, main]
-  push:
     branches: [develop, main]
   workflow_dispatch:
 
@@ -17,10 +20,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      heavy: ${{ steps.diff.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Docs-only or version-only?
+        id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE:-}" ]; then echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          heavy=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              *.md|docs/*|LICENSE*|CHANGELOG*|VERSION|REDROB_VERSION|*-version.txt) continue ;;
+              Cargo.toml|*/Cargo.toml|Cargo.lock|package.json|*/package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
+                # Only version lines may change in these files.
+                other=$(git diff -U0 "$BASE" HEAD -- "$f" \
+                  | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' \
+                  | grep -vE '^[+-][[:space:]]*(version = "[^"]*"|"version": "[^"]*",?)[[:space:]]*$' || true)
+                if [ -n "$other" ]; then heavy=true; echo "non-version change in $f"; fi ;;
+              *) heavy=true; echo "code change: $f" ;;
+            esac
+          done < <(git diff --name-only "$BASE" HEAD)
+          echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
+
   check:
     name: fmt, clippy, test
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -38,5 +76,6 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: cargo test
         run: cargo test --workspace
-      - name: cargo build (release binary links)
+      - name: cargo build (release binary links, manual runs only)
+        if: github.event_name == 'workflow_dispatch'
         run: cargo build --release -p redrob-shape
