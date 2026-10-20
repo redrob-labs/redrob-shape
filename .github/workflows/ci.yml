@@ -29,14 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          # The pull_request checkout is the merge commit; its first parent is the base tip, so
+          # HEAD^1..HEAD is exactly this PR's change. Depth 2 avoids fetching the full history.
+          fetch-depth: 2
       - name: Docs-only or version-only?
         id: diff
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          if [ -z "${BASE:-}" ]; then echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          BASE=$(git rev-parse HEAD^1)
           heavy=false
           while IFS= read -r f; do
             [ -z "$f" ] && continue
