@@ -74,8 +74,16 @@ pub fn install_files(layout: &Layout, self_exe: &Path, report: Report) -> std::i
     // Write to a temp name first so a half-written exe is never left in place.
     let tmp = layout.app_dir.join("redrob-shape.exe.part");
     std::fs::write(&tmp, PAYLOAD)?;
-    let _ = std::fs::remove_file(layout.app_exe());
-    std::fs::rename(&tmp, layout.app_exe())?;
+    // A running (or otherwise open) exe can be neither deleted nor replaced on Windows: stop with
+    // that reason instead of carrying on and leaving a half-updated install.
+    let replaced = match std::fs::remove_file(layout.app_exe()) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => std::fs::rename(&tmp, layout.app_exe()),
+    };
+    if let Err(e) = replaced {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(std::io::Error::new(e.kind(), format!("{PRODUCT} is in use. Close it and try again. ({e})")));
+    }
     bytes += PAYLOAD.len() as u64;
     report(0.7, "Installing Redrob Shape");
     for (name, text) in DOCS {

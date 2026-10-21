@@ -10,6 +10,7 @@
 
 mod acp;
 mod app_bridge;
+mod work_area;
 
 use shape_ui_egui::{Primitive, ShapeApp};
 
@@ -52,7 +53,7 @@ fn main() -> eframe::Result {
         })
         .map(std::path::PathBuf::from);
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(ShapeApp::WINDOW_TITLE)
             .with_app_id("ai.redrob.shape")
@@ -61,6 +62,9 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
+    // Centre only a window with no saved position; one that doesn't fit its monitor is maximized
+    // into the work area on the first frame (`work_area::fit_window`).
+    options.centered = !has_saved_position(options.persistence_path.as_deref());
     eframe::run_native(
         ShapeApp::WINDOW_TITLE,
         options,
@@ -97,11 +101,32 @@ fn agent_services(ctx: egui::Context) -> (Option<shape_ui_egui::AgentFactory>, O
     let link = acp::McpLink { addr: control.addr(), token: Some(control.token.clone()) };
     let factory: shape_ui_egui::AgentFactory = Box::new(move || {
         let bin = acp::find_binary().ok_or_else(|| acp::INSTALL_HINT.to_string())?;
-        let cwd = std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|_| ".".into());
+        // The agent starts in the user's home, never the app's folder: a child holding the install
+        // folder as its working directory blocks the Windows setup from replacing the app.
+        let cwd = home_dir().or_else(|| std::env::current_dir().ok()).map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|| ".".into());
         let host = acp::AcpHost::start(&bin, &cwd, link.clone(), &[], ctx.clone())?;
         Ok(Box::new(host) as Box<dyn shape_ui_egui::agent::AgentHost>)
     });
     (Some(factory), Some(control))
+}
+
+/// The user's home folder (`%USERPROFILE%` on Windows, `$HOME` elsewhere).
+fn home_dir() -> Option<std::path::PathBuf> {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var).filter(|v| !v.is_empty()).map(std::path::PathBuf::from).filter(|p| p.is_dir())
+}
+
+/// Whether eframe's saved state (`app.ron` in its persistence folder) holds a window position
+/// from an earlier session. The window entry is a RON string inside the file, so a text match is
+/// enough; eframe restores the inner position on macOS and the outer one elsewhere. Shape builds
+/// eframe without persistence today, so this is false and the window is always centred.
+fn has_saved_position(dir: Option<&std::path::Path>) -> bool {
+    let Some(text) = dir.and_then(|d| std::fs::read_to_string(d.join("app.ron")).ok()) else {
+        return false;
+    };
+    let key = if cfg!(target_os = "macos") { "inner_position_pixels:Some(" } else { "outer_position_pixels:Some(" };
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.contains(key)
 }
 
 fn demo_scene(app: &mut ShapeApp) {

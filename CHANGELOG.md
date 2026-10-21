@@ -4,6 +4,17 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-21
+
+### Fixed
+- The window opens where you can reach it: a 1280 × 800 window no longer runs under the taskbar
+  of a smaller laptop screen. A window bigger than its monitor's work area is maximized into it
+  on the first frame, and it is centred only when there is no saved position.
+- Windows setup: updating while Redrob Shape is running stops with "Redrob Shape is running"
+  instead of half-updating, and a locked `redrob-shape.exe` is reported instead of ignored.
+- The Redrob Code agent starts in the user's home folder, never the app's install folder, so it
+  no longer keeps that folder in use.
+
 ## [0.6.0] - 2026-10-20
 
 ### Changed
