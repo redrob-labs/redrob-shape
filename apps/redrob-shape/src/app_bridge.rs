@@ -295,6 +295,8 @@ impl Bridged {
 impl eframe::App for Bridged {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.drain(ui.ctx());
+        // Once: a window bigger than its monitor is maximized into the work area.
+        crate::work_area::fit_window(ui.ctx());
         eframe::App::ui(&mut self.app, ui, frame);
         self.finish_render();
     }
