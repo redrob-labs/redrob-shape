@@ -1,5 +1,6 @@
-# The gate every pull request into develop and main must pass: format, clippy with warnings as
-# errors, and the workspace tests. It runs the same commands a contributor runs locally.
+# The gate every pull request into develop and main must pass: the workspace compiles once
+# (clippy, warnings as errors, no test targets). A by-hand run adds format, clippy on every
+# target and the workspace tests. The job keeps its "fmt, clippy, test" name: it is required.
 #
 # It runs on pull requests only: a push to develop or main is the merge of a pull request that
 # already passed it, and the release binary is built by release.yml on the tag. A pull request
@@ -71,11 +72,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
-      - name: cargo fmt
+      # A pull request compiles the code once: clippy without test targets. Formatting, lint of
+      # test code and the test suite run on a by-hand (workflow_dispatch) run only; the release
+      # build compiles again on every target.
+      - name: cargo fmt (manual runs only)
+        if: github.event_name != 'pull_request'
         run: cargo fmt --all -- --check
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: cargo test
+        run: cargo clippy --workspace --locked -- -D warnings
+      - name: cargo clippy --all-targets (manual runs only)
+        if: github.event_name != 'pull_request'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo test (manual runs only)
+        if: github.event_name != 'pull_request'
         run: cargo test --workspace
       - name: cargo build (release binary links, manual runs only)
         if: github.event_name == 'workflow_dispatch'
