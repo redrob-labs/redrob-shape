@@ -4,6 +4,8 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-21
+
 ### Fixed
 - The window opens where you can reach it: a 1280 × 800 window no longer runs under the taskbar
   of a smaller laptop screen. A window bigger than its monitor's work area is maximized into it
