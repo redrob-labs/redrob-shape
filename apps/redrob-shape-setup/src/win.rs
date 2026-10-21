@@ -243,6 +243,10 @@ fn do_install(layout: &Layout, desktop_shortcut: bool, report: &mut dyn FnMut(f3
     if !install::has_payload() {
         return Err("This setup was built without Redrob Shape inside it.".into());
     }
+    // Replacing the exe of a running copy fails half-way (or not at all): ask to close it first.
+    if is_running(&layout.app_exe()) {
+        return Err(format!("{PRODUCT} is running. Close it and try again."));
+    }
     let self_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let bytes = install::install_files(layout, &self_exe, report).map_err(|e| format!("Could not write files: {e}"))?;
     report(0.85, "Registering");
@@ -277,6 +281,47 @@ fn do_uninstall(layout: &Layout, delete_prefs: bool, report: &mut dyn FnMut(f32,
     }
     report(1.0, "Removed");
     Ok(())
+}
+
+/// Whether a process whose image is exactly `exe` (full path, compared case-insensitively as
+/// Windows paths are) is running. Processes that cannot be opened (other users', protected ones)
+/// are skipped: this is a per-user install, so a copy of it runs as this user.
+fn is_running(exe: &Path) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
+
+    let want = exe.to_string_lossy().to_lowercase();
+    let file_name = exe.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let mut found = false;
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE || snap.is_null() {
+            return false;
+        }
+        let mut entry = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut ok = Process32FirstW(snap, &mut entry) != 0;
+        while ok && !found {
+            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+            // Only open processes with the app's file name; the full path decides.
+            if String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase() == file_name {
+                let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
+                if !process.is_null() {
+                    let mut buf = [0u16; 32768];
+                    let mut size = buf.len() as u32;
+                    if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut size) != 0 {
+                        found = String::from_utf16_lossy(&buf[..size as usize]).to_lowercase() == want;
+                    }
+                    CloseHandle(process);
+                }
+            }
+            ok = Process32NextW(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+    }
+    found
 }
 
 fn hidden_powershell(script: &str) {
