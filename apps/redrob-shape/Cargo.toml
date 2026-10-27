@@ -23,6 +23,12 @@ serde_json.workspace = true
 env_logger.workspace = true
 log.workspace = true
 redrob-app-bridge = { git = "https://github.com/redrob-labs/redrob-code", tag = "v0.7.0" }
+# The command line (src/cli.rs): read and write scene files.
+shape-format.workspace = true
+
+# The command line attaches to the console it was started from (src/cli.rs).
+[target.'cfg(windows)'.dependencies]
+winsafe = { version = "0.0.29", default-features = false, features = ["kernel"] }
 
 [dev-dependencies]
 egui_kittest.workspace = true

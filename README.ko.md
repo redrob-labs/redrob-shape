@@ -54,6 +54,21 @@ cargo test --workspace
 `docs/…`, `chore/…`, `test/…`, `refactor/…`, `perf/…`, `hotfix/…`, `release/…`, `sync/…` 입니다.
 조직 공통 [CONTRIBUTING](https://github.com/redrob-labs/.github/blob/main/CONTRIBUTING.ko.md)을 참고하세요.
 
+## 명령줄
+
+같은 실행 파일이 창을 열지 않고 씬 파일을 다룹니다.
+
+```bash
+redrob-shape convert scene.blend scene.glb       # 읽을 수 있는 형식을 쓸 수 있는 형식으로
+redrob-shape info scene.rshape                   # 씬 요약을 JSON으로
+redrob-shape tools                               # 도구 목록을 JSON으로
+redrob-shape tool --in a.rshape --out a.rshape add_primitive '{"kind":"cube","size":2}'
+redrob-shape run --in a.rshape --out b.glb build.shape   # Shape Script 실행, -는 표준 입력
+redrob-shape mcp --headless --in a.rshape --save a.rshape # 창 없이 stdio MCP
+```
+
+종료 코드는 0 성공, 1 명령 실패, 2 사용법 오류입니다.
+
 ## Redrob Code에서 제어하기
 
 Redrob Shape 창이 열려 있는 동안 창은 공용 Redrob Code 데몬에 자신을 등록합니다. 그래서 어느
