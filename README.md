@@ -57,6 +57,21 @@ Branches follow gitflow: `develop` is the default, `main` is release, work branc
 `feat/…`, `fix/…`, `docs/…`, `chore/…`, `test/…`, `refactor/…`, `perf/…`, `hotfix/…`,
 `release/…`, `sync/…`. See the org [CONTRIBUTING](https://github.com/redrob-labs/.github/blob/main/CONTRIBUTING.md).
 
+## Command line
+
+The same executable works on scene files without opening a window:
+
+```bash
+redrob-shape convert scene.blend scene.glb       # any readable format to any writable one
+redrob-shape info scene.rshape                   # the scene summary as JSON
+redrob-shape tools                               # the tool catalogue as JSON
+redrob-shape tool --in a.rshape --out a.rshape add_primitive '{"kind":"cube","size":2}'
+redrob-shape run --in a.rshape --out b.glb build.shape   # a Shape Script; - reads stdin
+redrob-shape mcp --headless --in a.rshape --save a.rshape # MCP on stdio, no window
+```
+
+Exit codes: 0 ok, 1 the command failed, 2 a usage error.
+
 ## Control from Redrob Code
 
 While a Redrob Shape window is open it registers itself with the shared Redrob Code daemon,

@@ -2,14 +2,16 @@
 //!
 //! `redrob-shape [--demo] [--no-grid] [--shading wire|solid|material] [FILE]` opens the editor; `FILE` is any format `shape-format`
 //! reads, `--demo` fills the scene with the primitives and `--no-grid` hides the floor grid.
-//! `redrob-shape mcp --connect ADDR` runs the MCP server the agent uses to reach a window.
+//! `redrob-shape convert|info|tools|tool|run|mcp ...` works on scene files without a window (`cli`);
+//! `redrob-shape mcp --connect ADDR` is the MCP server the agent uses to reach a window.
 
 // A GUI app: no console window behind the editor when a person double-clicks it on Windows.
-// `mcp --connect ADDR` talks over a socket, so it keeps working without a console.
+// The command line attaches to the console it was started from (`cli::attach_console`).
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod acp;
 mod app_bridge;
+mod cli;
 mod work_area;
 
 use shape_ui_egui::{Primitive, ShapeApp};
@@ -17,17 +19,8 @@ use shape_ui_egui::{Primitive, ShapeApp};
 fn main() -> eframe::Result {
     env_logger::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("mcp") {
-        let addr = args.iter().position(|a| a == "--connect").and_then(|i| args.get(i + 1)).cloned();
-        let Some(addr) = addr else {
-            eprintln!("usage: redrob-shape mcp --connect 127.0.0.1:PORT");
-            std::process::exit(2);
-        };
-        if let Err(e) = shape_agent::serve_stdio(&addr) {
-            eprintln!("redrob-shape mcp: {e}");
-            std::process::exit(1);
-        }
-        return Ok(());
+    if let Some(code) = cli::dispatch(&args) {
+        std::process::exit(code);
     }
     let demo = args.iter().any(|a| a == "--demo");
     let no_grid = args.iter().any(|a| a == "--no-grid");
