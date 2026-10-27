@@ -4,6 +4,13 @@ All notable changes to Redrob Shape. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-28
+
+### Added
+- A command line that needs no window: `redrob-shape convert`, `info`, `tools`, `tool`, `run`
+  (Shape Script) and `mcp --headless`, which lets an agent build a scene on a server and saves it
+  after every change.
+
 ## [0.6.1] - 2026-10-21
 
 ### Fixed
